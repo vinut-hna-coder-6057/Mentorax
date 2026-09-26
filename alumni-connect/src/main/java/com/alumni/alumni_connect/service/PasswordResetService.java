@@ -1,0 +1,204 @@
+package com.alumni.alumni_connect.service;
+
+import com.alumni.alumni_connect.config.*;
+import com.alumni.alumni_connect.controller.*;
+import com.alumni.alumni_connect.dto.*;
+import com.alumni.alumni_connect.entity.*;
+import com.alumni.alumni_connect.exception.*;
+import com.alumni.alumni_connect.repository.*;
+import com.alumni.alumni_connect.security.*;
+import com.alumni.alumni_connect.service.*;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
+
+@Service
+public class PasswordResetService {
+
+    // =====================================
+    // DEPENDENCIES
+    // =====================================
+
+    private final UserRepository userRepository;
+
+    private final OtpService otpService;
+
+    private final EmailService emailService;
+
+    private final PasswordEncoder passwordEncoder;
+
+    private final OtpRepository otpRepository;
+
+    // =====================================
+    // CONSTRUCTOR
+    // =====================================
+
+    public PasswordResetService(
+
+            UserRepository userRepository,
+
+            OtpService otpService,
+
+            EmailService emailService,
+
+            PasswordEncoder passwordEncoder,
+
+            OtpRepository otpRepository
+
+    ) {
+
+        this.userRepository =
+                userRepository;
+
+        this.otpService =
+                otpService;
+
+        this.emailService =
+                emailService;
+
+        this.passwordEncoder =
+                passwordEncoder;
+
+        this.otpRepository =
+                otpRepository;
+    }
+
+    // =====================================
+    // SEND OTP
+    // =====================================
+
+    public String forgotPassword(
+
+            ForgotPasswordRequest request
+
+    ) {
+
+        // CHECK USER
+
+        User user =
+                userRepository.findByEmail(
+                        request.getEmail()
+                ).orElse(null);
+
+        if (user == null) {
+            return "If an account exists, an OTP has been sent";
+        }
+
+        // GENERATE OTP
+        String otp =
+        otpService.generateOtp(
+                request.getEmail(),
+                "PASSWORD_RESET"
+        );
+        // SEND OTP EMAIL
+
+        emailService.sendOtpEmail(
+                request.getEmail(),
+                otp
+        );
+
+        return "If an account exists, an OTP has been sent";
+    }
+
+    // =====================================
+    // VERIFY OTP
+    // =====================================
+
+    public String verifyOtp(VerifyOtpRequest request) {
+
+    boolean valid =
+            otpService.verifyOtp(
+                    request.getEmail(),
+                    request.getOtp(),
+                    "PASSWORD_RESET"
+            );
+
+    if (!valid) {
+        throw new ResponseStatusException(
+                HttpStatus.BAD_REQUEST,
+                "Invalid or expired OTP"
+        );
+    }
+
+    return "OTP verified";
+}
+
+    // =====================================
+    // RESET PASSWORD
+    // =====================================
+
+    @Transactional
+    public String resetPassword(
+
+            ResetPasswordRequest request
+
+    ) {
+
+        if (request.getNewPassword() == null || request.getNewPassword().length() < 8
+                || request.getNewPassword().length() > 128) {
+            throw new IllegalArgumentException("Password does not meet requirements");
+        }
+
+        // =====================================
+        // CHECK OTP WAS VERIFIED
+        // =====================================
+
+        boolean otpVerified =
+                otpRepository
+                        .findFirstByEmailAndPurposeAndVerifiedTrueAndConsumedAtIsNotNullOrderByIdDesc(
+                                request.getEmail(), "PASSWORD_RESET"
+                        )
+                        .isPresent();
+
+        if (!otpVerified) {
+
+    throw new ResponseStatusException(
+            HttpStatus.BAD_REQUEST,
+            "OTP verification required"
+    );
+}
+        // =====================================
+        // FIND USER
+        // =====================================
+
+        User user =
+                userRepository.findByEmail(
+                        request.getEmail()
+                ).orElse(null);
+
+        if (user == null) {
+            throw new ResponseStatusException(
+                HttpStatus.NOT_FOUND,
+                "User not found"
+            );
+        }
+
+        // =====================================
+        // ENCODE NEW PASSWORD
+        // =====================================
+
+        user.setPassword(
+                passwordEncoder.encode(
+                        request.getNewPassword()
+                )
+        );
+
+        // =====================================
+        // SAVE USER
+        // =====================================
+
+        userRepository.save(user);
+
+        // =====================================
+        // DELETE USED OTP
+        // =====================================
+
+        otpRepository.deleteByEmailAndPurpose(request.getEmail(), "PASSWORD_RESET");
+
+        return "Password reset successful";
+    }
+}
+

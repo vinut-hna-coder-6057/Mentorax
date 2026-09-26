@@ -1,0 +1,43 @@
+# =========================================
+# MYSQL DATABASE
+# =========================================
+
+spring.datasource.url=${DB_URL}
+spring.datasource.driver-class-name=com.mysql.cj.jdbc.Driver
+spring.datasource.username=${DB_USERNAME}
+spring.datasource.password=${DB_PASSWORD}
+
+# =========================================
+# JPA / HIBERNATE
+# =========================================
+
+spring.jpa.hibernate.ddl-auto=validate
+spring.jpa.show-sql=false
+spring.jpa.properties.hibernate.format_sql=true
+spring.jpa.database-platform=org.hibernate.dialect.MySQLDialect
+spring.flyway.enabled=true
+
+# =====================================
+# EMAIL CONFIGURATION
+# =====================================
+
+spring.mail.host=smtp.gmail.com
+
+spring.mail.port=587
+
+spring.mail.username=${MAIL_USERNAME}
+
+spring.mail.password=${MAIL_PASSWORD}
+
+spring.mail.properties.mail.smtp.auth=true
+
+spring.mail.properties.mail.smtp.starttls.enable=true
+
+# =========================================
+# SECURITY
+# =========================================
+
+jwt.secret=${JWT_SECRET}
+jwt.expiration-ms=${JWT_EXPIRATION_MS:3600000}
+app.websocket.allowed-origins=${WEBSOCKET_ALLOWED_ORIGINS:http://localhost:*,http://127.0.0.1:*}
+app.cors.allowed-origin-patterns=${CORS_ALLOWED_ORIGIN_PATTERNS:http://localhost:*,http://127.0.0.1:*}
