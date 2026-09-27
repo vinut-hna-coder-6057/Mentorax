@@ -650,14 +650,14 @@ class MessagingIntegrationTest {
                 alice.getEmail()
         );
 
-        assertEquals(
-                2,
-                messageService.getConversation(
-                        alice.getEmail(),
-                        alice.getEmail(),
-                        bob.getEmail()
-                ).size()
-        );
+       assertEquals(
+        2,
+        messageService.getConversation(
+                alice.getEmail(),
+                bob.getEmail(),
+                bob.getEmail()
+        ).size()
+);
 
         assertThrows(
                 IllegalArgumentException.class,
