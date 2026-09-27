@@ -13,7 +13,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
-
+import com.alumni.alumni_connect.entity.Notification;
+import com.alumni.alumni_connect.repository.NotificationRepository;
 import java.util.UUID;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -25,11 +26,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest
 @AutoConfigureMockMvc
 @Transactional
+
 class SecurityApiIntegrationTest {
     @Autowired private MockMvc mockMvc;
     @Autowired private JwtUtil jwtUtil;
     @Autowired private UserRepository users;
-
+    @Autowired
+private NotificationRepository notificationRepository;
     private User student;
     private User admin;
 
@@ -49,7 +52,44 @@ class SecurityApiIntegrationTest {
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
                 .andExpect(content().json("{\"error\":\"Authentication required\"}"));
     }
+    @Test
+void userCanMarkOwnNotificationAsRead() throws Exception {
+    Notification notification = new Notification();
+    notification.setRecipient(student);
+    notification.setMessage("Test notification");
+    notification.setType("TEST");
+    notification.setLinkUrl("/test");
 
+    notification = notificationRepository.save(notification);
+
+    mockMvc.perform(
+            put("/notifications/read/{id}", notification.getId())
+                    .header(
+                            "Authorization",
+                            bearer(student.getEmail(), "STUDENT")
+                    )
+    )
+    .andExpect(status().isOk());
+}
+@Test
+void userCannotMarkAnotherUsersNotificationAsRead() throws Exception {
+    Notification notification = new Notification();
+    notification.setRecipient(admin);
+    notification.setMessage("Admin notification");
+    notification.setType("TEST");
+    notification.setLinkUrl("/test");
+
+    notification = notificationRepository.save(notification);
+
+    mockMvc.perform(
+            put("/notifications/read/{id}", notification.getId())
+                    .header(
+                            "Authorization",
+                            bearer(student.getEmail(), "STUDENT")
+                    )
+    )
+    .andExpect(status().isForbidden());
+}
     @Test
     void nonAdminCannotAccessAdminListing() throws Exception {
         mockMvc.perform(get("/users")
