@@ -60,7 +60,17 @@ class SecurityApiIntegrationTest {
                         .header("Authorization", bearer(admin.getEmail(), "ADMIN")))
                 .andExpect(status().isOk());
     }
+    @Test
+void unauthenticatedUserCannotAccessStudents() throws Exception {
+    mockMvc.perform(get("/users/students"))
+            .andExpect(status().isUnauthorized());
+}
 
+@Test
+void unauthenticatedUserCannotAccessAlumni() throws Exception {
+    mockMvc.perform(get("/users/alumni"))
+            .andExpect(status().isUnauthorized());
+}
     @Test
     void missingUserReturns404() throws Exception {
         mockMvc.perform(get("/users/{id}", Long.MAX_VALUE)
