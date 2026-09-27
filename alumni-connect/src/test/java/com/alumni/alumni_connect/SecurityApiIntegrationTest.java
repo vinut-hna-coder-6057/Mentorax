@@ -98,8 +98,8 @@ void duplicateConnectionRequestIsRejected() throws Exception {
     mockMvc.perform(post("/connections/{receiverId}", admin.getId())
                     .header("Authorization",
                             bearer(student.getEmail(), "STUDENT")))
-            .andExpect(status().isCreated());
-
+            
+                    .andExpect(status().isOk());
     mockMvc.perform(post("/connections/{receiverId}", admin.getId())
                     .header("Authorization",
                             bearer(student.getEmail(), "STUDENT")))
@@ -174,10 +174,89 @@ void receiverCanRejectConnectionRequest() throws Exception {
             .andExpect(status().isOk());
 }
 @Test
+void adminCanApproveEvent() throws Exception {
+    String response = mockMvc.perform(
+            post("/events")
+                    .header("Authorization", bearer(student.getEmail(), "STUDENT"))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("""
+                        {
+                          "title": "Approval Test Event",
+                          "description": "Event for approval testing",
+                          "location": "College Campus"
+                        }
+                    """))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+
+    long eventId = new ObjectMapper()
+            .readTree(response)
+            .get("id")
+            .asLong();
+
+    mockMvc.perform(
+            put("/events/approve/{id}", eventId)
+                    .header("Authorization", bearer(admin.getEmail(), "ADMIN")))
+            .andExpect(status().isOk());
+}
+@Test
+void adminCanRejectEvent() throws Exception {
+    String response = mockMvc.perform(
+            post("/events")
+                    .header("Authorization", bearer(student.getEmail(), "STUDENT"))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("""
+                        {
+                          "title": "Rejection Test Event",
+                          "description": "Event for rejection testing",
+                          "location": "College Campus"
+                        }
+                    """))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+
+    long eventId = new ObjectMapper()
+            .readTree(response)
+            .get("id")
+            .asLong();
+
+    mockMvc.perform(
+            put("/events/reject/{id}", eventId)
+                    .header("Authorization", bearer(admin.getEmail(), "ADMIN")))
+            .andExpect(status().isOk());
+}
+@Test
 void authenticatedUserCanGetConnections() throws Exception {
     mockMvc.perform(get("/connections")
                     .header("Authorization",
                             bearer(student.getEmail(), "STUDENT")))
             .andExpect(status().isOk());
 }
+@Test
+void authenticatedUserCanCreateEvent() throws Exception {
+    mockMvc.perform(post("/events")
+                    .header("Authorization",
+                            bearer(student.getEmail(), "STUDENT"))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("""
+                            {
+                              "title": "Test Event",
+                              "description": "Security API test event",
+                              "location": "College Campus"
+                            }
+                            """))
+            .andExpect(status().isOk());
+}
+@Test
+void adminCanAccessAllEvents() throws Exception {
+    mockMvc.perform(get("/events/all")
+                    .header("Authorization",
+                            bearer(admin.getEmail(), "ADMIN")))
+            .andExpect(status().isOk());
+}
+
 }
