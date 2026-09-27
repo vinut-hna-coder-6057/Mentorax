@@ -15,11 +15,12 @@ import org.springframework.web.bind.annotation.*;
 public class AuthController {
 
     private final AuthService authService;
-
-    public AuthController(AuthService authService) {
-
-        this.authService = authService;
-    }
+    public AuthController(
+        AuthService authService
+) {
+    this.authService = authService;
+   
+}
 
     // =====================================
     // SIGNUP
@@ -44,6 +45,7 @@ public class AuthController {
 
         return authService.login(user);
     }
+   
 
     // =====================================
     // APPROVE USER

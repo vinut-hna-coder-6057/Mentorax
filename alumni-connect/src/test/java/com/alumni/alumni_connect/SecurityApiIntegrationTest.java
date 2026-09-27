@@ -3,6 +3,7 @@ package com.alumni.alumni_connect;
 import com.alumni.alumni_connect.entity.User;
 import com.alumni.alumni_connect.repository.UserRepository;
 import com.alumni.alumni_connect.security.JwtUtil;
+import com.alumni.alumni_connect.service.EmailService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -22,7 +23,16 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import org.mockito.ArgumentCaptor;
+import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.mail.SimpleMailMessage;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.verify;
+import org.springframework.security.crypto.password.PasswordEncoder;
 @SpringBootTest
 @AutoConfigureMockMvc
 @Transactional
@@ -33,9 +43,14 @@ class SecurityApiIntegrationTest {
     @Autowired private UserRepository users;
     @Autowired
 private NotificationRepository notificationRepository;
+@Autowired
+private EmailService emailService;
     private User student;
     private User admin;
-
+@MockBean
+private JavaMailSender mailSender;
+@Autowired
+private PasswordEncoder passwordEncoder;
     @BeforeEach
     void setUpUsers() {
         String suffix = UUID.randomUUID().toString();
@@ -70,6 +85,86 @@ void userCanMarkOwnNotificationAsRead() throws Exception {
                     )
     )
     .andExpect(status().isOk());
+}
+@Test
+void completePasswordResetFlowSucceeds() throws Exception {
+    String email = student.getEmail();
+    String oldPassword = "Password123";
+    String newPassword = "NewPassword123";
+
+    student.setPassword(passwordEncoder.encode(oldPassword));
+    student.setEmailVerified(true);
+    users.save(student);
+
+    final String[] capturedOtp = new String[1];
+
+    doAnswer(invocation -> {
+        SimpleMailMessage message = invocation.getArgument(0);
+        String body = message.getText();
+
+        // OTP is between these two markers
+        String marker = "Your OTP for Alumni Connect is:\n\n";
+        int start = body.indexOf(marker) + marker.length();
+        int end = body.indexOf("\n\n", start);
+
+        capturedOtp[0] = body.substring(start, end).trim();
+
+        return null;
+    }).when(mailSender).send(any(SimpleMailMessage.class));
+
+    // 1. Request password reset
+    mockMvc.perform(post("/forgot-password")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {
+                  "email": "%s"
+                }
+                """.formatted(email)))
+            .andExpect(status().isOk());
+
+    // Make sure an OTP was actually generated and sent
+    org.junit.jupiter.api.Assertions.assertNotNull(capturedOtp[0]);
+    org.junit.jupiter.api.Assertions.assertTrue(
+            capturedOtp[0].matches("\\d{6}")
+    );
+
+    // 2. Verify OTP
+    mockMvc.perform(post("/verify-otp")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {
+                  "email": "%s",
+                  "otp": "%s"
+                }
+                """.formatted(email, capturedOtp[0])))
+            .andExpect(status().isOk());
+
+    // 3. Reset password
+    mockMvc.perform(post("/reset-password")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {
+                  "email": "%s",
+                  "newPassword": "%s"
+                }
+                """.formatted(email, newPassword)))
+            .andExpect(status().isOk());
+
+    // 4. Login using the NEW password
+    mockMvc.perform(post("/login")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {
+                  "email": "%s",
+                  "password": "%s"
+                }
+                """.formatted(email, newPassword)))
+            .andExpect(status().isOk())
+            .andExpect(content().string(
+                    org.hamcrest.Matchers.not(
+                            org.hamcrest.Matchers.emptyString()
+                    )
+            ));
 }
 @Test
 void userCannotMarkAnotherUsersNotificationAsRead() throws Exception {
@@ -145,7 +240,57 @@ void duplicateConnectionRequestIsRejected() throws Exception {
                             bearer(student.getEmail(), "STUDENT")))
             .andExpect(status().isConflict());
 }
+@Test
+void forgotPasswordForExistingUserReturnsGenericResponse() throws Exception {
+    mockMvc.perform(post("/forgot-password")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {
+                  "email": "student@example.com"
+                }
+                """))
+            .andExpect(status().isOk())
+            .andExpect(content().string("If an account exists, an OTP has been sent"));
+}
 
+@Test
+void forgotPasswordForUnknownUserReturnsGenericResponse() throws Exception {
+    mockMvc.perform(post("/forgot-password")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {
+                  "email": "unknown@example.com"
+                }
+                """))
+            .andExpect(status().isOk())
+            .andExpect(content().string("If an account exists, an OTP has been sent"));
+}
+
+@Test
+void invalidPasswordResetOtpIsRejected() throws Exception {
+    mockMvc.perform(post("/verify-otp")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {
+                  "email": "student@example.com",
+                  "otp": "123456"
+                }
+                """))
+            .andExpect(status().isBadRequest());
+}
+
+@Test
+void resetPasswordWithoutVerifiedOtpIsRejected() throws Exception {
+    mockMvc.perform(post("/reset-password")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {
+                  "email": "student@example.com",
+                  "newPassword": "NewPassword123"
+                }
+                """))
+            .andExpect(status().isBadRequest());
+}
 @Test
 void receiverCanAcceptConnectionRequest() throws Exception {
     String response = mockMvc.perform(

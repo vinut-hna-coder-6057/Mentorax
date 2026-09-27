@@ -146,12 +146,10 @@ public class AuthService {
     // =====================================
 
     public Object login(User user) {
-
-        Optional<User> optionalUser =
-                repository.findByEmailAndRole(
-                        user.getEmail(),
-                        user.getRole()
-                );
+       Optional<User> optionalUser =
+        repository.findByEmail(
+                user.getEmail()
+        );
 
         // User does not exist.
         if (optionalUser.isEmpty()) {
