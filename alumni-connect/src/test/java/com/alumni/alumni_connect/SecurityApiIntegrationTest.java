@@ -21,6 +21,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -85,7 +86,7 @@ void userCanMarkOwnNotificationAsRead() throws Exception {
                             bearer(student.getEmail(), "STUDENT")
                     )
     )
-    .andExpect(status().isOk());
+   .andExpect(status().isOk());
 }
 @Test
 void completePasswordResetFlowSucceeds() throws Exception {
@@ -293,7 +294,7 @@ void adminCanUpdateAnotherUsersProfile() throws Exception {
                     "fullName": "Admin Updated Student"
                 }
                 """))
-        .andExpect(status().isOk());
+     .andExpect(status().isOk());
 }
 @Test
 void duplicateConnectionRequestIsRejected() throws Exception {
@@ -319,7 +320,126 @@ void forgotPasswordForExistingUserReturnsGenericResponse() throws Exception {
             .andExpect(status().isOk())
             .andExpect(content().string("If an account exists, an OTP has been sent"));
 }
+@Test
+void eventCreatorCanUpdateOwnEvent() throws Exception {
+    String response = mockMvc.perform(post("/events")
+            .header("Authorization", bearer(student.getEmail(), "STUDENT"))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {
+                    "title": "Original Event",
+                    "description": "Original description",
+                    "location": "College Campus"
+                }
+                """))
+        .andExpect(status().isOk())
+        .andReturn()
+        .getResponse()
+        .getContentAsString();
 
+    long eventId = new ObjectMapper()
+        .readTree(response)
+        .get("id")
+        .asLong();
+
+    mockMvc.perform(put("/events/{id}", eventId)
+            .header("Authorization", bearer(student.getEmail(), "STUDENT"))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {
+                    "title": "Updated Event",
+                    "description": "Updated description",
+                    "location": "Updated Location"
+                }
+                """))
+        .andExpect(status().isOk());
+}
+@Test
+void adminCanUpdateAnotherUsersEvent() throws Exception {
+    String response = mockMvc.perform(post("/events")
+            .header("Authorization", bearer(student.getEmail(), "STUDENT"))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {
+                    "title": "Student Event",
+                    "description": "Student event",
+                    "location": "College Campus"
+                }
+                """))
+        .andExpect(status().isOk())
+        .andReturn()
+        .getResponse()
+        .getContentAsString();
+
+    long eventId = new ObjectMapper()
+        .readTree(response)
+        .get("id")
+        .asLong();
+
+    mockMvc.perform(put("/events/{id}", eventId)
+            .header("Authorization", bearer(admin.getEmail(), "ADMIN"))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {
+                    "title": "Unauthorized Update",
+                    "description": "Should not update",
+                    "location": "Other Location"
+                }
+                """))
+        .andExpect(status().isOk());
+}
+@Test
+void eventCreatorCanDeleteOwnEvent() throws Exception {
+    String response = mockMvc.perform(post("/events")
+            .header("Authorization", bearer(student.getEmail(), "STUDENT"))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {
+                    "title": "Delete Test Event",
+                    "description": "Event to delete",
+                    "location": "College Campus"
+                }
+                """))
+        .andExpect(status().isOk())
+        .andReturn()
+        .getResponse()
+        .getContentAsString();
+
+    long eventId = new ObjectMapper()
+        .readTree(response)
+        .get("id")
+        .asLong();
+
+    mockMvc.perform(delete("/events/{id}", eventId)
+            .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+        .andExpect(status().isOk());
+}
+@Test
+ void adminCanDeleteAnotherUsersEvent() throws Exception {
+    String response = mockMvc.perform(post("/events")
+            .header("Authorization", bearer(student.getEmail(), "STUDENT"))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {
+                    "title": "Protected Event",
+                    "description": "Protected event",
+                    "location": "College Campus"
+                }
+                """))
+        .andExpect(status().isOk())
+        .andReturn()
+        .getResponse()
+        .getContentAsString();
+
+    long eventId = new ObjectMapper()
+        .readTree(response)
+        .get("id")
+        .asLong();
+
+    mockMvc.perform(delete("/events/{id}", eventId)
+            .header("Authorization", bearer(admin.getEmail(), "ADMIN")))
+        .andExpect(status().isOk());
+}
 @Test
 void forgotPasswordForUnknownUserReturnsGenericResponse() throws Exception {
     mockMvc.perform(post("/forgot-password")
@@ -401,7 +521,7 @@ void requesterCannotAcceptOwnConnectionRequest() throws Exception {
                     .header("Authorization",
                             bearer(student.getEmail(), "STUDENT"))
                     .param("status", "ACCEPTED"))
-            .andExpect(status().isForbidden());
+        .andExpect(status().isForbidden());
 }
 @Test
 void receiverCanRejectConnectionRequest() throws Exception {
