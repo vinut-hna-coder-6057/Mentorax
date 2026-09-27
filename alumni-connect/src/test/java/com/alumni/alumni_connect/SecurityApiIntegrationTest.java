@@ -3,6 +3,8 @@ package com.alumni.alumni_connect;
 import com.alumni.alumni_connect.entity.User;
 import com.alumni.alumni_connect.repository.UserRepository;
 import com.alumni.alumni_connect.security.JwtUtil;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -13,7 +15,9 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.UUID;
-
+import com.fasterxml.jackson.databind.ObjectMapper;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -82,4 +86,98 @@ void unauthenticatedUserCannotAccessAlumni() throws Exception {
     private String bearer(String email, String role) {
         return "Bearer " + jwtUtil.generateToken(email, role);
     }
+    @Test
+void userCannotSendConnectionRequestToSelf() throws Exception {
+    mockMvc.perform(post("/connections/{receiverId}", student.getId())
+                    .header("Authorization",
+                            bearer(student.getEmail(), "STUDENT")))
+            .andExpect(status().isBadRequest());
+}
+@Test
+void duplicateConnectionRequestIsRejected() throws Exception {
+    mockMvc.perform(post("/connections/{receiverId}", admin.getId())
+                    .header("Authorization",
+                            bearer(student.getEmail(), "STUDENT")))
+            .andExpect(status().isCreated());
+
+    mockMvc.perform(post("/connections/{receiverId}", admin.getId())
+                    .header("Authorization",
+                            bearer(student.getEmail(), "STUDENT")))
+            .andExpect(status().isConflict());
+}
+
+@Test
+void receiverCanAcceptConnectionRequest() throws Exception {
+    String response = mockMvc.perform(
+            post("/connections/{receiverId}", admin.getId())
+                    .header("Authorization",
+                            bearer(student.getEmail(), "STUDENT")))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+
+    long connectionId = new ObjectMapper()
+            .readTree(response)
+            .get("id")
+            .asLong();
+
+    mockMvc.perform(put("/connections/{id}", connectionId)
+                    .header("Authorization",
+                            bearer(admin.getEmail(), "ADMIN"))
+                    .param("status", "ACCEPTED"))
+            .andExpect(status().isOk());
+
+}
+@Test
+void requesterCannotAcceptOwnConnectionRequest() throws Exception {
+    String response = mockMvc.perform(
+            post("/connections/{receiverId}", admin.getId())
+                    .header("Authorization",
+                            bearer(student.getEmail(), "STUDENT")))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+
+    long connectionId = new ObjectMapper()
+            .readTree(response)
+            .get("id")
+            .asLong();
+
+    mockMvc.perform(put("/connections/{id}", connectionId)
+                    .header("Authorization",
+                            bearer(student.getEmail(), "STUDENT"))
+                    .param("status", "ACCEPTED"))
+            .andExpect(status().isForbidden());
+}
+@Test
+void receiverCanRejectConnectionRequest() throws Exception {
+    String response = mockMvc.perform(
+            post("/connections/{receiverId}", admin.getId())
+                    .header("Authorization",
+                            bearer(student.getEmail(), "STUDENT")))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+
+    long connectionId = new ObjectMapper()
+            .readTree(response)
+            .get("id")
+            .asLong();
+
+    mockMvc.perform(put("/connections/{id}", connectionId)
+                    .header("Authorization",
+                            bearer(admin.getEmail(), "ADMIN"))
+                    .param("status", "REJECTED"))
+            .andExpect(status().isOk());
+}
+@Test
+void authenticatedUserCanGetConnections() throws Exception {
+    mockMvc.perform(get("/connections")
+                    .header("Authorization",
+                            bearer(student.getEmail(), "STUDENT")))
+            .andExpect(status().isOk());
+}
 }
