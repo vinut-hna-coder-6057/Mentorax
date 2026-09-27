@@ -670,7 +670,42 @@ class MessagingIntegrationTest {
         );
     }
 
+    @Test
+void emptyMessageContentIsRejected() {
 
+    Message message = request(
+            bob.getEmail(),
+            "   ",
+            null
+    );
+
+    assertThrows(
+            IllegalArgumentException.class,
+            () -> messageService.sendMessage(
+                    message,
+                    alice.getEmail()
+            )
+    );
+}
+@Test
+void messageContentLongerThan2000CharactersIsRejected() {
+
+    String content = "a".repeat(2001);
+
+    Message message = request(
+            bob.getEmail(),
+            content,
+            null
+    );
+
+    assertThrows(
+            IllegalArgumentException.class,
+            () -> messageService.sendMessage(
+                    message,
+                    alice.getEmail()
+            )
+    );
+}
     // =========================================================
     // CONCURRENT FIRST MESSAGES
     // =========================================================

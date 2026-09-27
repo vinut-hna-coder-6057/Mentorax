@@ -163,15 +163,24 @@ class MessagingApiIntegrationTest {
         );
 
         messageRepository.save(message);
-
         mockMvc.perform(
-                get("/conversations")
-                        .header(
-                                "Authorization",
-                                bearer(alice.getEmail(), "STUDENT")
-                        )
-        )
-        .andExpect(status().isOk());
+        get("/conversations")
+                .header(
+                        "Authorization",
+                        bearer(alice.getEmail(), "STUDENT")
+                )
+)
+.andExpect(status().isOk())
+.andExpect(content().contentTypeCompatibleWith(
+        MediaType.APPLICATION_JSON
+))
+.andExpect(jsonPath("$[0].email")
+        .value(bob.getEmail()))
+.andExpect(jsonPath("$[0].latestMessage")
+        .value("Hello Bob"))
+.andExpect(jsonPath("$[0].timestamp")
+        .exists());
+       
     }
 
     // =========================================================
