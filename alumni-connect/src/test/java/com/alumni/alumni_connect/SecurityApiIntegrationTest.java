@@ -18,6 +18,8 @@ import com.alumni.alumni_connect.entity.Notification;
 import com.alumni.alumni_connect.repository.ConversationRepository;
 import com.alumni.alumni_connect.repository.MessageRepository;
 import com.alumni.alumni_connect.repository.NotificationRepository;
+
+import java.time.LocalDateTime;
 import java.util.UUID;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -31,7 +33,8 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.SimpleMailMessage;
-
+import com.alumni.alumni_connect.entity.Event;
+import com.alumni.alumni_connect.repository.EventRepository;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doNothing;
@@ -52,6 +55,8 @@ private MessageRepository messageRepository;
 
 @Autowired
 private ConversationRepository conversationRepository;
+@Autowired
+private EventRepository eventRepository;
 @Autowired
 private EmailService emailService;
     private User student;
@@ -206,6 +211,44 @@ void eventCreatorCanViewAttendees() throws Exception {
                             bearer(student.getEmail(), "STUDENT")
                     ))
             .andExpect(status().isOk());
+}
+@Test
+void studentCannotRegisterForPendingEvent() throws Exception {
+    Event event = new Event();
+    event.setTitle("Pending Event");
+    event.setStatus("PENDING");
+    event.setCreator(admin);
+    event.setRole("ADMIN");
+    event.setCreatedAt(LocalDateTime.now());
+    event.setAttendeeCount(0);
+    event = eventRepository.save(event);
+
+    mockMvc.perform(
+            post("/events/register")
+                    .queryParam("eventId", event.getId().toString())
+                    .header("Authorization",
+                            bearer(student.getEmail(), "STUDENT"))
+    )
+    .andExpect(status().isBadRequest());
+}
+@Test
+void studentCannotRegisterForRejectedEvent() throws Exception {
+    Event event = new Event();
+    event.setTitle("Rejected Event");
+    event.setStatus("REJECTED");
+    event.setCreator(admin);
+    event.setRole("ADMIN");
+    event.setCreatedAt(LocalDateTime.now());
+    event.setAttendeeCount(0);
+    event = eventRepository.save(event);
+
+    mockMvc.perform(
+            post("/events/register")
+                    .queryParam("eventId", event.getId().toString())
+                    .header("Authorization",
+                            bearer(student.getEmail(), "STUDENT"))
+    )
+    .andExpect(status().isBadRequest());
 }
 @Test
 void nonCreatorCannotViewEventAttendees() throws Exception {

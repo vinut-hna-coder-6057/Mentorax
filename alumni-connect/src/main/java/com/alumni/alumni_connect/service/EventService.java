@@ -183,6 +183,12 @@ public class EventService {
                         .orElseThrow(() ->
                                 new ResponseStatusException(HttpStatus.NOT_FOUND, "Event not found")
                         );
+                if (!"APPROVED".equalsIgnoreCase(event.getStatus())) {
+    throw new ResponseStatusException(
+            HttpStatus.BAD_REQUEST,
+            "Registration is available only for approved events"
+    );
+}
 
         // =====================================
         // CHECK DUPLICATE
