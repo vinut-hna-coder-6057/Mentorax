@@ -107,14 +107,13 @@ class MessageControllerTest {
                 null
         );
 
-        when(
-                messageService.getConversation(
-                        "alice@example.com",
-                        "alice@example.com",
-                        "bob@example.com"
-                )
-        ).thenReturn(List.of(message));
-
+       when(
+        messageService.getConversation(
+                "alice@example.com",
+                "bob@example.com",
+                "alice@example.com"
+        )
+).thenReturn(List.of(message));
         List<Message> result =
                 controller.getConversation(
                         "alice@example.com",
@@ -129,10 +128,10 @@ class MessageControllerTest {
         );
 
         verify(messageService).getConversation(
-                "alice@example.com",
-                "alice@example.com",
-                "bob@example.com"
-        );
+        "alice@example.com",
+        "bob@example.com",
+        "alice@example.com"
+);
     }
 
     @Test
@@ -148,13 +147,13 @@ class MessageControllerTest {
                 .getContext()
                 .setAuthentication(authentication);
 
-        when(
-                messageService.getConversation(
-                        "charlie@example.com",
-                        "alice@example.com",
-                        "bob@example.com"
-                )
-        ).thenThrow(
+       when(
+        messageService.getConversation(
+                "alice@example.com",
+                "bob@example.com",
+                "charlie@example.com"
+        )
+).thenThrow(
                 new IllegalArgumentException(
                         "You are not part of this conversation"
                 )

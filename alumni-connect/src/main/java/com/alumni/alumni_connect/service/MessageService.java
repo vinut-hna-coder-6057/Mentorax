@@ -272,9 +272,9 @@ public class MessageService {
         if (!authenticatedEmail.equalsIgnoreCase(sender)
                 && !authenticatedEmail.equalsIgnoreCase(receiver)) {
 
-            throw new IllegalArgumentException(
-                    "You are not a participant in this conversation"
-            );
+           throw new IllegalArgumentException(
+    "You are not part of this conversation"
+);
         }
 
         User senderUser = userRepository.findByEmail(sender)
@@ -290,7 +290,7 @@ public class MessageService {
                                 "Receiver not found"
                         )
                 );
-        long lowId = Math.min(
+      long lowId = Math.min(
         senderUser.getId(),
         receiverUser.getId()
 );
@@ -303,39 +303,43 @@ long highId = Math.max(
 Conversation conversation =
         conversationRepository
                 .findDirectConversation(lowId, highId)
-                .orElseThrow(() ->
-                        new IllegalArgumentException(
-                                "Conversation not found"
-                        )
-                );
+                .orElse(null);
 
-        // Verify authenticated user is actually a participant.
-        boolean authenticatedUserIsParticipant =
-                participantRepository.existsByConversation_IdAndUser_Id(
-                        conversation.getId(),
-                        userRepository.findByEmail(authenticatedEmail)
-                                .orElseThrow(() ->
-                                        new IllegalArgumentException(
-                                                "Authenticated user not found"
-                                        ))
-                                .getId()
-                );
+// The authenticated user must actually belong to the requested
+// conversation. This check also protects legacy conversations,
+// where there may not be a normalized Conversation row yet.
+if (conversation != null) {
 
-        if (!authenticatedUserIsParticipant) {
-            throw new IllegalArgumentException(
-                    "You are not a participant in this conversation"
+    User authenticatedUser =
+            userRepository.findByEmail(authenticatedEmail)
+                    .orElseThrow(() ->
+                            new IllegalArgumentException(
+                                    "Authenticated user not found"
+                            ));
+
+    boolean authenticatedUserIsParticipant =
+            participantRepository.existsByConversation_IdAndUser_Id(
+                    conversation.getId(),
+                    authenticatedUser.getId()
             );
-        }
 
-        List<Message> messages = new ArrayList<>();
-
-        // New normalized conversation messages
-        messages.addAll(
-                repository.findByConversation_IdOrderByIdAsc(
-                        conversation.getId()
-                )
+    if (!authenticatedUserIsParticipant) {
+        throw new IllegalArgumentException(
+                "You are not part of this conversation"
         );
+    }
+}
 
+List<Message> messages = new ArrayList<>();
+
+// New normalized conversation messages
+if (conversation != null) {
+    messages.addAll(
+            repository.findByConversation_IdOrderByIdAsc(
+                    conversation.getId()
+            )
+    );
+}
         // Legacy messages
         messages.addAll(
                 repository.findConversation(
