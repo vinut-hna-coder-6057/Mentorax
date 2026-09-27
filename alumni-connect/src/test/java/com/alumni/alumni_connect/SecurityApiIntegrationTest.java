@@ -89,6 +89,279 @@ void userCanMarkOwnNotificationAsRead() throws Exception {
    .andExpect(status().isOk());
 }
 @Test
+void duplicateEventRegistrationIsHandledGracefully() throws Exception {
+
+    String eventResponse = mockMvc.perform(
+            post("/events")
+                    .header("Authorization", bearer(admin.getEmail(), "ADMIN"))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("""
+                            {
+                              "title": "Duplicate Registration Test",
+                              "description": "Testing duplicate registration",
+                              "location": "College Campus"
+                            }
+                            """))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+
+    long eventId = new ObjectMapper()
+            .readTree(eventResponse)
+            .get("id")
+            .asLong();
+
+    // First registration
+    mockMvc.perform(
+            post("/events/register")
+                    .param("eventId", String.valueOf(eventId))
+                    .header(
+                            "Authorization",
+                            bearer(student.getEmail(), "STUDENT")
+                    ))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.message")
+                    .value("Registered successfully"));
+
+    // Second registration
+    mockMvc.perform(
+            post("/events/register")
+                    .param("eventId", String.valueOf(eventId))
+                    .header(
+                            "Authorization",
+                            bearer(student.getEmail(), "STUDENT")
+                    ))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.message")
+                    .value("Already registered"));
+}
+@Test
+void unauthenticatedUserCannotRegisterForEvent() throws Exception {
+
+    mockMvc.perform(
+            post("/events/register")
+                    .param("eventId", "999999")
+    )
+    .andExpect(status().isUnauthorized());
+}
+@Test
+void eventCreatorCanViewAttendees() throws Exception {
+
+    String eventResponse = mockMvc.perform(
+            post("/events")
+                    .header("Authorization", bearer(student.getEmail(), "STUDENT"))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("""
+                            {
+                              "title": "Attendee Access Test",
+                              "description": "Testing attendee access",
+                              "location": "College Campus"
+                            }
+                            """))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+
+    long eventId = new ObjectMapper()
+            .readTree(eventResponse)
+            .get("id")
+            .asLong();
+
+    mockMvc.perform(
+            get("/events/attendees/{eventId}", eventId)
+                    .header(
+                            "Authorization",
+                            bearer(student.getEmail(), "STUDENT")
+                    ))
+            .andExpect(status().isOk());
+}
+@Test
+void nonCreatorCannotViewEventAttendees() throws Exception {
+
+    String eventResponse = mockMvc.perform(
+            post("/events")
+                    .header("Authorization", bearer(admin.getEmail(), "ADMIN"))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("""
+                            {
+                              "title": "Private Attendee Test",
+                              "description": "Testing attendee authorization",
+                              "location": "College Campus"
+                            }
+                            """))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+
+    long eventId = new ObjectMapper()
+            .readTree(eventResponse)
+            .get("id")
+            .asLong();
+
+    mockMvc.perform(
+            get("/events/attendees/{eventId}", eventId)
+                    .header(
+                            "Authorization",
+                            bearer(student.getEmail(), "STUDENT")
+                    ))
+            .andExpect(status().isForbidden());
+}
+@Test
+void registrationCreatesCorrectAttendeeRecord() throws Exception {
+
+    String eventResponse = mockMvc.perform(
+            post("/events")
+                    .header("Authorization", bearer(admin.getEmail(), "ADMIN"))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("""
+                            {
+                              "title": "Registration Integrity Test",
+                              "description": "Testing registration integrity",
+                              "location": "College Campus"
+                            }
+                            """))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+
+    long eventId = new ObjectMapper()
+            .readTree(eventResponse)
+            .get("id")
+            .asLong();
+
+    // Register student
+    mockMvc.perform(
+            post("/events/register")
+                    .param("eventId", String.valueOf(eventId))
+                    .header(
+                            "Authorization",
+                            bearer(student.getEmail(), "STUDENT")
+                    ))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.message")
+                    .value("Registered successfully"));
+
+    // Admin can retrieve attendees
+    mockMvc.perform(
+            get("/events/attendees/{eventId}", eventId)
+                    .header(
+                            "Authorization",
+                            bearer(admin.getEmail(), "ADMIN")
+                    ))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$[0].eventId").value(eventId))
+            .andExpect(jsonPath("$[0].studentEmail")
+                    .value(student.getEmail()));
+}
+@Test
+void studentCanCancelEventRegistrationAndAttendeeCountDecreases() throws Exception {
+
+    // Create approved event
+    String eventResponse = mockMvc.perform(
+            post("/events")
+                    .header("Authorization", bearer(admin.getEmail(), "ADMIN"))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("""
+                            {
+                              "title": "Cancellation Test Event",
+                              "description": "Testing event cancellation",
+                              "location": "College Campus"
+                            }
+                            """))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+
+    long eventId = new ObjectMapper()
+            .readTree(eventResponse)
+            .get("id")
+            .asLong();
+
+    // Register student
+    mockMvc.perform(
+            post("/events/register")
+                    .param("eventId", String.valueOf(eventId))
+                    .header(
+                            "Authorization",
+                            bearer(student.getEmail(), "STUDENT")
+                    ))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.message")
+                    .value("Registered successfully"));
+
+    // Verify attendee count became 1
+    mockMvc.perform(
+            get("/events/all")
+                    .header(
+                            "Authorization",
+                            bearer(admin.getEmail(), "ADMIN")
+                    ))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$[0].attendeeCount").value(1));
+
+    // Cancel registration
+    mockMvc.perform(
+            delete("/events/register")
+                    .param("eventId", String.valueOf(eventId))
+                    .header(
+                            "Authorization",
+                            bearer(student.getEmail(), "STUDENT")
+                    ))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.message")
+                    .value("Registration cancelled"));
+
+    // Verify attendee count returned to 0
+    mockMvc.perform(
+            get("/events/all")
+                    .header(
+                            "Authorization",
+                            bearer(admin.getEmail(), "ADMIN")
+                    ))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$[0].attendeeCount").value(0));
+}
+@Test
+void cancellingUnregisteredEventReturnsNotRegistered() throws Exception {
+
+    String eventResponse = mockMvc.perform(
+            post("/events")
+                    .header("Authorization", bearer(admin.getEmail(), "ADMIN"))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("""
+                            {
+                              "title": "Unregistered Cancellation Test",
+                              "description": "Testing cancellation without registration",
+                              "location": "College Campus"
+                            }
+                            """))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+
+    long eventId = new ObjectMapper()
+            .readTree(eventResponse)
+            .get("id")
+            .asLong();
+
+    mockMvc.perform(
+            delete("/events/register")
+                    .param("eventId", String.valueOf(eventId))
+                    .header(
+                            "Authorization",
+                            bearer(student.getEmail(), "STUDENT")
+                    ))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.message")
+                    .value("Not registered"));
+}
+@Test
 void completePasswordResetFlowSucceeds() throws Exception {
     String email = student.getEmail();
     String oldPassword = "Password123";
@@ -477,6 +750,43 @@ void resetPasswordWithoutVerifiedOtpIsRejected() throws Exception {
                 }
                 """))
             .andExpect(status().isBadRequest());
+}
+@Test
+void authenticatedStudentCanRegisterForEvent() throws Exception {
+
+    // Create an event as admin so it is automatically APPROVED
+    String eventResponse = mockMvc.perform(
+            post("/events")
+                    .header("Authorization", bearer(admin.getEmail(), "ADMIN"))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("""
+                            {
+                              "title": "Registration Test Event",
+                              "description": "Event registration integration test",
+                              "location": "College Campus"
+                            }
+                            """))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+
+    long eventId = new ObjectMapper()
+            .readTree(eventResponse)
+            .get("id")
+            .asLong();
+
+    // Register as student
+    mockMvc.perform(
+            post("/events/register")
+                    .param("eventId", String.valueOf(eventId))
+                    .header(
+                            "Authorization",
+                            bearer(student.getEmail(), "STUDENT")
+                    ))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.message")
+                    .value("Registered successfully"));
 }
 @Test
 void receiverCanAcceptConnectionRequest() throws Exception {
