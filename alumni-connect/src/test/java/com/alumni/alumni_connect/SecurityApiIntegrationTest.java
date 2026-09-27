@@ -21,6 +21,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import org.mockito.ArgumentCaptor;
@@ -204,7 +205,24 @@ void unauthenticatedUserCannotAccessStudents() throws Exception {
     mockMvc.perform(get("/users/students"))
             .andExpect(status().isUnauthorized());
 }
-
+@Test
+void authenticatedUserCanGetNotifications() throws Exception {
+    mockMvc.perform(get("/notifications")
+            .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+        .andExpect(status().isOk());
+}
+@Test
+void authenticatedUserCanGetUnreadNotificationCount() throws Exception {
+    mockMvc.perform(get("/notifications/unread")
+            .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+        .andExpect(status().isOk());
+}
+@Test
+void markingNonexistentNotificationReturns404() throws Exception {
+    mockMvc.perform(put("/notifications/read/{id}", 999999L)
+            .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+        .andExpect(status().isNotFound());
+}
 @Test
 void unauthenticatedUserCannotAccessAlumni() throws Exception {
     mockMvc.perform(get("/users/alumni"))
@@ -227,6 +245,55 @@ void userCannotSendConnectionRequestToSelf() throws Exception {
                     .header("Authorization",
                             bearer(student.getEmail(), "STUDENT")))
             .andExpect(status().isBadRequest());
+}
+@Test
+void authenticatedUserCanGetOwnProfile() throws Exception {
+    mockMvc.perform(get("/users/{id}", student.getId())
+            .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.email").value(student.getEmail()))
+        .andExpect(jsonPath("$.password").doesNotExist());
+}
+@Test
+void unauthenticatedUserCannotGetProfile() throws Exception {
+    mockMvc.perform(get("/users/{id}", student.getId()))
+        .andExpect(status().isUnauthorized());
+}
+@Test
+void userCanUpdateOwnProfile() throws Exception {
+    mockMvc.perform(put("/users/{id}", student.getId())
+            .header("Authorization", bearer(student.getEmail(), "STUDENT"))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {
+                    "fullName": "Updated Student"
+                }
+                """))
+        .andExpect(status().isOk());
+}
+@Test
+void userCannotUpdateAnotherUsersProfile() throws Exception {
+    mockMvc.perform(put("/users/{id}", admin.getId())
+            .header("Authorization", bearer(student.getEmail(), "STUDENT"))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {
+                    "fullName": "Unauthorized Update"
+                }
+                """))
+        .andExpect(status().isForbidden());
+}
+@Test
+void adminCanUpdateAnotherUsersProfile() throws Exception {
+    mockMvc.perform(put("/users/{id}", student.getId())
+            .header("Authorization", bearer(admin.getEmail(), "ADMIN"))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {
+                    "fullName": "Admin Updated Student"
+                }
+                """))
+        .andExpect(status().isOk());
 }
 @Test
 void duplicateConnectionRequestIsRejected() throws Exception {
