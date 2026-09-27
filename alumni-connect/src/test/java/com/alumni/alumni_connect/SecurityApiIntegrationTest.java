@@ -109,7 +109,24 @@ void unauthenticatedUserCannotAccessStudents() throws Exception {
     mockMvc.perform(get("/users/students"))
             .andExpect(status().isUnauthorized());
 }
-
+@Test
+void authenticatedUserCanGetNotifications() throws Exception {
+    mockMvc.perform(get("/notifications")
+            .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+        .andExpect(status().isOk());
+}
+@Test
+void authenticatedUserCanGetUnreadNotificationCount() throws Exception {
+    mockMvc.perform(get("/notifications/unread")
+            .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+        .andExpect(status().isOk());
+}
+@Test
+void markingNonexistentNotificationReturns404() throws Exception {
+    mockMvc.perform(put("/notifications/read/{id}", 999999L)
+            .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+        .andExpect(status().isNotFound());
+}
 @Test
 void unauthenticatedUserCannotAccessAlumni() throws Exception {
     mockMvc.perform(get("/users/alumni"))
