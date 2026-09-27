@@ -5,7 +5,7 @@ import com.alumni.alumni_connect.repository.UserRepository;
 import com.alumni.alumni_connect.security.JwtUtil;
 import com.alumni.alumni_connect.service.EmailService;
 import com.fasterxml.jackson.databind.ObjectMapper;
-
+import com.alumni.alumni_connect.entity.Message;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -15,6 +15,8 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 import com.alumni.alumni_connect.entity.Notification;
+import com.alumni.alumni_connect.repository.ConversationRepository;
+import com.alumni.alumni_connect.repository.MessageRepository;
 import com.alumni.alumni_connect.repository.NotificationRepository;
 import java.util.UUID;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -45,6 +47,11 @@ class SecurityApiIntegrationTest {
     @Autowired private UserRepository users;
     @Autowired
 private NotificationRepository notificationRepository;
+@Autowired
+private MessageRepository messageRepository;
+
+@Autowired
+private ConversationRepository conversationRepository;
 @Autowired
 private EmailService emailService;
     private User student;
@@ -144,6 +151,29 @@ void unauthenticatedUserCannotRegisterForEvent() throws Exception {
                     .param("eventId", "999999")
     )
     .andExpect(status().isUnauthorized());
+}
+@Test
+void userCannotChangeOwnRoleOrApprovalStatusThroughProfileUpdate() throws Exception {
+
+    mockMvc.perform(
+            put("/users/{id}", student.getId())
+                    .header("Authorization", bearer(student.getEmail(), "STUDENT"))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("""
+                        {
+                            "name": "Updated Student",
+                            "role": "ADMIN",
+                            "status": "APPROVED"
+                        }
+                    """)
+        )
+        .andExpect(status().isOk());
+
+    User updated = users.findById(student.getId()).orElseThrow();
+
+    org.junit.jupiter.api.Assertions.assertEquals("STUDENT", updated.getRole());
+    org.junit.jupiter.api.Assertions.assertEquals("APPROVED", updated.getStatus());
+    org.junit.jupiter.api.Assertions.assertEquals("Updated Student", updated.getName());
 }
 @Test
 void eventCreatorCanViewAttendees() throws Exception {
@@ -257,6 +287,17 @@ void registrationCreatesCorrectAttendeeRecord() throws Exception {
             .andExpect(jsonPath("$[0].studentEmail")
                     .value(student.getEmail()));
 }
+@Test
+void unauthenticatedUserCannotRetrieveConversation() throws Exception {
+
+    mockMvc.perform(
+            get("/messages/conversation")
+                    .param("sender", "alice@example.com")
+                    .param("receiver", "bob@example.com")
+    )
+    .andExpect(status().isUnauthorized());
+}
+
 @Test
 void studentCanCancelEventRegistrationAndAttendeeCountDecreases() throws Exception {
 
