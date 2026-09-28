@@ -11,6 +11,22 @@ class AppColors {
   static const warning = Color(0xffb26a00);
 }
 
+class AppSpacing {
+  static const xs = 4.0;
+  static const sm = 8.0;
+  static const md = 12.0;
+  static const lg = 16.0;
+  static const xl = 24.0;
+  static const xxl = 32.0;
+}
+
+class AppRadius {
+  static const sm = 10.0;
+  static const md = 14.0;
+  static const lg = 18.0;
+  static const pill = 30.0;
+}
+
 class AppCard extends StatelessWidget {
   const AppCard({super.key, required this.child, this.padding});
   final Widget child;
@@ -48,24 +64,38 @@ class StatusBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final value = label.toUpperCase();
-    final color = value == 'APPROVED' ||
+    final scheme = Theme.of(context).colorScheme;
+    final background = value == 'APPROVED' ||
             value == 'ACCEPTED' ||
             value == 'CONNECTED' ||
             value == 'READ'
-        ? AppColors.success
+        ? scheme.tertiaryContainer
         : value == 'REJECTED' || value == 'BLOCKED'
-            ? Theme.of(context).colorScheme.error
-            : AppColors.warning;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: .1),
-        borderRadius: BorderRadius.circular(30),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-        child: Text(value,
-            style: TextStyle(
-                color: color, fontSize: 11, fontWeight: FontWeight.w700)),
+            ? scheme.errorContainer
+            : scheme.secondaryContainer;
+    final foreground = value == 'APPROVED' ||
+            value == 'ACCEPTED' ||
+            value == 'CONNECTED' ||
+            value == 'READ'
+        ? scheme.onTertiaryContainer
+        : value == 'REJECTED' || value == 'BLOCKED'
+            ? scheme.onErrorContainer
+            : scheme.onSecondaryContainer;
+    return Semantics(
+      label: 'Status: $value',
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: background,
+          borderRadius: BorderRadius.circular(AppRadius.pill),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          child: Text(value,
+              style: TextStyle(
+                  color: foreground,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700)),
+        ),
       ),
     );
   }
@@ -79,25 +109,40 @@ class UserAvatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final initials = (name ?? 'A')
+    final initials = (name?.trim().isNotEmpty == true ? name! : 'A')
         .trim()
         .split(RegExp(r'\s+'))
         .where((part) => part.isNotEmpty)
         .take(2)
         .map((part) => part[0].toUpperCase())
         .join();
-    return CircleAvatar(
-      radius: radius,
-      backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-      backgroundImage: imageUrl == null || imageUrl!.isEmpty
-          ? null
-          : NetworkImage(imageUrl!),
-      child: imageUrl == null || imageUrl!.isEmpty
-          ? Text(initials,
-              style: TextStyle(
-                  color: Theme.of(context).colorScheme.primary,
-                  fontWeight: FontWeight.w800))
-          : null,
+    final fallback = Text(
+      initials,
+      style: TextStyle(
+        color: Theme.of(context).colorScheme.primary,
+        fontWeight: FontWeight.w800,
+      ),
+    );
+    final diameter = radius * 2;
+
+    return Semantics(
+      image: true,
+      label: name?.isNotEmpty == true ? 'Profile photo of $name' : 'Profile',
+      child: CircleAvatar(
+        radius: radius,
+        backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+        child: imageUrl == null || imageUrl!.isEmpty
+            ? fallback
+            : ClipOval(
+                child: Image.network(
+                  imageUrl!,
+                  width: diameter,
+                  height: diameter,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => Center(child: fallback),
+                ),
+              ),
+      ),
     );
   }
 }
@@ -149,7 +194,10 @@ String userFacingError(Object error) {
 
 class ErrorState extends StatelessWidget {
   const ErrorState(
-      {super.key, required this.message, this.onRetry, this.title = 'Unable to load'});
+      {super.key,
+      required this.message,
+      this.onRetry,
+      this.title = 'Unable to load'});
   final String title;
   final String message;
   final VoidCallback? onRetry;
@@ -195,8 +243,8 @@ class InlineError extends StatelessWidget {
           const SizedBox(width: 8),
           Expanded(
               child: Text(message,
-                  style: TextStyle(
-                      color: Theme.of(context).colorScheme.error))),
+                  style:
+                      TextStyle(color: Theme.of(context).colorScheme.error))),
         ],
       );
 }
@@ -204,9 +252,16 @@ class InlineError extends StatelessWidget {
 class LoadingState extends StatelessWidget {
   const LoadingState({super.key});
   @override
-  Widget build(BuildContext context) => const Center(
-        child:
-            SizedBox(width: 28, height: 28, child: CircularProgressIndicator()),
+  Widget build(BuildContext context) => Semantics(
+        liveRegion: true,
+        label: 'Loading',
+        child: const Center(
+          child: SizedBox(
+            width: 28,
+            height: 28,
+            child: CircularProgressIndicator(),
+          ),
+        ),
       );
 }
 
@@ -238,6 +293,6 @@ class AppTextField extends StatelessWidget {
 
 Widget responsiveContent(BuildContext context, Widget child) => Center(
         child: ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 720),
+      constraints: const BoxConstraints(maxWidth: 520),
       child: child,
     ));

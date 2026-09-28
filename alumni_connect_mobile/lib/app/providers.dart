@@ -1,7 +1,10 @@
 import 'dart:convert';
 import 'dart:async';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../core/errors/error_handler.dart';
 import '../core/network/api_client.dart';
 import '../core/network/realtime_service.dart';
 import '../core/storage/secure_storage_service.dart';
@@ -10,9 +13,48 @@ import '../shared/models/models.dart';
 
 final secureStorageProvider =
     Provider((_) => SecureStorageService(const FlutterSecureStorage()));
-  final sessionExpiredProvider = StateProvider<bool>((ref) => false);
-final apiClientProvider =
-    Provider((ref) => ApiClient(ref.watch(secureStorageProvider)));
+final sessionExpiredProvider = StateProvider<bool>((ref) => false);
+final themeModeProvider = StateNotifierProvider<ThemeModeNotifier, ThemeMode>(
+    (ref) => ThemeModeNotifier());
+
+class ThemeModeNotifier extends StateNotifier<ThemeMode> {
+  ThemeModeNotifier() : super(ThemeMode.system) {
+    ready = _restore();
+  }
+
+  late final Future<void> ready;
+  bool _wasChanged = false;
+
+  Future<void> _restore() async {
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      if (_wasChanged) return;
+      final saved = preferences.getString('theme_mode');
+      state = ThemeMode.values.firstWhere(
+        (mode) => mode.name == saved,
+        orElse: () => ThemeMode.system,
+      );
+    } catch (error, stackTrace) {
+      debugPrint('Unable to restore the theme preference: $error\n$stackTrace');
+    }
+  }
+
+  Future<void> setThemeMode(ThemeMode mode) async {
+    _wasChanged = true;
+    state = mode;
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setString('theme_mode', mode.name);
+  }
+}
+
+final apiClientProvider = Provider((ref) {
+  return ApiClient(
+    ref.watch(secureStorageProvider),
+    onUnauthorized: () {
+      ref.read(sessionExpiredProvider.notifier).state = true;
+    },
+  );
+});
 final appRepositoryProvider =
     Provider((ref) => AppRepository(ref.watch(apiClientProvider)));
 final realtimeServiceProvider = Provider<RealtimeService>((ref) {
@@ -26,7 +68,7 @@ final authProvider =
     ref.watch(appRepositoryProvider),
     ref.watch(secureStorageProvider),
     ref.watch(realtimeServiceProvider),
-  )..restore();
+  );
 
   ref.listen<bool>(
     sessionExpiredProvider,
@@ -38,10 +80,14 @@ final authProvider =
     },
   );
 
+  notifier.restore();
+
   return notifier;
 });
 final directoryProvider = FutureProvider.family<List<User>, UserRole>(
     (ref, role) => ref.watch(appRepositoryProvider).users(role));
+final userByIdProvider = FutureProvider.family<User, int>(
+    (ref, id) => ref.watch(appRepositoryProvider).user(id));
 final eventsProvider = FutureProvider<List<EventItem>>(
     (ref) => ref.watch(appRepositoryProvider).events());
 final connectionsProvider = FutureProvider<List<ConnectionItem>>(
@@ -54,7 +100,7 @@ final conversationsProvider = FutureProvider<List<Conversation>>(
     (ref) => ref.watch(appRepositoryProvider).conversations());
 final allUsersProvider = FutureProvider<List<User>>(
     (ref) => ref.watch(appRepositoryProvider).allUsers());
-    final pendingUsersProvider = FutureProvider<List<User>>(
+final pendingUsersProvider = FutureProvider<List<User>>(
   (ref) => ref.watch(appRepositoryProvider).pendingUsers(),
 );
 final adminEventsProvider = FutureProvider<List<EventItem>>(
@@ -69,9 +115,10 @@ class AuthNotifier extends StateNotifier<AsyncValue<User?>> {
 
   void setUser(User user) => state = AsyncData(user);
   Future<void> retryRestore() async {
-  state = const AsyncLoading();
-  await restore();
-}
+    state = const AsyncLoading();
+    await restore();
+  }
+
   Future<void> restore() async {
     // Hard ceiling: never leave the router in AsyncLoading indefinitely if
     // platform secure-storage stalls beyond Future.timeout (seen on emulators).
@@ -97,17 +144,17 @@ class AuthNotifier extends StateNotifier<AsyncValue<User?>> {
       }
       final user = await _repo.userByEmail(identity.email);
 
-if (user.status.toUpperCase() != 'APPROVED') {
-  await _storage.clearAuth();
-  state = const AsyncData(null);
-  return ;
-}
+      if (user.status.toUpperCase() != 'APPROVED') {
+        await _storage.clearAuth();
+        state = const AsyncData(null);
+        return;
+      }
       _realtime.connect(token);
       state = AsyncData(user);
     } catch (e, st) {
-  _realtime.disconnect();
-  state = AsyncError(e, st);
-}finally {
+      _realtime.disconnect();
+      state = AsyncError(e, st);
+    } finally {
       watchdog.cancel();
     }
   }
@@ -139,20 +186,22 @@ if (user.status.toUpperCase() != 'APPROVED') {
       }
       state = const AsyncData(null);
       return result;
-    } catch (e, st) {
-      state = AsyncError(e, st);
-      return e.toString();
+    } catch (error) {
+      state = const AsyncData(null);
+      return toApiException(error).message;
     }
   }
- Future<void> handleUnauthorized() async {
-  await signOut();
-}
 
-Future<void> signOut() async {
-  _realtime.disconnect();
-  await _storage.clearAuth();
-  state = const AsyncData(null);
-}
+  Future<void> handleUnauthorized() async {
+    await signOut();
+  }
+
+  Future<void> signOut() async {
+    _realtime.disconnect();
+    await _storage.clearAuth();
+    state = const AsyncData(null);
+  }
+
   /// Returns null when the JWT payload is missing email/role.
   User? _fromJwt(String token) {
     try {

@@ -1,0 +1,19 @@
+warning: in the working copy of 'alumni-connect/src/main/java/com/alumni/alumni_connect/config/DataLoader.java', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'alumni-connect/src/main/java/com/alumni/alumni_connect/service/OtpService.java', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'alumni_connect_mobile/lib/app/providers.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'alumni_connect_mobile/lib/app/router.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'alumni_connect_mobile/lib/features/presentation.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'alumni_connect_mobile/pubspec.lock', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'alumni_connect_mobile/pubspec.yaml', LF will be replaced by CRLF the next time Git touches it
+ .../alumni/alumni_connect/config/DataLoader.java   |    3 [32m+[m
+ .../alumni_connect/security/SecurityConfig.java    |   14 [32m+[m[31m-[m
+ .../alumni/alumni_connect/service/OtpService.java  |    2 [32m+[m[31m-[m
+ alumni_connect_mobile/lib/app/app.dart             |  151 [32m+[m[31m-[m
+ alumni_connect_mobile/lib/app/providers.dart       |  103 [32m+[m[31m-[m
+ alumni_connect_mobile/lib/app/router.dart          |   64 [32m+[m[31m-[m
+ .../lib/core/network/api_client.dart               |  109 [32m+[m[31m-[m
+ .../lib/features/presentation.dart                 | 4029 [32m++++++++++++++[m[31m------[m
+ .../lib/shared/widgets/ui_components.dart          |  123 [32m+[m[31m-[m
+ alumni_connect_mobile/pubspec.lock                 |   16 [32m+[m
+ alumni_connect_mobile/pubspec.yaml                 |    1 [32m+[m
+ 11 files changed, 3275 insertions(+), 1340 deletions(-)

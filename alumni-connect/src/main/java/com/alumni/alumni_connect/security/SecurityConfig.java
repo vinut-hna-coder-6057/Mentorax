@@ -166,11 +166,7 @@ public class SecurityConfig {
                         // H2 CONSOLE
                         // =================================
 
-                        .requestMatchers(
-
-                                "/h2-console/**"
-
-                        ).permitAll()
+                       
 
                         // =================================
                         // OPTIONS REQUESTS
@@ -194,14 +190,6 @@ public class SecurityConfig {
         // =====================================
         // H2 CONSOLE FIX
         // =====================================
-
-        http.headers(headers ->
-
-                headers.frameOptions(
-
-                        frame -> frame.disable()
-                )
-        );
 
         http.addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
 

@@ -33,6 +33,7 @@ public class DataLoader {
             admin.setPassword(encoder.encode("admin")); // âœ… FIXED
             admin.setRole("ADMIN");
             admin.setStatus("APPROVED");
+            admin.setEmailVerified(true);
             repository.save(admin);
 
             // ðŸ”¥ Student
@@ -42,6 +43,7 @@ public class DataLoader {
             student.setPassword(encoder.encode("123")); // âœ… FIXED
             student.setRole("STUDENT");
             student.setStatus("APPROVED");
+            student.setEmailVerified(true);
             student.setPassoutYear("2024");
             student.setCollege("XYZ College");
             student.setRollno("101");
@@ -55,6 +57,7 @@ public class DataLoader {
             alumni.setPassword(encoder.encode("123")); // âœ… FIXED
             alumni.setRole("ALUMNI");
             alumni.setStatus("APPROVED");
+            alumni.setEmailVerified(true);
             alumni.setPassoutYear("2020");
             alumni.setRollno("55");
             repository.save(alumni);

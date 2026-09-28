@@ -51,7 +51,7 @@ public class OtpService {
 
         // REMOVE OLD OTP
 
-        otpRepository.deleteByEmailAndPurpose(email, "PASSWORD_RESET");
+      otpRepository.deleteByEmailAndPurpose(email, purpose);
 
         // CREATE NEW OTP
 

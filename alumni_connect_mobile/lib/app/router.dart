@@ -13,25 +13,25 @@ final routerProvider = Provider<GoRouter>((ref) {
       refreshListenable: refresh,
       redirect: (context, state) {
         final auth = ref.read(authProvider);
-        
+
         final location = state.matchedLocation;
         // Splash is only valid while session restore is in flight.
         if (auth.hasError) {
-  return location == '/splash' ? null : '/splash';
-}
+          return location == '/splash' ? null : '/splash';
+        }
         if (auth.isLoading) {
           return location == '/splash' ? null : '/splash';
         }
         final user = auth.valueOrNull;
         const publicRoutes = {
-  '/login',
-  '/register',
-  '/forgot-password',
-  '/reset-password',
-  '/otp-verify',
-  '/email-verification',
-  '/pending-approval'
-};
+          '/login',
+          '/register',
+          '/forgot-password',
+          '/reset-password',
+          '/otp-verify',
+          '/email-verification',
+          '/pending-approval'
+        };
         final loggedIn = user != null &&
             user.email.isNotEmpty &&
             user.role != UserRole.unknown;
@@ -64,29 +64,35 @@ final routerProvider = Provider<GoRouter>((ref) {
         GoRoute(path: '/login', builder: (_, __) => const LoginScreen()),
         GoRoute(path: '/register', builder: (_, __) => const RegisterScreen()),
         GoRoute(
-  path: '/email-verification',
-  builder: (_, state) {
-    final email = state.uri.queryParameters['email'] ?? '';
-    final roleValue = state.uri.queryParameters['role'] ?? 'student';
+          path: '/email-verification',
+          builder: (_, state) {
+            final email = state.uri.queryParameters['email'] ?? '';
+            final roleValue = state.uri.queryParameters['role'] ?? 'student';
 
-    final role = UserRole.values.firstWhere(
-      (r) => r.name == roleValue,
-      orElse: () => UserRole.student,
-    );
+            final role = UserRole.values.firstWhere(
+              (r) => r.name == roleValue,
+              orElse: () => UserRole.student,
+            );
 
-    return EmailVerificationScreen(
-      email: email,
-      role: role,
-    );
-  },
-),
+            return EmailVerificationScreen(
+              email: email,
+              role: role,
+            );
+          },
+        ),
         GoRoute(
             path: '/forgot-password',
             builder: (_, __) => const PasswordScreen(forgot: true)),
         GoRoute(
             path: '/reset-password',
-            builder: (_, __) => const PasswordScreen()),
-        GoRoute(path: '/otp-verify', builder: (_, __) => const OtpScreen()),
+            builder: (_, state) => PasswordScreen(
+                  email: state.uri.queryParameters['email'] ?? '',
+                )),
+        GoRoute(
+            path: '/otp-verify',
+            builder: (_, state) => OtpScreen(
+                  email: state.uri.queryParameters['email'] ?? '',
+                )),
         GoRoute(
             path: '/pending-approval',
             builder: (_, __) => const PendingApprovalScreen()),
@@ -118,8 +124,8 @@ final routerProvider = Provider<GoRouter>((ref) {
             builder: (_, __) => const NotificationsScreen()),
         GoRoute(
             path: '/chat/:email',
-            builder: (_, s) =>
-                ChatScreen(email: Uri.decodeComponent(s.pathParameters['email']!))),
+            builder: (_, s) => ChatScreen(
+                email: Uri.decodeComponent(s.pathParameters['email']!))),
       ]);
 });
 
