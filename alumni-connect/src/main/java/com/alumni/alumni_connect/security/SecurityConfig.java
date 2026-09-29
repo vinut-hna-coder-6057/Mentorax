@@ -115,7 +115,11 @@ public class SecurityConfig {
 
                         ).permitAll()
 
-                        .requestMatchers(HttpMethod.GET, "/alumni", "/alumni/approved").permitAll()
+                        .requestMatchers(
+    HttpMethod.GET,
+    "/alumni",
+    "/alumni/approved"
+).authenticated()
 
                         .requestMatchers("/alumni/**").hasRole("ADMIN")
 

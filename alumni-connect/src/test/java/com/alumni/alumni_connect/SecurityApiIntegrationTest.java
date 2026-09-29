@@ -144,6 +144,17 @@ void duplicateEventRegistrationIsHandledGracefully() throws Exception {
                     .value("Already registered"));
 }
 @Test
+void alumniEndpointWithoutAuthenticationReturns401() throws Exception {
+    mockMvc.perform(get("/alumni"))
+            .andExpect(status().isUnauthorized());
+}
+
+@Test
+void approvedAlumniEndpointWithoutAuthenticationReturns401() throws Exception {
+    mockMvc.perform(get("/alumni/approved"))
+            .andExpect(status().isUnauthorized());
+}
+@Test
 void unauthenticatedUserCannotRegisterForEvent() throws Exception {
 
     mockMvc.perform(
