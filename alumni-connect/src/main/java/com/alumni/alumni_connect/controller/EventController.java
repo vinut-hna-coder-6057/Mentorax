@@ -8,7 +8,7 @@ import com.alumni.alumni_connect.exception.*;
 import com.alumni.alumni_connect.repository.*;
 import com.alumni.alumni_connect.security.*;
 import com.alumni.alumni_connect.service.*;
-
+import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -30,7 +30,7 @@ public class EventController {
 
     @PostMapping("/events")
     public Event createEvent(
-            @RequestBody Event event, Authentication authentication
+          @Valid @RequestBody Event event, Authentication authentication
     ) {
 
         return eventService.createEvent(event, authentication.getName());
@@ -85,7 +85,7 @@ public class EventController {
     }
 
     @PutMapping("/events/{id}")
-    public Event updateEvent(@PathVariable Long id, @RequestBody Event event, Authentication authentication) {
+    public Event updateEvent(@PathVariable Long id, @Valid @RequestBody Event event, Authentication authentication) {
         return eventService.updateEvent(id, event, authentication.getName());
     }
 
@@ -132,6 +132,16 @@ public class EventController {
                 authentication.getName()
         );
     }
+    @GetMapping("/events/{eventId}/registration-status")
+public ResponseEntity<?> getRegistrationStatus(
+        @PathVariable Long eventId,
+        Authentication authentication
+) {
+    return eventService.getRegistrationStatus(
+            eventId,
+            authentication.getName()
+    );
+}
 
     // =====================================
     // EVENT ATTENDEES

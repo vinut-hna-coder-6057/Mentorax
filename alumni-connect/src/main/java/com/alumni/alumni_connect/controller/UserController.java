@@ -11,6 +11,7 @@ import com.alumni.alumni_connect.service.*;
 
 import org.springframework.web.bind.annotation.*;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
@@ -43,26 +44,27 @@ public class UserController {
     // =========================================
 
     @GetMapping("/alumni")
-    public List<User> getAllAlumni() {
-
-        return repository.findByRoleAndStatus(
-                "ALUMNI",
-                "APPROVED"
-        );
-    }
-
+public List<UserProfileResponse> getAllAlumni() {
+    return repository.findByRoleAndStatus(
+            "ALUMNI",
+            "APPROVED"
+    ).stream()
+            .map(UserProfileResponse::from)
+            .toList();
+}
     // =========================================
     // GET ALL APPROVED STUDENTS
-    // =========================================
+    // @GetMapping("/alumni")=========================================
 
     @GetMapping("/students")
-    public List<User> getAllStudents() {
-
-        return repository.findByRoleAndStatus(
-                "STUDENT",
-                "APPROVED"
-        );
-    }
+public List<UserProfileResponse> getAllStudents() {
+    return repository.findByRoleAndStatus(
+            "STUDENT",
+            "APPROVED"
+    ).stream()
+            .map(UserProfileResponse::from)
+            .toList();
+}
 
     // =========================================
     // GET USER BY ID
@@ -94,14 +96,13 @@ public class UserController {
     // =========================================
 // GET ALL USERS
 // =========================================
-
-    @GetMapping
-    @org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")
-    public List<User> getAllUsers() {
-
-        return repository.findAll();
-    }
-
+@GetMapping
+@PreAuthorize("hasRole('ADMIN')")
+public List<UserProfileResponse> getAllUsers() {
+    return repository.findAll().stream()
+            .map(UserProfileResponse::from)
+            .toList();
+}
     // =========================================
     // UPDATE PROFILE
     // =========================================

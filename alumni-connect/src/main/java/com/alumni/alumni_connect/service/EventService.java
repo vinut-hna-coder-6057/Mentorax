@@ -358,7 +358,34 @@ public class EventService {
     // =====================================
     // EVENT ATTENDEES
     // =====================================
+    public ResponseEntity<?> getRegistrationStatus(
+        Long eventId,
+        String authenticatedEmail
+) {
+    // Make sure the event exists.
+    if (!eventRepository.existsById(eventId)) {
+        throw new ResponseStatusException(
+                HttpStatus.NOT_FOUND,
+                "Event not found"
+        );
+    }
 
+    User user = userRepository.findByEmail(authenticatedEmail)
+            .orElseThrow(() -> new IllegalArgumentException(
+                    "Authenticated user not found"
+            ));
+
+    boolean registered = registrationRepository
+            .findByEventIdAndUser_Id(eventId, user.getId())
+            .isPresent();
+
+    return ResponseEntity.ok(
+            Map.of(
+                    "registered",
+                    registered
+            )
+    );
+}
     public List<EventRegistration> getAttendees(Long eventId, String authenticatedEmail) {
         Event event = eventRepository.findById(eventId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Event not found"));

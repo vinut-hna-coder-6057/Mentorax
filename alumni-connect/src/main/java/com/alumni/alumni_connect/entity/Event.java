@@ -8,7 +8,8 @@ import com.alumni.alumni_connect.exception.*;
 import com.alumni.alumni_connect.repository.*;
 import com.alumni.alumni_connect.security.*;
 import com.alumni.alumni_connect.service.*;
-
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import jakarta.persistence.*;
 
 import java.time.LocalDateTime;
@@ -35,21 +36,23 @@ public class Event {
     // =====================================
     // EVENT DETAILS
     // =====================================
-
-    @Column(nullable = false)
-
-    private String title;
-
-    @Column(
-            length = 5000
-    )
-
-    private String description;
-
-    private String location;
-
-    private String eventDate;
-
+@NotBlank
+@Size(max = 255)
+@Column(nullable = false)
+private String title;
+@Size(max = 5000)
+@Column(length = 5000)
+private String description;
+@Size(max = 255)
+private String location;
+@Size(max = 100)
+private String eventDate;
+@Size(max = 32)
+@Column(length = 32)
+private String role;
+@Size(max = 32)
+@Column(length = 32)
+private String status = "PENDING";
     // =====================================
     // CREATOR
     // =====================================
@@ -62,16 +65,13 @@ public class Event {
     @com.fasterxml.jackson.annotation.JsonIgnore
     private User creator;
 
-    @Column(length = 32)
-    private String role;
+   
 
     // =====================================
     // APPROVAL WORKFLOW
     // =====================================
 
-    @Column(length = 32)
-    private String status =
-            "PENDING";
+  
 
     // =====================================
     // RSVP COUNT
@@ -83,16 +83,15 @@ public class Event {
     // OPTIONAL FEATURES
     // =====================================
 
-    private String category;
+    @Size(max = 100)
+private String category;
 
-    @Column(length = 2000)
-
-    private String meetingLink;
-
-    @Column(length = 3000)
-
-    private String imageUrl;
-
+   @Size(max = 2000)
+@Column(length = 2000)
+private String meetingLink;
+@Size(max = 3000)
+@Column(length = 3000)
+private String imageUrl;
     // =====================================
     // CREATED TIME
     // =====================================

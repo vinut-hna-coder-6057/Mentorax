@@ -39,5 +39,5 @@ spring.mail.properties.mail.smtp.starttls.enable=true
 
 jwt.secret=${JWT_SECRET}
 jwt.expiration-ms=${JWT_EXPIRATION_MS:3600000}
-app.websocket.allowed-origins=${WEBSOCKET_ALLOWED_ORIGINS:http://localhost:*,http://127.0.0.1:*}
-app.cors.allowed-origin-patterns=${CORS_ALLOWED_ORIGIN_PATTERNS:http://localhost:*,http://127.0.0.1:*}
+app.websocket.allowed-origins=${WEBSOCKET_ALLOWED_ORIGINS}
+app.cors.allowed-origin-patterns=${CORS_ALLOWED_ORIGIN_PATTERNS}

@@ -41,7 +41,7 @@ public class ApiExceptionHandler {
     @ExceptionHandler(HttpMessageNotReadableException.class)
     ResponseEntity<Map<String, String>> unreadable(HttpMessageNotReadableException ex) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(Map.of("error", "Request body is invalid or malformed"));
+           .body(Map.of("error", "Request body is invalid or malformed"));
     }
 
     @ExceptionHandler(AccessDeniedException.class)
