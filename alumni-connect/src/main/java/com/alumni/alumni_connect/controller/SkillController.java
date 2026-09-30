@@ -17,8 +17,8 @@ import java.util.List;
 public class SkillController {
     private final SkillService service;
     public SkillController(SkillService service) { this.service = service; }
-    @GetMapping("/me") public List<UserSkill> mine() { return service.mine(); }
-    @PostMapping public UserSkill add(@RequestParam String name, @RequestParam(required = false) String proficiency) { return service.add(name, proficiency); }
+    @GetMapping("/me") @org.springframework.transaction.annotation.Transactional(readOnly = true) public List<UserSkillResponse> mine() { return service.mine().stream().map(UserSkillResponse::from).toList(); }
+    @PostMapping @org.springframework.transaction.annotation.Transactional public UserSkillResponse add(@RequestParam String name, @RequestParam(required = false) String proficiency) { return UserSkillResponse.from(service.add(name, proficiency)); }
     @DeleteMapping("/{skillId}") public void remove(@PathVariable Long skillId) { service.remove(skillId); }
 }
 

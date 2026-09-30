@@ -29,11 +29,11 @@ public class EventController {
     // =====================================
 
     @PostMapping("/events")
-    public Event createEvent(
+    public EventDTO createEvent(
           @Valid @RequestBody Event event, Authentication authentication
     ) {
 
-        return eventService.createEvent(event, authentication.getName());
+        return EventDTO.from(eventService.createEvent(event, authentication.getName()));
     }
 
     // =====================================
@@ -42,9 +42,8 @@ public class EventController {
     // =====================================
 
     @GetMapping("/events")
-    public List<Event> getApprovedEvents() {
-
-        return eventService.getApprovedEvents();
+    public List<EventDTO> getApprovedEvents(@RequestParam(defaultValue="0") int page, @RequestParam(defaultValue="50") int size) {
+        return eventService.getApprovedEvents(page,size).stream().map(EventDTO::from).toList();
     }
 
     // =====================================
@@ -53,9 +52,8 @@ public class EventController {
     // =====================================
 
     @GetMapping("/events/all")
-    public List<Event> getAllEvents() {
-
-        return eventService.getAllEvents();
+    public List<EventDTO> getAllEvents(@RequestParam(defaultValue="0") int page, @RequestParam(defaultValue="50") int size) {
+        return eventService.getAllEvents(page,size).stream().map(EventDTO::from).toList();
     }
 
     // =====================================
@@ -64,11 +62,11 @@ public class EventController {
 
     @PutMapping("/events/approve/{id}")
     @org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")
-    public Event approveEvent(
+    public EventDTO approveEvent(
             @PathVariable Long id
     ) {
 
-        return eventService.approveEvent(id);
+        return EventDTO.from(eventService.approveEvent(id));
     }
 
     // =====================================
@@ -77,16 +75,16 @@ public class EventController {
 
     @PutMapping("/events/reject/{id}")
     @org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")
-    public Event rejectEvent(
+    public EventDTO rejectEvent(
             @PathVariable Long id
     ) {
 
-        return eventService.rejectEvent(id);
+        return EventDTO.from(eventService.rejectEvent(id));
     }
 
     @PutMapping("/events/{id}")
-    public Event updateEvent(@PathVariable Long id, @Valid @RequestBody Event event, Authentication authentication) {
-        return eventService.updateEvent(id, event, authentication.getName());
+    public EventDTO updateEvent(@PathVariable Long id, @Valid @RequestBody Event event, Authentication authentication) {
+        return EventDTO.from(eventService.updateEvent(id, event, authentication.getName()));
     }
 
     @DeleteMapping("/events/{id}")
@@ -148,12 +146,14 @@ public ResponseEntity<?> getRegistrationStatus(
     // =====================================
 
     @GetMapping("/events/attendees/{eventId}")
-    public List<EventRegistration> getAttendees(
+    @org.springframework.transaction.annotation.Transactional(readOnly = true)
+    public List<EventRegistrationResponse> getAttendees(
 
-            @PathVariable Long eventId, Authentication authentication
+            @PathVariable Long eventId, Authentication authentication,
+            @RequestParam(defaultValue="0") int page,@RequestParam(defaultValue="50") int size
 
     ) {
 
-        return eventService.getAttendees(eventId, authentication.getName());
+        return eventService.getAttendees(eventId, authentication.getName(),page,size).stream().map(EventRegistrationResponse::from).toList();
     }
 }

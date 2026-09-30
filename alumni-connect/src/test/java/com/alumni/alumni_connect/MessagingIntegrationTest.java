@@ -408,7 +408,7 @@ class MessagingIntegrationTest {
                 .convertAndSendToUser(
                         eq(alice.getEmail()),
                         eq("/queue/messages"),
-                        same(saved)
+                        eq(com.alumni.alumni_connect.dto.MessageResponse.from(saved))
                 );
 
         // Receiver receives message
@@ -416,7 +416,7 @@ class MessagingIntegrationTest {
                 .convertAndSendToUser(
                         eq(bob.getEmail()),
                         eq("/queue/messages"),
-                        same(saved)
+                        eq(com.alumni.alumni_connect.dto.MessageResponse.from(saved))
                 );
     }
 

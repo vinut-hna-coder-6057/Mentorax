@@ -15,6 +15,9 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 
 @RestController
 
@@ -43,11 +46,12 @@ public class UserController {
     // GET ALL APPROVED ALUMNI
     // =========================================
 
-    @GetMapping("/alumni")
-public List<UserProfileResponse> getAllAlumni() {
+@GetMapping("/alumni")
+public List<UserProfileResponse> getAllAlumni(@RequestParam(defaultValue="0") int page, @RequestParam(defaultValue="50") int size) {
+    Pageable pageable = bounded(page, size);
     return repository.findByRoleAndStatus(
             "ALUMNI",
-            "APPROVED"
+            "APPROVED", pageable
     ).stream()
             .map(UserProfileResponse::from)
             .toList();
@@ -57,10 +61,11 @@ public List<UserProfileResponse> getAllAlumni() {
     // @GetMapping("/alumni")=========================================
 
     @GetMapping("/students")
-public List<UserProfileResponse> getAllStudents() {
+public List<UserProfileResponse> getAllStudents(@RequestParam(defaultValue="0") int page, @RequestParam(defaultValue="50") int size) {
+    Pageable pageable = bounded(page, size);
     return repository.findByRoleAndStatus(
             "STUDENT",
-            "APPROVED"
+            "APPROVED", pageable
     ).stream()
             .map(UserProfileResponse::from)
             .toList();
@@ -98,22 +103,26 @@ public List<UserProfileResponse> getAllStudents() {
 // =========================================
 @GetMapping
 @PreAuthorize("hasRole('ADMIN')")
-public List<UserProfileResponse> getAllUsers() {
-    return repository.findAll().stream()
+public List<UserProfileResponse> getAllUsers(@RequestParam(defaultValue="0") int page, @RequestParam(defaultValue="50") int size) {
+    return repository.findAllBy(bounded(page, size)).stream()
             .map(UserProfileResponse::from)
             .toList();
 }
+
+    private Pageable bounded(int page, int size) {
+        return PageRequest.of(Math.max(0, page), Math.max(1, Math.min(size, 100)), Sort.by("id").ascending());
+    }
     // =========================================
     // UPDATE PROFILE
     // =========================================
 
     @PutMapping("/{id}")
 
-    public User updateProfile(
+    public UserProfileResponse updateProfile(
 
             @PathVariable Long id,
 
-            @RequestBody User updatedUser
+            @jakarta.validation.Valid @RequestBody UserProfileUpdateRequest updatedUser
 
     ) {
 
@@ -128,61 +137,61 @@ public List<UserProfileResponse> getAllUsers() {
         // BASIC INFO
 
         user.setName(
-                updatedUser.getName()
+                updatedUser.name()
         );
 
         user.setCollege(
-                updatedUser.getCollege()
+                updatedUser.college()
         );
 
         user.setBranch(
-                updatedUser.getBranch()
+                updatedUser.branch()
         );
 
         user.setPassoutYear(
-                updatedUser.getPassoutYear()
+                updatedUser.passoutYear()
         );
 
         user.setRollno(
-                updatedUser.getRollno()
+                updatedUser.rollno()
         );
 
         user.setSection(
-                updatedUser.getSection()
+                updatedUser.section()
         );
 
         // PROFILE INFO
 
         user.setBio(
-                updatedUser.getBio()
+                updatedUser.bio()
         );
 
         user.setCompany(
-                updatedUser.getCompany()
+                updatedUser.company()
         );
 
         user.setJobRole(
-                updatedUser.getJobRole()
+                updatedUser.jobRole()
         );
 
         user.setLinkedin(
-                updatedUser.getLinkedin()
+                updatedUser.linkedin()
         );
 
         user.setGithub(
-                updatedUser.getGithub()
+                updatedUser.github()
         );
 
         user.setProfileImage(
-                updatedUser.getProfileImage()
+                updatedUser.profileImage()
         );
 
         user.setInterests(
-                updatedUser.getInterests()
+                updatedUser.interests()
         );
 
         user.setLocation(
-                updatedUser.getLocation()
+                updatedUser.location()
         );
 
         User saved = repository.save(user);
@@ -201,6 +210,6 @@ public List<UserProfileResponse> getAllUsers() {
             alumniProfileRepository.save(profile);
         }
 
-        return saved;
+        return UserProfileResponse.from(saved);
     }
 }

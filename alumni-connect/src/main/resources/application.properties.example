@@ -41,3 +41,10 @@ jwt.secret=${JWT_SECRET}
 jwt.expiration-ms=${JWT_EXPIRATION_MS:3600000}
 app.websocket.allowed-origins=${WEBSOCKET_ALLOWED_ORIGINS}
 app.cors.allowed-origin-patterns=${CORS_ALLOWED_ORIGIN_PATTERNS}
+
+# Process-local abuse protection (use shared storage for multi-instance deployments)
+app.rate-limit.login-ip=${RATE_LIMIT_LOGIN_IP:60}
+app.rate-limit.login-email=${RATE_LIMIT_LOGIN_EMAIL:10}
+app.rate-limit.otp-ip=${RATE_LIMIT_OTP_IP:20}
+app.rate-limit.otp-email=${RATE_LIMIT_OTP_EMAIL:5}
+app.rate-limit.window-ms=${RATE_LIMIT_WINDOW_MS:900000}

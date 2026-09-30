@@ -10,25 +10,28 @@ import com.alumni.alumni_connect.security.*;
 import com.alumni.alumni_connect.service.*;
 
 import org.springframework.web.bind.annotation.*;
+import jakarta.validation.Valid;
 
 import java.util.List;
 
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.http.HttpStatus;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.web.server.ResponseStatusException;
 
 @RestController
-
 @RequestMapping("/alumni")
-
 public class AlumniController {
 
     private final UserRepository repository;
     private final PasswordEncoder passwordEncoder;
 
     public AlumniController(
-            UserRepository repository, PasswordEncoder passwordEncoder
+            UserRepository repository,
+            PasswordEncoder passwordEncoder
     ) {
         this.repository = repository;
         this.passwordEncoder = passwordEncoder;
@@ -39,12 +42,13 @@ public class AlumniController {
     // =====================================================
 
     @GetMapping
-    public List<User> getAllApprovedAlumni() {
-
+    public List<UserProfileResponse> getAllApprovedAlumni(@RequestParam(defaultValue="0") int page, @RequestParam(defaultValue="50") int size) {
         return repository.findByRoleAndStatus(
                 "ALUMNI",
-                "APPROVED"
-        );
+                "APPROVED", bounded(page,size)
+        ).stream()
+                .map(UserProfileResponse::from)
+                .toList();
     }
 
     // =====================================================
@@ -53,20 +57,22 @@ public class AlumniController {
 
     @PostMapping
     @PreAuthorize("hasRole('ADMIN')")
-    public User addAlumni(
-            @RequestBody User alumni
+    public UserProfileResponse addAlumni(
+            @Valid @RequestBody AlumniCreateRequest request
     ) {
-
+        User alumni = request.toUser();
         alumni.setRole("ALUMNI");
-
         alumni.setStatus("PENDING");
 
         if (alumni.getPassword() == null || alumni.getPassword().isBlank()) {
             throw new IllegalArgumentException("Password is required");
         }
+
         alumni.setPassword(passwordEncoder.encode(alumni.getPassword()));
 
-        return repository.save(alumni);
+        return UserProfileResponse.from(
+                repository.save(alumni)
+        );
     }
 
     // =====================================================
@@ -74,43 +80,62 @@ public class AlumniController {
     // =====================================================
 
     @GetMapping("/approved")
-    public List<User> getApprovedAlumni() {
-
+    public List<UserProfileResponse> getApprovedAlumni(@RequestParam(defaultValue="0") int page, @RequestParam(defaultValue="50") int size) {
         return repository.findByRoleAndStatus(
                 "ALUMNI",
-                "APPROVED"
-        );
+                "APPROVED", bounded(page,size)
+        ).stream()
+                .map(UserProfileResponse::from)
+                .toList();
     }
+
+    // =====================================================
+    // GET PENDING ALUMNI
+    // =====================================================
+
     @GetMapping("/pending")
     @PreAuthorize("hasRole('ADMIN')")
-    public List<User> getPendingAlumni() {
-    return repository.findByRoleAndStatus(
-            "ALUMNI",
-            "PENDING"
-    );
+    public List<UserProfileResponse> getPendingAlumni(@RequestParam(defaultValue="0") int page, @RequestParam(defaultValue="50") int size) {
+        return repository.findByRoleAndStatus(
+                "ALUMNI",
+                "PENDING", bounded(page,size)
+        ).stream()
+                .map(UserProfileResponse::from)
+                .toList();
     }
+
+    private Pageable bounded(int page, int size) {
+        return PageRequest.of(Math.max(0, page), Math.max(1, Math.min(size, 100)), Sort.by("id").ascending());
+    }
+
+    // =====================================================
+    // REJECT ALUMNI
+    // =====================================================
+
     @PutMapping("/reject/{id}")
-@PreAuthorize("hasRole('ADMIN')")
-public User rejectAlumni(@PathVariable Long id) {
+    @PreAuthorize("hasRole('ADMIN')")
+    public UserProfileResponse rejectAlumni(@PathVariable Long id) {
 
-    User alumni =
-            repository.findById(id)
-                    .orElseThrow(() -> new ResponseStatusException(
-                            HttpStatus.NOT_FOUND,
-                            "User not found"
-                    ));
+        User alumni = repository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "User not found"
+                ));
 
-    if (!"ALUMNI".equalsIgnoreCase(alumni.getRole())) {
-        throw new ResponseStatusException(
-                HttpStatus.BAD_REQUEST,
-                "Only alumni accounts can be rejected"
+        if (!"ALUMNI".equalsIgnoreCase(alumni.getRole())) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Only alumni accounts can be rejected"
+            );
+        }
+
+        alumni.setStatus("REJECTED");
+
+        return UserProfileResponse.from(
+                repository.save(alumni)
         );
     }
 
-    alumni.setStatus("REJECTED");
-
-    return repository.save(alumni);
-}
     // =====================================================
     // DELETE ALUMNI
     // =====================================================
@@ -120,7 +145,6 @@ public User rejectAlumni(@PathVariable Long id) {
     public void deleteAlumni(
             @PathVariable Long id
     ) {
-
         repository.deleteById(id);
     }
 
@@ -129,25 +153,26 @@ public User rejectAlumni(@PathVariable Long id) {
     // =====================================================
 
     @PutMapping("/approve/{id}")
-@PreAuthorize("hasRole('ADMIN')")
-public User approveAlumni(@PathVariable Long id) {
+    @PreAuthorize("hasRole('ADMIN')")
+    public UserProfileResponse approveAlumni(@PathVariable Long id) {
 
-    User alumni =
-            repository.findById(id)
-                    .orElseThrow(() -> new ResponseStatusException(
-                            HttpStatus.NOT_FOUND,
-                            "User not found"
-                    ));
+        User alumni = repository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "User not found"
+                ));
 
-    if (!"ALUMNI".equalsIgnoreCase(alumni.getRole())) {
-        throw new ResponseStatusException(
-                HttpStatus.BAD_REQUEST,
-                "Only alumni accounts can be approved"
+        if (!"ALUMNI".equalsIgnoreCase(alumni.getRole())) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Only alumni accounts can be approved"
+            );
+        }
+
+        alumni.setStatus("APPROVED");
+
+        return UserProfileResponse.from(
+                repository.save(alumni)
         );
     }
-
-    alumni.setStatus("APPROVED");
-
-    return repository.save(alumni);
-}
 }

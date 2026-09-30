@@ -1,5 +1,7 @@
 package com.alumni.alumni_connect.service;
 
+import com.alumni.alumni_connect.dto.SignupRequest;
+import com.alumni.alumni_connect.dto.LoginRequest;
 import com.alumni.alumni_connect.entity.AlumniProfile;
 import com.alumni.alumni_connect.entity.StudentProfile;
 import com.alumni.alumni_connect.entity.User;
@@ -50,6 +52,11 @@ public class AuthService {
     // =====================================
 
     @Transactional
+    public String signup(SignupRequest request) {
+        return signup(request.toUser());
+    }
+
+    /** Legacy service entry point retained for existing internal callers; web input uses SignupRequest. */
     public String signup(User user) {
 
         Optional<User> existing =
@@ -145,10 +152,17 @@ public class AuthService {
     // LOGIN
     // =====================================
 
-    public Object login(User user) {
+    public Object login(LoginRequest request) {
+        return login(request.email(), request.password());
+    }
+
+    /** Legacy service entry point retained for existing internal callers; web input uses LoginRequest. */
+    public Object login(User user) { return login(user.getEmail(), user.getPassword()); }
+
+    private Object login(String email, String password) {
        Optional<User> optionalUser =
         repository.findByEmail(
-                user.getEmail()
+                email
         );
 
         // User does not exist.
@@ -163,7 +177,7 @@ public class AuthService {
 
         // Always verify password before revealing account state.
         if (!encoder.matches(
-                user.getPassword(),
+                password,
                 existing.getPassword()
         )) {
             throw new ResponseStatusException(
@@ -214,22 +228,17 @@ public class AuthService {
     // =====================================
     // APPROVE USER
     // =====================================
+@PreAuthorize("hasRole('ADMIN')")
+public User approveUser(Long id) {
 
-    @PreAuthorize("hasRole('ADMIN')")
-    public User approveUser(Long id) {
+    User user = repository.findById(id)
+            .orElseThrow(() -> new ResponseStatusException(
+                    HttpStatus.NOT_FOUND,
+                    "User not found"
+            ));
 
-        User user =
-                repository
-                        .findById(id)
-                        .orElseThrow(() ->
-                                new ResponseStatusException(
-                                        HttpStatus.NOT_FOUND,
-                                        "User not found"
-                                )
-                        );
+    user.setStatus("APPROVED");
 
-        user.setStatus("APPROVED");
-
-        return repository.save(user);
-    }
+    return repository.save(user);
+}
 }

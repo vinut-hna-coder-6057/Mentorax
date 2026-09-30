@@ -8,30 +8,36 @@ import com.alumni.alumni_connect.exception.*;
 import com.alumni.alumni_connect.repository.*;
 import com.alumni.alumni_connect.security.*;
 import com.alumni.alumni_connect.service.*;
-
+import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
+import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.beans.factory.annotation.Autowired;
 
 @RestController
 public class AuthController {
 
     private final AuthService authService;
+    private final RequestRateLimiter rateLimiter;
+
+    @Autowired
     public AuthController(
-        AuthService authService
-) {
-    this.authService = authService;
-   
-}
+            AuthService authService, RequestRateLimiter rateLimiter
+    ) {
+        this.authService = authService;
+        this.rateLimiter = rateLimiter;
+    }
+
+    /** Keeps direct Java callers source compatible; this overload is not an HTTP handler. */
+    public AuthController(AuthService authService) { this(authService, new RequestRateLimiter()); }
 
     // =====================================
     // SIGNUP
     // =====================================
 
     @PostMapping("/signup")
-    public String signup(
-            @RequestBody User user
-    ) {
-
-        return authService.signup(user);
+    public String signup(@Valid @RequestBody SignupRequest request, HttpServletRequest http) {
+        rateLimiter.check("otp", http.getRemoteAddr(), request.email());
+        return authService.signup(request);
     }
 
     // =====================================
@@ -40,12 +46,14 @@ public class AuthController {
 
     @PostMapping("/login")
     public Object login(
-            @RequestBody User user
+            @Valid @RequestBody LoginRequest user, HttpServletRequest http
     ) {
-
+        rateLimiter.check("login", http.getRemoteAddr(), user.email());
         return authService.login(user);
     }
-   
+
+    public Object login(User user) { return authService.login(user); }
+    public String signup(User user) { return authService.signup(user); }
 
     // =====================================
     // APPROVE USER
@@ -53,10 +61,11 @@ public class AuthController {
 
     @PutMapping("/approve/{id}")
     @org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")
-    public User approveUser(
+    public UserProfileResponse approveUser(
             @PathVariable Long id
     ) {
-
-        return authService.approveUser(id);
+        return UserProfileResponse.from(
+                authService.approveUser(id)
+        );
     }
 }

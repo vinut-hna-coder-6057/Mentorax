@@ -1,6 +1,7 @@
 package com.alumni.alumni_connect.controller;
 
 import com.alumni.alumni_connect.dto.ConversationDTO;
+import com.alumni.alumni_connect.dto.MessageResponse;
 import com.alumni.alumni_connect.entity.Message;
 import com.alumni.alumni_connect.service.MessageService;
 
@@ -52,9 +53,11 @@ public class MessageController {
     // =====================================
 
     @GetMapping("/messages/conversation")
-    public List<Message> getConversation(
+    public List<MessageResponse> getConversation(
             @RequestParam String sender,
-            @RequestParam String receiver
+            @RequestParam String receiver,
+            @RequestParam(defaultValue="0") int page,
+            @RequestParam(defaultValue="50") int size
     ) {
 
         String authenticatedEmail = SecurityContextHolder
@@ -66,14 +69,20 @@ public class MessageController {
             return messageService.getConversation(
                     sender,
                     receiver,
-                    authenticatedEmail
-            );
+                    authenticatedEmail,page,size
+            ).stream().map(MessageResponse::from).toList();
         } catch (IllegalArgumentException e) {
             throw new ResponseStatusException(
                     HttpStatus.FORBIDDEN,
                     e.getMessage()
             );
         }
+    }
+
+    public List<MessageResponse> getConversation(String sender, String receiver) {
+        String email = SecurityContextHolder.getContext().getAuthentication().getName();
+        try { return messageService.getConversation(sender, receiver, email).stream().map(MessageResponse::from).toList(); }
+        catch (IllegalArgumentException e) { throw new ResponseStatusException(HttpStatus.FORBIDDEN,e.getMessage()); }
     }
 
     // =====================================

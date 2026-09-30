@@ -16,6 +16,9 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 
 @Service
 public class NotificationService {
@@ -82,7 +85,7 @@ public class NotificationService {
 
         // REALTIME WEBSOCKET
 
-        messagingTemplate.convertAndSendToUser(recipient.getEmail(), "/queue/notifications", saved);
+        messagingTemplate.convertAndSendToUser(recipient.getEmail(), "/queue/notifications", NotificationResponse.from(saved));
     }
 
     // =====================================
@@ -92,8 +95,11 @@ public class NotificationService {
     public List<Notification> getNotifications(
             String email
     ) {
-
-        return repository.findByRecipient_IdOrderByTimestampDesc(requireRecipient(email).getId());
+        return getNotifications(email,0,50);
+    }
+    public List<Notification> getNotifications(String email,int page,int size) {
+        Pageable pageable=PageRequest.of(Math.max(0,page),Math.max(1,Math.min(size,100)), Sort.by("timestamp").descending());
+        return repository.findByRecipient_IdOrderByTimestampDesc(requireRecipient(email).getId(),pageable);
     }
 
     // =====================================

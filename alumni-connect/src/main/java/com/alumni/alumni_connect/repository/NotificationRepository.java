@@ -12,6 +12,7 @@ import com.alumni.alumni_connect.service.*;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
+import org.springframework.data.domain.Pageable;
 
 public interface NotificationRepository
         extends JpaRepository<Notification, Long> {
@@ -35,6 +36,7 @@ public interface NotificationRepository
     );
 
     List<Notification> findByRecipient_IdOrderByTimestampDesc(Long recipientId);
+    List<Notification> findByRecipient_IdOrderByTimestampDesc(Long recipientId, Pageable pageable);
 
     long countByRecipient_IdAndIsReadFalse(Long recipientId);
 }

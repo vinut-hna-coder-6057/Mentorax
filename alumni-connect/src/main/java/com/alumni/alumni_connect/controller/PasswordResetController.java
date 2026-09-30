@@ -11,6 +11,7 @@ import com.alumni.alumni_connect.service.*;
 
 import org.springframework.web.bind.annotation.*;
 import jakarta.validation.Valid;
+import jakarta.servlet.http.HttpServletRequest;
 
 @RestController
 
@@ -22,6 +23,7 @@ public class PasswordResetController {
 
     private final PasswordResetService
             passwordResetService;
+    private final RequestRateLimiter rateLimiter;
 
     // =====================================
     // CONSTRUCTOR
@@ -29,13 +31,13 @@ public class PasswordResetController {
 
     public PasswordResetController(
 
-            PasswordResetService
-                    passwordResetService
+            PasswordResetService passwordResetService, RequestRateLimiter rateLimiter
 
     ) {
 
         this.passwordResetService =
                 passwordResetService;
+        this.rateLimiter = rateLimiter;
     }
 
     // =====================================
@@ -49,10 +51,11 @@ public class PasswordResetController {
     public String forgotPassword(
 
             @Valid @RequestBody
-            ForgotPasswordRequest request
+            ForgotPasswordRequest request, HttpServletRequest http
 
     ) {
 
+        rateLimiter.check("otp", http.getRemoteAddr(), request.getEmail());
         return passwordResetService
                 .forgotPassword(request);
     }
@@ -68,10 +71,11 @@ public class PasswordResetController {
     public String verifyOtp(
 
             @Valid @RequestBody
-            VerifyOtpRequest request
+            VerifyOtpRequest request, HttpServletRequest http
 
     ) {
 
+        rateLimiter.check("otp", http.getRemoteAddr(), request.getEmail());
         return passwordResetService
                 .verifyOtp(request);
     }
@@ -87,10 +91,11 @@ public class PasswordResetController {
     public String resetPassword(
 
             @Valid @RequestBody
-            ResetPasswordRequest request
+            ResetPasswordRequest request, HttpServletRequest http
 
     ) {
 
+        rateLimiter.check("otp", http.getRemoteAddr(), request.getEmail());
         return passwordResetService
                 .resetPassword(request);
     }

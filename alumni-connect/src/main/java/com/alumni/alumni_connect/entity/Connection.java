@@ -36,6 +36,12 @@ public class Connection {
     private LocalDateTime createdAt;
     private LocalDateTime respondedAt;
 
+    @Column(name = "pair_low_id", insertable = false, updatable = false)
+    private Long pairLowId;
+
+    @Column(name = "pair_high_id", insertable = false, updatable = false)
+    private Long pairHighId;
+
     @PrePersist
     void onCreate() { createdAt = LocalDateTime.now(); }
 

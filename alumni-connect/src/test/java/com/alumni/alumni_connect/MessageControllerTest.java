@@ -114,7 +114,7 @@ class MessageControllerTest {
                 "alice@example.com"
         )
 ).thenReturn(List.of(message));
-        List<Message> result =
+        List<com.alumni.alumni_connect.dto.MessageResponse> result =
                 controller.getConversation(
                         "alice@example.com",
                         "bob@example.com"
@@ -124,7 +124,7 @@ class MessageControllerTest {
 
         assertEquals(
                 "Hello Bob",
-                result.get(0).getContent()
+                result.get(0).content()
         );
 
         verify(messageService).getConversation(

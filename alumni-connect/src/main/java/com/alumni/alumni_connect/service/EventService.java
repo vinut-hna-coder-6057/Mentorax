@@ -20,6 +20,9 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 
 @Service
 public class EventService {
@@ -119,6 +122,7 @@ public class EventService {
                         "APPROVED"
                 );
     }
+    public List<Event> getApprovedEvents(int page, int size) { return eventRepository.findByStatusOrderByCreatedAtDesc("APPROVED", bounded(page,size)); }
 
     // =====================================
     // GET ALL EVENTS
@@ -129,6 +133,7 @@ public class EventService {
         return eventRepository
                 .findAllByOrderByCreatedAtDesc();
     }
+    public List<Event> getAllEvents(int page, int size) { return eventRepository.findAllByOrderByCreatedAtDesc(bounded(page,size)); }
 
     // =====================================
     // APPROVE EVENT
@@ -387,11 +392,16 @@ public class EventService {
     );
 }
     public List<EventRegistration> getAttendees(Long eventId, String authenticatedEmail) {
+        return getAttendees(eventId,authenticatedEmail,0,50);
+    }
+    public List<EventRegistration> getAttendees(Long eventId,String authenticatedEmail,int page,int size) {
         Event event = eventRepository.findById(eventId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Event not found"));
         requireCreatorOrAdmin(event, authenticatedEmail);
-        return registrationRepository.findByEventId(eventId);
+        return registrationRepository.findByEventId(eventId,PageRequest.of(Math.max(0,page),Math.max(1,Math.min(size,100)),Sort.by("registeredAt").descending()));
     }
+
+    private Pageable bounded(int page,int size) { return PageRequest.of(Math.max(0,page),Math.max(1,Math.min(size,100)), Sort.by("createdAt").descending()); }
 
     private void requireCreatorOrAdmin(Event event, String authenticatedEmail) {
         User caller = userRepository.findByEmail(authenticatedEmail)

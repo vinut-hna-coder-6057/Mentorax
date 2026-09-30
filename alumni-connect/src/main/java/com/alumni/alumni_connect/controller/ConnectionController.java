@@ -17,8 +17,8 @@ import java.util.List;
 public class ConnectionController {
     private final ConnectionService service;
     public ConnectionController(ConnectionService service) { this.service = service; }
-    @GetMapping public List<Connection> mine() { return service.mine(); }
-    @PostMapping("/{receiverId}") public Connection request(@PathVariable Long receiverId) { return service.request(receiverId); }
-    @PutMapping("/{id}") public Connection respond(@PathVariable Long id, @RequestParam String status) { return service.respond(id, status); }
+    @GetMapping @org.springframework.transaction.annotation.Transactional(readOnly = true) public List<ConnectionResponse> mine(@RequestParam(defaultValue="0") int page,@RequestParam(defaultValue="50") int size) { return service.mine(page,size).stream().map(ConnectionResponse::from).toList(); }
+    @PostMapping("/{receiverId}") public ConnectionResponse request(@PathVariable Long receiverId) { return ConnectionResponse.from(service.request(receiverId)); }
+    @PutMapping("/{id}") public ConnectionResponse respond(@PathVariable Long id, @RequestParam String status) { return ConnectionResponse.from(service.respond(id, status)); }
 }
 

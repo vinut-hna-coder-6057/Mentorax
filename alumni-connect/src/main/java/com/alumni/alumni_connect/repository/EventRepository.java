@@ -18,6 +18,7 @@ import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 import java.util.Optional;
+import org.springframework.data.domain.Pageable;
 
 public interface EventRepository
         extends JpaRepository<Event, Long> {
@@ -28,6 +29,7 @@ public interface EventRepository
 
     List<Event>
     findAllByOrderByCreatedAtDesc();
+    List<Event> findAllByOrderByCreatedAtDesc(Pageable pageable);
 
     // =====================================
     // APPROVED EVENTS
@@ -37,6 +39,7 @@ public interface EventRepository
     findByStatusOrderByCreatedAtDesc(
             String status
     );
+    List<Event> findByStatusOrderByCreatedAtDesc(String status, Pageable pageable);
 
     // =====================================
     // PENDING EVENTS

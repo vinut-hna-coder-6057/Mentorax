@@ -12,9 +12,11 @@ import com.alumni.alumni_connect.service.*;
 import org.springframework.data.jpa.repository.JpaRepository;
 import java.util.List;
 import java.util.Optional;
+import org.springframework.data.domain.Pageable;
 
 public interface ConnectionRepository extends JpaRepository<Connection, Long> {
     Optional<Connection> findByRequester_IdAndReceiver_Id(Long requesterId, Long receiverId);
     List<Connection> findByRequester_IdOrReceiver_Id(Long requesterId, Long receiverId);
+    List<Connection> findByRequester_IdOrReceiver_Id(Long requesterId, Long receiverId, Pageable pageable);
 }
 

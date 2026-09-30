@@ -13,9 +13,13 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.dao.DataIntegrityViolationException;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Arrays;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 
 @Service
 public class ConnectionService {
@@ -49,7 +53,11 @@ public class ConnectionService {
         connection.setRequester(lockedRequester);
         connection.setReceiver(receiver);
         connection.setStatus("PENDING");
-        return repository.save(connection);
+        try {
+            return repository.saveAndFlush(connection);
+        } catch (DataIntegrityViolationException race) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Connection already exists");
+        }
     }
 
     @Transactional
@@ -69,8 +77,12 @@ public class ConnectionService {
     }
 
     public List<Connection> mine() {
+        return mine(0,50);
+    }
+    public List<Connection> mine(int page,int size) {
         User caller = currentUser.requireUser();
-        return repository.findByRequester_IdOrReceiver_Id(caller.getId(), caller.getId());
+        Pageable pageable=PageRequest.of(Math.max(0,page),Math.max(1,Math.min(size,100)), Sort.by("createdAt").descending());
+        return repository.findByRequester_IdOrReceiver_Id(caller.getId(), caller.getId(),pageable);
     }
 }
 

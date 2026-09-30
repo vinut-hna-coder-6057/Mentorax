@@ -1,6 +1,7 @@
 package com.alumni.alumni_connect.service;
 
 import com.alumni.alumni_connect.dto.ConversationDTO;
+import com.alumni.alumni_connect.dto.MessageResponse;
 import com.alumni.alumni_connect.entity.Conversation;
 import com.alumni.alumni_connect.entity.Message;
 import com.alumni.alumni_connect.entity.User;
@@ -23,6 +24,8 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 
 @Service
 public class MessageService {
@@ -164,14 +167,14 @@ public class MessageService {
         messagingTemplate.convertAndSendToUser(
                 saved.getReceiverEmail(),
                 "/queue/messages",
-                saved
+                MessageResponse.from(saved)
         );
 
         // Deliver to sender as well
         messagingTemplate.convertAndSendToUser(
                 saved.getSenderEmail(),
                 "/queue/messages",
-                saved
+                MessageResponse.from(saved)
         );
 
         // Notification
@@ -249,6 +252,12 @@ public class MessageService {
             String receiver,
             String authenticatedEmail
     ) {
+        return getConversation(sender,receiver,authenticatedEmail,0,50);
+    }
+
+    @Transactional(readOnly = true)
+    public List<Message> getConversation(String sender,String receiver,String authenticatedEmail,int page,int size) {
+        Pageable pageable=PageRequest.of(Math.max(0,page),Math.max(1,Math.min(size,100)));
 
         if (authenticatedEmail == null
                 || authenticatedEmail.isBlank()) {
@@ -336,7 +345,7 @@ List<Message> messages = new ArrayList<>();
 if (conversation != null) {
     messages.addAll(
             repository.findByConversation_IdOrderByIdAsc(
-                    conversation.getId()
+                    conversation.getId(), pageable
             )
     );
 }
@@ -344,14 +353,14 @@ if (conversation != null) {
         messages.addAll(
                 repository.findConversation(
                         sender,
-                        receiver
+                        receiver, pageable
                 )
         );
 
         messages.addAll(
                 repository.findConversation(
                         receiver,
-                        sender
+                        sender, pageable
                 )
         );
 
@@ -435,14 +444,14 @@ if (conversation != null) {
         // New normalized messages
         messages.addAll(
                 repository.findMessagesForParticipant(
-                        currentUser.getId()
+                        currentUser.getId(), PageRequest.of(0,100)
                 )
         );
 
         // Legacy messages
         messages.addAll(
                 repository.findInboxMessages(
-                        authenticatedEmail
+                        authenticatedEmail, PageRequest.of(0,100)
                 )
         );
 

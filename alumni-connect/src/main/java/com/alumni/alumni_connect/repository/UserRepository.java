@@ -15,6 +15,7 @@ import jakarta.persistence.LockModeType;
 
 import java.util.List;
 import java.util.Optional;
+import org.springframework.data.domain.Pageable;
 
 public interface UserRepository
         extends JpaRepository<User, Long> {
@@ -67,6 +68,8 @@ public interface UserRepository
 
             String status
     );
+    List<User> findByRoleAndStatus(String role, String status, Pageable pageable);
+    List<User> findAllBy(Pageable pageable);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     List<User> findByIdInOrderByIdAsc(List<Long> ids);

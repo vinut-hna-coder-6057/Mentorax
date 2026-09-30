@@ -50,7 +50,7 @@ class AuthControllerHttpTest {
             throws Exception {
 
         Mockito.when(
-                authService.login(Mockito.any())
+                authService.login(Mockito.any(com.alumni.alumni_connect.dto.LoginRequest.class))
         ).thenThrow(
                 new ResponseStatusException(
                         HttpStatus.UNAUTHORIZED,
@@ -87,7 +87,7 @@ class AuthControllerHttpTest {
             throws Exception {
 
         Mockito.when(
-                authService.login(Mockito.any())
+                authService.login(Mockito.any(com.alumni.alumni_connect.dto.LoginRequest.class))
         ).thenThrow(
                 new ResponseStatusException(
                         HttpStatus.FORBIDDEN,
@@ -124,7 +124,7 @@ class AuthControllerHttpTest {
             throws Exception {
 
         Mockito.when(
-                authService.login(Mockito.any())
+                authService.login(Mockito.any(com.alumni.alumni_connect.dto.LoginRequest.class))
         ).thenThrow(
                 new ResponseStatusException(
                         HttpStatus.FORBIDDEN,
@@ -161,7 +161,7 @@ class AuthControllerHttpTest {
             throws Exception {
 
         Mockito.when(
-                authService.login(Mockito.any())
+                authService.login(Mockito.any(com.alumni.alumni_connect.dto.LoginRequest.class))
         ).thenThrow(
                 new ResponseStatusException(
                         HttpStatus.FORBIDDEN,
@@ -198,7 +198,7 @@ class AuthControllerHttpTest {
             throws Exception {
 
         Mockito.when(
-                authService.login(Mockito.any())
+                authService.login(Mockito.any(com.alumni.alumni_connect.dto.LoginRequest.class))
         ).thenReturn("mock.jwt.token");
 
         mockMvc.perform(
@@ -226,7 +226,7 @@ class AuthControllerHttpTest {
             throws Exception {
 
         Mockito.when(
-                authService.signup(Mockito.any())
+                authService.signup(Mockito.any(com.alumni.alumni_connect.dto.SignupRequest.class))
         ).thenThrow(
                 new ResponseStatusException(
                         HttpStatus.CONFLICT,
@@ -239,6 +239,7 @@ class AuthControllerHttpTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
+                                    "name": "Student",
                                     "email": "existing@gmail.com",
                                     "role": "STUDENT",
                                     "password": "password123"
@@ -263,7 +264,7 @@ class AuthControllerHttpTest {
             throws Exception {
 
         Mockito.when(
-                authService.signup(Mockito.any())
+                authService.signup(Mockito.any(com.alumni.alumni_connect.dto.SignupRequest.class))
         ).thenReturn("Signup successful");
 
         mockMvc.perform(
@@ -271,6 +272,7 @@ class AuthControllerHttpTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
+                                    "name": "Student",
                                     "email": "newstudent@gmail.com",
                                     "role": "STUDENT",
                                     "password": "password123"

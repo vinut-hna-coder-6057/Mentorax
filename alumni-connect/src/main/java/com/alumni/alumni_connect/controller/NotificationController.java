@@ -38,13 +38,13 @@ public class NotificationController {
             "/notifications"
     )
 
-    public List<Notification> getNotifications() {
+    public List<NotificationResponse> getNotifications(@RequestParam(defaultValue="0") int page, @RequestParam(defaultValue="50") int size) {
 
         String email =
                 getAuthenticatedEmail();
 
         return notificationService
-                .getNotifications(email);
+                .getNotifications(email,page,size).stream().map(NotificationResponse::from).toList();
     }
 
     // =====================================
@@ -72,7 +72,7 @@ public class NotificationController {
             "/notifications/read/{id}"
     )
 
-    public Notification markRead(
+    public NotificationResponse markRead(
 
             @PathVariable Long id
 
@@ -81,8 +81,7 @@ public class NotificationController {
         String email =
                 getAuthenticatedEmail();
 
-        return notificationService
-                .markRead(id, email);
+        return NotificationResponse.from(notificationService.markRead(id, email));
     }
 
     // =====================================
