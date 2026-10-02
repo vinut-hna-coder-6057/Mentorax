@@ -21,6 +21,8 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.dao.DataIntegrityViolationException;
 
 @RestController
 @RequestMapping("/alumni")
@@ -28,13 +30,25 @@ public class AlumniController {
 
     private final UserRepository repository;
     private final PasswordEncoder passwordEncoder;
+    private final AlumniProfileRepository alumniProfileRepository;
+    private final OtpService otpService;
+    private final EmailService emailService;
+    private final CurrentUserService currentUserService;
 
     public AlumniController(
             UserRepository repository,
-            PasswordEncoder passwordEncoder
+            PasswordEncoder passwordEncoder,
+            AlumniProfileRepository alumniProfileRepository,
+            OtpService otpService,
+            EmailService emailService,
+            CurrentUserService currentUserService
     ) {
         this.repository = repository;
         this.passwordEncoder = passwordEncoder;
+        this.alumniProfileRepository = alumniProfileRepository;
+        this.otpService = otpService;
+        this.emailService = emailService;
+        this.currentUserService = currentUserService;
     }
 
     // =====================================================
@@ -57,6 +71,7 @@ public class AlumniController {
 
     @PostMapping
     @PreAuthorize("hasRole('ADMIN')")
+    @Transactional
     public UserProfileResponse addAlumni(
             @Valid @RequestBody AlumniCreateRequest request
     ) {
@@ -69,10 +84,16 @@ public class AlumniController {
         }
 
         alumni.setPassword(passwordEncoder.encode(alumni.getPassword()));
+        alumni.setEmailVerified(false);
+        User saved = repository.save(alumni);
+        AlumniProfile profile = new AlumniProfile(saved);
+        profile.copyLegacyFields(saved);
+        profile.setApprovalStatus(saved.getStatus());
+        alumniProfileRepository.save(profile);
 
-        return UserProfileResponse.from(
-                repository.save(alumni)
-        );
+        String otp = otpService.generateOtp(saved.getEmail(), "EMAIL_VERIFICATION");
+        emailService.sendEmailVerificationOtp(saved.getEmail(), otp);
+        return UserProfileResponse.from(saved);
     }
 
     // =====================================================
@@ -114,6 +135,7 @@ public class AlumniController {
 
     @PutMapping("/reject/{id}")
     @PreAuthorize("hasRole('ADMIN')")
+    @Transactional
     public UserProfileResponse rejectAlumni(@PathVariable Long id) {
 
         User alumni = repository.findById(id)
@@ -130,6 +152,7 @@ public class AlumniController {
         }
 
         alumni.setStatus("REJECTED");
+        syncAlumniProfile(alumni);
 
         return UserProfileResponse.from(
                 repository.save(alumni)
@@ -142,10 +165,31 @@ public class AlumniController {
 
     @DeleteMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN')")
+    @Transactional
     public void deleteAlumni(
             @PathVariable Long id
     ) {
-        repository.deleteById(id);
+        User alumni = repository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
+        if (currentUserService.requireUser().getId().equals(alumni.getId())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Administrators cannot delete their own account");
+        }
+        if (!"ALUMNI".equalsIgnoreCase(alumni.getRole())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Only alumni accounts can be deleted here");
+        }
+
+        // Remove the dependent role profile first. Other foreign keys intentionally
+        // restrict deletion so unrelated messages, registrations, or notifications
+        // are never cascaded away.
+        alumniProfileRepository.deleteById(alumni.getId());
+        try {
+            repository.delete(alumni);
+            repository.flush();
+        } catch (DataIntegrityViolationException exception) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Account is still referenced by application data and cannot be deleted");
+        }
     }
 
     // =====================================================
@@ -154,6 +198,7 @@ public class AlumniController {
 
     @PutMapping("/approve/{id}")
     @PreAuthorize("hasRole('ADMIN')")
+    @Transactional
     public UserProfileResponse approveAlumni(@PathVariable Long id) {
 
         User alumni = repository.findById(id)
@@ -170,9 +215,27 @@ public class AlumniController {
         }
 
         alumni.setStatus("APPROVED");
+        syncAlumniProfile(alumni);
 
         return UserProfileResponse.from(
                 repository.save(alumni)
         );
+    }
+
+    private void syncAlumniProfile(User alumni) {
+        AlumniProfile profile = alumniProfileRepository.findById(alumni.getId())
+                .orElseGet(() -> {
+                    AlumniProfile created = new AlumniProfile(alumni);
+                    created.copyLegacyFields(alumni);
+                    return created;
+                });
+        profile.setApprovalStatus(alumni.getStatus());
+        if ("APPROVED".equalsIgnoreCase(alumni.getStatus())) {
+            profile.setApprovedAt(java.time.LocalDateTime.now());
+        } else {
+            profile.setApprovedAt(null);
+            profile.setApprovedBy(null);
+        }
+        alumniProfileRepository.save(profile);
     }
 }

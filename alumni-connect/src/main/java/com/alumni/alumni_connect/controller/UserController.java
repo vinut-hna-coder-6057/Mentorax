@@ -117,6 +117,7 @@ public List<UserProfileResponse> getAllUsers(@RequestParam(defaultValue="0") int
     // =========================================
 
     @PutMapping("/{id}")
+    @org.springframework.transaction.annotation.Transactional
 
     public UserProfileResponse updateProfile(
 
@@ -207,6 +208,8 @@ public List<UserProfileResponse> getAllUsers(@RequestParam(defaultValue="0") int
             AlumniProfile profile = alumniProfileRepository.findById(saved.getId())
                     .orElseGet(() -> new AlumniProfile(saved));
             profile.copyLegacyFields(saved);
+            // User.status is the account workflow source of truth.
+            profile.setApprovalStatus(saved.getStatus());
             alumniProfileRepository.save(profile);
         }
 

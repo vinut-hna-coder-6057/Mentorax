@@ -14,6 +14,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
+import com.alumni.alumni_connect.dto.ResetAuthorizationResponse;
+import java.time.LocalDateTime;
 
 @Service
 public class PasswordResetService {
@@ -107,62 +109,26 @@ public class PasswordResetService {
     // VERIFY OTP
     // =====================================
 
-    public String verifyOtp(VerifyOtpRequest request) {
-
-    boolean valid =
-            otpService.verifyOtp(
-                    request.getEmail(),
-                    request.getOtp(),
-                    "PASSWORD_RESET"
-            );
-
-    if (!valid) {
-        throw new ResponseStatusException(
-                HttpStatus.BAD_REQUEST,
-                "Invalid or expired OTP"
-        );
+    public ResetAuthorizationResponse verifyOtp(VerifyOtpRequest request) {
+        return otpService.verifyPasswordResetOtp(request.getEmail(), request.getOtp())
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST,
+                        "Invalid or expired OTP"));
     }
-
-    return "OTP verified";
-}
 
     // =====================================
     // RESET PASSWORD
     // =====================================
 
     @Transactional
-    public String resetPassword(
-
-            ResetPasswordRequest request
-
-    ) {
-
+    public String resetPassword(ResetPasswordRequest request) {
         if (request.getNewPassword() == null || request.getNewPassword().length() < 8
                 || request.getNewPassword().length() > 128) {
-            throw new IllegalArgumentException("Password does not meet requirements");
-        }
-
-        // =====================================
-        // CHECK OTP WAS VERIFIED
-        // =====================================
-
-        boolean otpVerified =
-                otpRepository
-                        .findFirstByEmailAndPurposeAndVerifiedTrueAndConsumedAtIsNotNullOrderByIdDesc(
-                                request.getEmail(), "PASSWORD_RESET"
-                        )
-                        .isPresent();
-
-        if (!otpVerified) {
-
-    throw new ResponseStatusException(
-            HttpStatus.BAD_REQUEST,
-            "OTP verification required"
-    );
-}
-        // =====================================
-        // FIND USER
-        // =====================================
+        throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Password does not meet requirements"
+        );
+    }
 
         User user =
                 userRepository.findByEmail(
@@ -171,33 +137,33 @@ public class PasswordResetService {
 
         if (user == null) {
             throw new ResponseStatusException(
-                HttpStatus.NOT_FOUND,
-                "User not found"
+                    HttpStatus.BAD_REQUEST,
+                    "Invalid or expired reset authorization"
             );
         }
+        if (request.getResetToken() == null || request.getResetToken().isBlank()
+                || request.getResetToken().length() > 64) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Invalid or expired reset authorization");
+        }
 
-        // =====================================
-        // ENCODE NEW PASSWORD
-        // =====================================
+        int consumed = otpRepository.consumeResetAuthorization(
+                request.getEmail(),
+                otpService.hashResetToken(request.getResetToken()),
+                LocalDateTime.now());
+        if (consumed != 1) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Invalid or expired reset authorization");
+        }
 
         user.setPassword(
                 passwordEncoder.encode(
                         request.getNewPassword()
                 )
         );
-
-        // =====================================
-        // SAVE USER
-        // =====================================
-
         userRepository.save(user);
-
-        // =====================================
-        // DELETE USED OTP
-        // =====================================
-
-        otpRepository.deleteByEmailAndPurpose(request.getEmail(), "PASSWORD_RESET");
-
         return "Password reset successful";
     }
 }

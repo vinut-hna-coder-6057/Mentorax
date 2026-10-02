@@ -6,9 +6,10 @@ enum ApiErrorKind {
   notFound,
   conflict,
   validation,
+  rateLimited,
   server,
   malformed,
-  unknown
+  unknown,
 }
 
 class ApiException implements Exception {

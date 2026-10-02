@@ -20,11 +20,21 @@ class AppRepository {
           decode: (d) => d as String);
   Future<String> signup(User user, String password) => api.post('/signup',
       data: user.toJson(password: password), decode: (d) => d as String);
-  Future<List<User>> users(UserRole role) =>
-      api.get(role == UserRole.alumni ? '/users/alumni' : '/users/students',
-          decode: (d) => (d as List)
-              .map((e) => User.fromJson(Map<String, dynamic>.from(e as Map)))
-              .toList());
+  Future<List<User>> users(
+  UserRole role, {
+  int page = 0,
+  int size = 50,
+}) =>
+    api.get(
+      role == UserRole.alumni ? '/users/alumni' : '/users/students',
+      query: {
+        'page': page,
+        'size': size,
+      },
+      decode: (d) => (d as List)
+          .map((e) => User.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList(),
+    );
   Future<User> user(int id) => api.get('/users/$id',
       decode: (d) => User.fromJson(Map<String, dynamic>.from(d as Map)));
   Future<User> userByEmail(String email) => api.get(
@@ -34,11 +44,21 @@ class AppRepository {
   Future<User> updateUser(User user) => api.put('/users/${user.id}',
       data: user.toJson(),
       decode: (d) => User.fromJson(Map<String, dynamic>.from(d as Map)));
-  Future<List<EventItem>> events({bool all = false}) => api.get(
+  Future<List<EventItem>> events({
+  bool all = false,
+  int page = 0,
+  int size = 50,
+}) =>
+    api.get(
       all ? '/events/all' : '/events',
+      query: {
+        'page': page,
+        'size': size,
+      },
       decode: (d) => (d as List)
           .map((e) => EventItem.fromJson(Map<String, dynamic>.from(e as Map)))
-          .toList());
+          .toList(),
+    );
   Future<void> registerEvent(int id) =>
       api.post('/events/register', query: {'eventId': id}, decode: (_) {});
   Future<void> cancelRegistration(int id) =>
@@ -51,17 +71,37 @@ class AppRepository {
       decode: (d) => EventItem.fromJson(Map<String, dynamic>.from(d as Map)));
   Future<void> deleteEvent(int id) =>
       api.delete('/events/$id', decode: (_) {});
-  Future<List<EventAttendee>> attendees(int id) => api.get(
+  Future<List<EventAttendee>> attendees(
+  int id, {
+  int page = 0,
+  int size = 50,
+}) =>
+    api.get(
       '/events/attendees/$id',
+      query: {
+        'page': page,
+        'size': size,
+      },
       decode: (d) => (d as List)
           .map((e) =>
               EventAttendee.fromJson(Map<String, dynamic>.from(e as Map)))
-          .toList());
-  Future<List<ConnectionItem>> connections() => api.get('/connections',
+          .toList(),
+    );
+  Future<List<ConnectionItem>> connections({
+  int page = 0,
+  int size = 50,
+}) =>
+    api.get(
+      '/connections',
+      query: {
+        'page': page,
+        'size': size,
+      },
       decode: (d) => (d as List)
           .map((e) =>
               ConnectionItem.fromJson(Map<String, dynamic>.from(e as Map)))
-          .toList());
+          .toList(),
+    );
   Future<ConnectionItem> requestConnection(int id) =>
       api.post('/connections/$id',
           decode: (d) =>
@@ -72,8 +112,16 @@ class AppRepository {
           decode: (d) =>
               ConnectionItem.fromJson(Map<String, dynamic>.from(d as Map)));
              
-               Future<List<User>> pendingUsers() => api.get(
+             Future<List<User>> pendingUsers({
+  int page = 0,
+  int size = 50,
+}) =>
+    api.get(
       '/alumni/pending',
+      query: {
+        'page': page,
+        'size': size,
+      },
       decode: (d) => (d as List)
           .map(
             (e) => User.fromJson(
@@ -82,11 +130,22 @@ class AppRepository {
           )
           .toList(),
     );
-  Future<List<NotificationItem>> notifications() => api.get('/notifications',
+
+ Future<List<NotificationItem>> notifications({
+  int page = 0,
+  int size = 50,
+}) =>
+    api.get(
+      '/notifications',
+      query: {
+        'page': page,
+        'size': size,
+      },
       decode: (d) => (d as List)
           .map((e) =>
               NotificationItem.fromJson(Map<String, dynamic>.from(e as Map)))
-          .toList());
+          .toList(),
+    );
   Future<int> unreadCount() =>
       api.get('/notifications/unread', decode: (d) => (d as num).toInt());
   Future<void> markRead(int id) =>
@@ -96,26 +155,52 @@ class AppRepository {
           .map(
               (e) => Conversation.fromJson(Map<String, dynamic>.from(e as Map)))
           .toList());
-  Future<List<ChatMessage>> messages(String sender, String receiver) => api.get(
+ Future<List<ChatMessage>> messages(
+  String sender,
+  String receiver, {
+  int page = 0,
+  int size = 50,
+}) =>
+    api.get(
       '/messages/conversation',
-      query: {'sender': sender, 'receiver': receiver},
+      query: {
+        'sender': sender,
+        'receiver': receiver,
+        'page': page,
+        'size': size,
+      },
       decode: (d) => (d as List)
-          .map((e) => ChatMessage.fromJson(Map<String, dynamic>.from(e as Map)))
-          .toList());
+          .map((e) =>
+              ChatMessage.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList(),
+    );
   Future<void> rejectAlumni(int id) =>
     api.put('/alumni/reject/$id', decode: (_) {});
   Future<void> approveEvent(int id) =>
       api.put('/events/approve/$id', decode: (_) {});
   Future<void> rejectEvent(int id) =>
       api.put('/events/reject/$id', decode: (_) {});
-  Future<List<User>> allUsers() => api.get('/users',
+  Future<List<User>> allUsers({
+  int page = 0,
+  int size = 50,
+}) =>
+    api.get(
+      '/users',
+      query: {
+        'page': page,
+        'size': size,
+      },
       decode: (d) => (d as List)
           .map((e) => User.fromJson(Map<String, dynamic>.from(e as Map)))
-          .toList());
+          .toList(),
+    );
   Future<void> forgotPassword(String email) =>
       api.post('/forgot-password', data: {'email': email}, decode: (_) {});
-  Future<void> verifyOtp(String email, String otp, String purpose) => api.post('/verify-otp',
-      data: {'email': email, 'otp': otp}, decode: (_) {});
+  Future<String> verifyOtp(String email, String otp, String purpose) => api.post(
+        '/verify-otp',
+        data: {'email': email, 'otp': otp},
+        decode: (d) => (d as Map)['resetToken'] as String,
+      );
   Future<void> verifyEmail(String email, String otp) =>
     api.post(
       '/verify-email',
@@ -125,7 +210,12 @@ class AppRepository {
       },
       decode: (_) {},
     );
-  Future<void> resetPassword(String email, String password) =>
+  Future<void> resetPassword(String email, String password, String resetToken) =>
       api.post('/reset-password',
-          data: {'email': email, 'newPassword': password}, decode: (_) {});
+          data: {
+            'email': email,
+            'newPassword': password,
+            'resetToken': resetToken,
+          },
+          decode: (_) {});
 }

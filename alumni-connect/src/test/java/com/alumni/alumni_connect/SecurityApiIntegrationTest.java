@@ -8,16 +8,25 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.alumni.alumni_connect.entity.Message;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import static org.junit.jupiter.api.Assertions.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import com.alumni.alumni_connect.entity.Notification;
+import com.alumni.alumni_connect.entity.Otp;
 import com.alumni.alumni_connect.repository.ConversationRepository;
 import com.alumni.alumni_connect.repository.MessageRepository;
 import com.alumni.alumni_connect.repository.NotificationRepository;
+import com.alumni.alumni_connect.repository.OtpRepository;
+import com.alumni.alumni_connect.repository.AlumniProfileRepository;
+import com.alumni.alumni_connect.repository.StudentProfileRepository;
+import com.alumni.alumni_connect.repository.EventRepository;
 import java.util.UUID;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -31,6 +40,8 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.SimpleMailMessage;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
@@ -60,6 +71,16 @@ private EmailService emailService;
 private JavaMailSender mailSender;
 @Autowired
 private PasswordEncoder passwordEncoder;
+@Autowired
+private OtpRepository otpRepository;
+@Autowired
+private AlumniProfileRepository alumniProfileRepository;
+@Autowired
+private StudentProfileRepository studentProfileRepository;
+@Autowired
+private EventRepository eventRepository;
+@Autowired
+private PlatformTransactionManager transactionManager;
     @BeforeEach
     void setUpUsers() {
         String suffix = UUID.randomUUID().toString();
@@ -456,7 +477,7 @@ void completePasswordResetFlowSucceeds() throws Exception {
     );
 
     // 2. Verify OTP
-    mockMvc.perform(post("/verify-otp")
+    String verificationResponse = mockMvc.perform(post("/verify-otp")
             .contentType(MediaType.APPLICATION_JSON)
             .content("""
                 {
@@ -464,7 +485,10 @@ void completePasswordResetFlowSucceeds() throws Exception {
                   "otp": "%s"
                 }
                 """.formatted(email, capturedOtp[0])))
-            .andExpect(status().isOk());
+            .andExpect(status().isOk())
+            .andReturn().getResponse().getContentAsString();
+    String resetToken = new ObjectMapper().readTree(verificationResponse)
+            .get("resetToken").asText();
 
     // 3. Reset password
     mockMvc.perform(post("/reset-password")
@@ -472,9 +496,10 @@ void completePasswordResetFlowSucceeds() throws Exception {
             .content("""
                 {
                   "email": "%s",
-                  "newPassword": "%s"
+                  "newPassword": "%s",
+                  "resetToken": "%s"
                 }
-                """.formatted(email, newPassword)))
+                """.formatted(email, newPassword, resetToken)))
             .andExpect(status().isOk());
 
     // 4. Login using the NEW password
@@ -803,6 +828,280 @@ void resetPasswordWithoutVerifiedOtpIsRejected() throws Exception {
                 """))
             .andExpect(status().isBadRequest());
 }
+
+@Test
+void signupCreatesRoleSpecificProfilesAndAccountStatusIsAuthoritative() throws Exception {
+    String studentEmail = "profile-student-" + UUID.randomUUID() + "@example.test";
+    mockMvc.perform(post("/signup")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(new ObjectMapper().writeValueAsString(java.util.Map.of(
+                            "name", "Profile Student", "email", studentEmail,
+                            "password", "StudentPassword123", "role", "STUDENT"))))
+            .andExpect(status().isOk());
+    User createdStudent = users.findByEmail(studentEmail).orElseThrow();
+    assertEquals("STUDENT", createdStudent.getRole());
+    assertEquals("APPROVED", createdStudent.getStatus());
+    assertTrue(studentProfileRepository.existsById(createdStudent.getId()));
+    assertFalse(alumniProfileRepository.existsById(createdStudent.getId()));
+
+    String alumniEmail = "profile-alumni-" + UUID.randomUUID() + "@example.test";
+    mockMvc.perform(post("/signup")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(new ObjectMapper().writeValueAsString(java.util.Map.of(
+                            "name", "Profile Alumni", "email", alumniEmail,
+                            "password", "AlumniPassword123", "role", "ALUMNI"))))
+            .andExpect(status().isOk());
+    User createdAlumni = users.findByEmail(alumniEmail).orElseThrow();
+    assertEquals("ALUMNI", createdAlumni.getRole());
+    assertEquals("PENDING", createdAlumni.getStatus());
+    assertEquals("PENDING", alumniProfileRepository.findById(createdAlumni.getId())
+            .orElseThrow().getApprovalStatus());
+}
+
+@Test
+void profileUpdateCannotChangeRoleOrStatusAndRepairsMissingRoleProfile() throws Exception {
+    assertFalse(studentProfileRepository.existsById(student.getId()));
+    mockMvc.perform(put("/users/{id}", student.getId())
+                    .header("Authorization", bearer(student.getEmail(), "STUDENT"))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("""
+                            {"name":"Updated Name","role":"ADMIN","status":"APPROVED"}
+                            """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.role").value("STUDENT"))
+            .andExpect(jsonPath("$.status").value("APPROVED"));
+
+    User updated = users.findById(student.getId()).orElseThrow();
+    assertEquals("STUDENT", updated.getRole());
+    assertEquals("APPROVED", updated.getStatus());
+    assertTrue(studentProfileRepository.existsById(student.getId()));
+    assertFalse(alumniProfileRepository.existsById(student.getId()));
+}
+
+@Test
+void userCannotModifyAnotherAccountsProfile() throws Exception {
+    mockMvc.perform(put("/users/{id}", admin.getId())
+                    .header("Authorization", bearer(student.getEmail(), "STUDENT"))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"name\":\"Unauthorized change\"}"))
+            .andExpect(status().isForbidden());
+    assertEquals("Security Admin", users.findById(admin.getId()).orElseThrow().getName());
+}
+
+@Test
+void rejectedAccountCannotContinueUsingProtectedEndpoints() throws Exception {
+    student.setStatus("REJECTED");
+    users.save(student);
+    mockMvc.perform(get("/users")
+                    .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+            .andExpect(status().isUnauthorized());
+}
+
+@Test
+void adminApprovalSynchronizesAuthoritativeUserAndAlumniProfileStatus() throws Exception {
+    User alumni = users.save(new User("Pending Alumni", "pending-alumni-" + UUID.randomUUID()
+            + "@example.test", passwordEncoder.encode("InitialPassword123"), "ALUMNI", "PENDING"));
+
+    mockMvc.perform(put("/alumni/approve/{id}", alumni.getId())
+                    .header("Authorization", bearer(admin.getEmail(), "ADMIN")))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.status").value("APPROVED"));
+
+    assertEquals("APPROVED", users.findById(alumni.getId()).orElseThrow().getStatus());
+    assertEquals("APPROVED", alumniProfileRepository.findById(alumni.getId())
+            .orElseThrow().getApprovalStatus());
+}
+
+@Test
+void adminCreatedAlumniGetsProfileAndEmailVerificationFlow() throws Exception {
+    String email = "admin-created-alumni-" + UUID.randomUUID() + "@example.test";
+    mockMvc.perform(post("/alumni")
+                    .header("Authorization", bearer(admin.getEmail(), "ADMIN"))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(new ObjectMapper().writeValueAsString(java.util.Map.of(
+                            "name", "Created Alumni", "email", email,
+                            "password", "InitialPassword123"))))
+            .andExpect(status().isOk());
+    User created = users.findByEmail(email).orElseThrow();
+    assertFalse(created.isEmailVerified());
+    assertEquals("ALUMNI", created.getRole());
+    assertEquals("PENDING", created.getStatus());
+    assertEquals("PENDING", alumniProfileRepository.findById(created.getId())
+            .orElseThrow().getApprovalStatus());
+    assertTrue(otpRepository.findFirstByEmailAndPurposeOrderByIdDesc(
+            email, "EMAIL_VERIFICATION").isPresent());
+}
+
+@Test
+void nonAdminCannotAccessAdminQueuesOrApproveEvents() throws Exception {
+    mockMvc.perform(get("/alumni/pending")
+                    .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+            .andExpect(status().isForbidden());
+    mockMvc.perform(put("/events/approve/{id}", 987654L)
+                    .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+            .andExpect(status().isForbidden());
+}
+
+@Test
+void alumniAdminEndpointsRejectWrongRoleTargetsAndProtectAdminSelf() throws Exception {
+    mockMvc.perform(put("/alumni/approve/{id}", student.getId())
+                    .header("Authorization", bearer(admin.getEmail(), "ADMIN")))
+            .andExpect(status().isBadRequest());
+    assertEquals("APPROVED", users.findById(student.getId()).orElseThrow().getStatus());
+
+    mockMvc.perform(delete("/alumni/{id}", admin.getId())
+                    .header("Authorization", bearer(admin.getEmail(), "ADMIN")))
+            .andExpect(status().isConflict());
+    assertTrue(users.existsById(admin.getId()));
+}
+
+@Test
+@Transactional(propagation = Propagation.NOT_SUPPORTED)
+void deletingAlumniDoesNotCascadeDeleteReferencedEvents() throws Exception {
+    Long alumniId = new TransactionTemplate(transactionManager).execute(status -> {
+        User alumni = users.save(new User("Referenced Alumni", "referenced-alumni-"
+                + UUID.randomUUID() + "@example.test", "encoded", "ALUMNI", "APPROVED"));
+        alumni.setEmailVerified(true);
+        alumniProfileRepository.save(new com.alumni.alumni_connect.entity.AlumniProfile(alumni));
+        com.alumni.alumni_connect.entity.Event event = new com.alumni.alumni_connect.entity.Event();
+        event.setTitle("Owned event");
+        event.setCreator(alumni);
+        event.setRole("ALUMNI");
+        event.setStatus("APPROVED");
+        eventRepository.saveAndFlush(event);
+        return alumni.getId();
+    });
+
+    mockMvc.perform(delete("/alumni/{id}", alumniId)
+                    .header("Authorization", bearer(admin.getEmail(), "ADMIN")))
+            .andExpect(status().isConflict());
+
+    assertTrue(users.existsById(alumniId));
+    assertTrue(alumniProfileRepository.existsById(alumniId));
+    assertEquals(1, eventRepository.count());
+}
+
+@Test
+@Transactional(propagation = Propagation.NOT_SUPPORTED)
+void adminCanDeleteOnlyUnreferencedAlumniAndRemovesItsProfile() throws Exception {
+    Long alumniId = new TransactionTemplate(transactionManager).execute(status -> {
+        User alumni = users.save(new User("Disposable Alumni", "disposable-alumni-"
+                + UUID.randomUUID() + "@example.test", "encoded", "ALUMNI", "REJECTED"));
+        alumniProfileRepository.save(new com.alumni.alumni_connect.entity.AlumniProfile(alumni));
+        return alumni.getId();
+    });
+
+    mockMvc.perform(delete("/alumni/{id}", alumniId)
+                    .header("Authorization", bearer(admin.getEmail(), "ADMIN")))
+            .andExpect(status().isOk());
+    assertFalse(users.existsById(alumniId));
+    assertFalse(alumniProfileRepository.existsById(alumniId));
+}
+
+@Test
+void wrongOtpCannotAuthorizeButValidOtpReturnsShortLivedOpaqueToken() throws Exception {
+    String token = requestResetAuthorization(student.getEmail(), true);
+    assertEquals(43, token.length());
+    Otp otp = otpRepository.findFirstByEmailAndPurposeOrderByIdDesc(
+            student.getEmail(), "PASSWORD_RESET").orElseThrow();
+    assertTrue(otp.isVerified());
+    assertNotNull(otp.getConsumedAt());
+    assertNotNull(otp.getResetTokenExpiry());
+    assertNotEquals(token, otp.getResetTokenHash());
+    assertEquals(64, otp.getResetTokenHash().length());
+}
+
+@Test
+void resetRejectsInvalidAndExpiredAuthorizationWithoutChangingPassword() throws Exception {
+    String token = requestResetAuthorization(student.getEmail(), false);
+    String originalHash = student.getPassword();
+
+    mockMvc.perform(post("/reset-password")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(new ObjectMapper().writeValueAsString(
+                            resetPayload(student.getEmail(), "wrong-token", "NewPassword123"))))
+            .andExpect(status().isBadRequest());
+    assertEquals(originalHash, users.findByEmail(student.getEmail()).orElseThrow().getPassword());
+
+    Otp otp = otpRepository.findFirstByEmailAndPurposeOrderByIdDesc(
+            student.getEmail(), "PASSWORD_RESET").orElseThrow();
+    otp.setResetTokenExpiry(java.time.LocalDateTime.now().minusSeconds(1));
+    otpRepository.save(otp);
+    mockMvc.perform(post("/reset-password")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(new ObjectMapper().writeValueAsString(
+                            resetPayload(student.getEmail(), token, "NewPassword123"))))
+            .andExpect(status().isBadRequest());
+    assertEquals(originalHash, users.findByEmail(student.getEmail()).orElseThrow().getPassword());
+}
+
+@Test
+void resetAuthorizationIsAccountBoundSingleUseAndChangesPasswordOnlyOnce() throws Exception {
+    String token = requestResetAuthorization(student.getEmail(), false);
+    String originalStudentHash = student.getPassword();
+    String originalAdminHash = admin.getPassword();
+
+    mockMvc.perform(post("/reset-password")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(new ObjectMapper().writeValueAsString(
+                            resetPayload(admin.getEmail(), token, "AttackerPassword123"))))
+            .andExpect(status().isBadRequest());
+    assertEquals(originalAdminHash, users.findByEmail(admin.getEmail()).orElseThrow().getPassword());
+    assertEquals(originalStudentHash, users.findByEmail(student.getEmail()).orElseThrow().getPassword());
+
+    mockMvc.perform(post("/reset-password")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(new ObjectMapper().writeValueAsString(
+                            resetPayload(student.getEmail(), token, "NewPassword123"))))
+            .andExpect(status().isOk())
+            .andExpect(content().string("Password reset successful"));
+    String changedHash = users.findByEmail(student.getEmail()).orElseThrow().getPassword();
+    assertNotEquals(originalStudentHash, changedHash);
+    assertTrue(passwordEncoder.matches("NewPassword123", changedHash));
+
+    mockMvc.perform(post("/reset-password")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(new ObjectMapper().writeValueAsString(
+                            resetPayload(student.getEmail(), token, "AnotherPassword123"))))
+            .andExpect(status().isBadRequest());
+    assertEquals(changedHash, users.findByEmail(student.getEmail()).orElseThrow().getPassword());
+}
+
+private String requestResetAuthorization(String email, boolean tryWrongOtpFirst) throws Exception {
+    mockMvc.perform(post("/forgot-password")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(new ObjectMapper().writeValueAsString(java.util.Map.of("email", email))))
+            .andExpect(status().isOk())
+            .andExpect(content().string("If an account exists, an OTP has been sent"));
+
+    ArgumentCaptor<SimpleMailMessage> mail = ArgumentCaptor.forClass(SimpleMailMessage.class);
+    verify(mailSender).send(mail.capture());
+    Matcher matcher = Pattern.compile("\\b\\d{6}\\b").matcher(mail.getValue().getText());
+    assertTrue(matcher.find());
+    String otp = matcher.group();
+
+    if (tryWrongOtpFirst) {
+        String wrongOtp = (otp.charAt(0) == '0' ? "1" : "0") + otp.substring(1);
+        mockMvc.perform(post("/verify-otp")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(new ObjectMapper().writeValueAsString(
+                                java.util.Map.of("email", email, "otp", wrongOtp))))
+                .andExpect(status().isBadRequest());
+    }
+
+    String response = mockMvc.perform(post("/verify-otp")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(new ObjectMapper().writeValueAsString(
+                            java.util.Map.of("email", email, "otp", otp))))
+            .andExpect(status().isOk())
+            .andReturn().getResponse().getContentAsString();
+    return new ObjectMapper().readTree(response).get("resetToken").asText();
+}
+
+private java.util.Map<String, String> resetPayload(String email, String token, String password) {
+    return java.util.Map.of("email", email, "resetToken", token, "newPassword", password);
+}
+
 @Test
 void authenticatedStudentCanRegisterForEvent() throws Exception {
 

@@ -46,6 +46,13 @@ public class AlumniProfile {
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
+    public String getApprovalStatus() { return approvalStatus; }
+    public void setApprovalStatus(String approvalStatus) { this.approvalStatus = approvalStatus; }
+    public Long getApprovedBy() { return approvedBy; }
+    public void setApprovedBy(Long approvedBy) { this.approvedBy = approvedBy; }
+    public LocalDateTime getApprovedAt() { return approvedAt; }
+    public void setApprovedAt(LocalDateTime approvedAt) { this.approvedAt = approvedAt; }
+
     protected AlumniProfile() {
     }
 

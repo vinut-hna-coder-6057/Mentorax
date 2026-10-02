@@ -1,5 +1,6 @@
 package com.alumni.alumni_connect;
-
+import com.alumni.alumni_connect.dto.EventRequest;
+import com.alumni.alumni_connect.dto.MessageRequest;
 import com.alumni.alumni_connect.entity.Connection;
 import com.alumni.alumni_connect.entity.Event;
 import com.alumni.alumni_connect.entity.Notification;
@@ -43,9 +44,46 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
+import jakarta.validation.Validation;
+import jakarta.validation.Validator;
 
 @ExtendWith(MockitoExtension.class)
 class ProductionHardeningTest {
+
+    @Test
+    void websocketMessageRequestValidatesContentAndIgnoresServerOwnedFields() throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        MessageRequest request = mapper.readValue(
+                "{\"receiverEmail\":\"bob@example.com\",\"content\":\"hello\","
+                        + "\"senderEmail\":\"attacker@example.com\",\"conversationId\":99,\"id\":1}",
+                MessageRequest.class
+        );
+        Validator validator = Validation.buildDefaultValidatorFactory().getValidator();
+
+        assertEquals("bob@example.com", request.receiverEmail());
+        assertEquals("hello", request.content());
+        assertEquals(0, validator.validate(request).size());
+        assertFalse(mapper.writeValueAsString(request).contains("senderEmail"));
+
+        assertFalse(validator.validate(new MessageRequest("bob@example.com", "  ")).isEmpty());
+        assertFalse(validator.validate(new MessageRequest("bob@example.com", "x".repeat(2001))).isEmpty());
+        assertFalse(validator.validate(new MessageRequest("invalid", "hello")).isEmpty());
+    }
+
+    @Test
+    void eventRequestCannotDeserializeServerOwnedFields() throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        EventRequest request = mapper.readValue(
+                "{\"title\":\"Event\",\"id\":99,\"role\":\"ADMIN\","
+                        + "\"status\":\"APPROVED\",\"createdBy\":\"attacker@example.com\","
+                        + "\"attendeeCount\":500,\"createdAt\":\"2020-01-01T00:00:00\"}",
+                EventRequest.class
+        );
+
+        assertEquals("Event", request.title());
+        assertEquals(7, EventRequest.class.getRecordComponents().length);
+        assertFalse(mapper.writeValueAsString(request).contains("createdBy"));
+    }
 
     @Mock UserRepository users;
     @Mock StudentProfileRepository students;
@@ -127,9 +165,15 @@ class ProductionHardeningTest {
     void eventCreationUsesAuthenticatedCreatorAndRole() {
         User caller = user("member@example.com", "STUDENT", 1L);
 
-        Event request = new Event();
-        request.setRole("ADMIN");
-
+      EventRequest request = new EventRequest(
+        "Test Event",
+        "Description",
+        "Bhimavaram",
+        "2026-10-10",
+        "TECH",
+        "https://example.com/meeting",
+        "https://example.com/image.png"
+);
         when(users.findByEmail("member@example.com"))
                 .thenReturn(Optional.of(caller));
 
@@ -151,6 +195,8 @@ class ProductionHardeningTest {
         assertSame(caller, saved.getCreator());
         assertEquals("STUDENT", saved.getRole());
         assertEquals("PENDING", saved.getStatus());
+        assertEquals(0, saved.getAttendeeCount());
+        assertNotNull(saved.getCreatedAt());
     }
 
     @Test
@@ -161,10 +207,15 @@ class ProductionHardeningTest {
         stored.setCreator(owner);
         stored.setRole("STUDENT");
         stored.setTitle("original");
-
-        Event update = new Event();
-        update.setTitle("changed");
-
+        EventRequest update = new EventRequest(
+        "changed",
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+);
         when(events.findById(10L))
                 .thenReturn(Optional.of(stored));
 
@@ -411,6 +462,52 @@ class ProductionHardeningTest {
                 anyString(),
                 anyString()
         );
+    }
+
+    @Test
+    void wrongOtpIncrementsAttemptsWithoutConsumingOtp() {
+        Otp otp = new Otp();
+        otp.setExpiry(LocalDateTime.now().plusMinutes(5));
+        otp.setAttemptCount(0);
+        otp.setVerified(false);
+        otp.setCodeHash("stored-hash");
+        when(otps.findFirstByEmailAndPurposeOrderByIdDesc(
+                "user@example.com", "EMAIL_VERIFICATION"))
+                .thenReturn(Optional.of(otp));
+        when(encoder.matches("000000", "stored-hash")).thenReturn(false);
+
+        OtpService service = new OtpService(otps, encoder);
+        assertFalse(service.verifyOtp(
+                "user@example.com", "000000", "EMAIL_VERIFICATION"));
+        assertEquals(1, otp.getAttemptCount());
+        assertNull(otp.getConsumedAt());
+        verify(otps).save(otp);
+    }
+
+    @Test
+    void consumedOtpCannotBeReusedAndPurposeIsPartOfLookup() {
+        Otp otp = new Otp();
+        otp.setExpiry(LocalDateTime.now().plusMinutes(5));
+        otp.setConsumedAt(LocalDateTime.now());
+        otp.setVerified(true);
+        otp.setCodeHash("stored-hash");
+        when(otps.findFirstByEmailAndPurposeOrderByIdDesc(
+                "user@example.com", "EMAIL_VERIFICATION"))
+                .thenReturn(Optional.of(otp));
+
+        OtpService service = new OtpService(otps, encoder);
+        assertFalse(service.verifyOtp(
+                "user@example.com", "123456", "EMAIL_VERIFICATION"));
+        verify(encoder, never()).matches(anyString(), anyString());
+        verify(otps, never()).save(any(Otp.class));
+
+        when(otps.findFirstByEmailAndPurposeOrderByIdDesc(
+                "user@example.com", "PASSWORD_RESET"))
+                .thenReturn(Optional.empty());
+        assertFalse(service.verifyOtp(
+                "user@example.com", "123456", "PASSWORD_RESET"));
+        verify(otps).findFirstByEmailAndPurposeOrderByIdDesc(
+                "user@example.com", "PASSWORD_RESET");
     }
 
     private User user(

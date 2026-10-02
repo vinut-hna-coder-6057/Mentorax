@@ -27,14 +27,15 @@ public class EventController {
     // =====================================
     // CREATE EVENT
     // =====================================
-
-    @PostMapping("/events")
-    public EventDTO createEvent(
-          @Valid @RequestBody Event event, Authentication authentication
-    ) {
-
-        return EventDTO.from(eventService.createEvent(event, authentication.getName()));
-    }
+  @PostMapping("/events")
+public EventDTO createEvent(
+        @Valid @RequestBody EventRequest request,
+        Authentication authentication
+) {
+    return EventDTO.from(
+            eventService.createEvent(request, authentication.getName())
+    );
+}
 
     // =====================================
     // STUDENT EVENTS
@@ -81,11 +82,16 @@ public class EventController {
 
         return EventDTO.from(eventService.rejectEvent(id));
     }
-
     @PutMapping("/events/{id}")
-    public EventDTO updateEvent(@PathVariable Long id, @Valid @RequestBody Event event, Authentication authentication) {
-        return EventDTO.from(eventService.updateEvent(id, event, authentication.getName()));
-    }
+public EventDTO updateEvent(
+        @PathVariable Long id,
+        @Valid @RequestBody EventRequest request,
+        Authentication authentication
+) {
+    return EventDTO.from(
+            eventService.updateEvent(id, request, authentication.getName())
+    );
+}
 
     @DeleteMapping("/events/{id}")
     public void deleteEvent(@PathVariable Long id, Authentication authentication) {

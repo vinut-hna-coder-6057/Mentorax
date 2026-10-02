@@ -87,6 +87,7 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: '/reset-password',
             builder: (_, state) => PasswordScreen(
                   email: state.uri.queryParameters['email'] ?? '',
+                  resetToken: state.extra is String ? state.extra as String : '',
                 )),
         GoRoute(
             path: '/otp-verify',

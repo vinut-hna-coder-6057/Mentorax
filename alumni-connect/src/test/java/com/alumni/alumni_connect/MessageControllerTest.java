@@ -1,6 +1,7 @@
 package com.alumni.alumni_connect;
 
 import com.alumni.alumni_connect.controller.MessageController;
+import com.alumni.alumni_connect.dto.MessageRequest;
 import com.alumni.alumni_connect.entity.Message;
 import com.alumni.alumni_connect.service.MessageService;
 
@@ -40,17 +41,14 @@ class MessageControllerTest {
     @Test
     void authenticatedPrincipalShouldSendMessageUsingPrincipalEmail() {
 
-        Message message = new Message();
-        message.setSenderEmail("spoofed@example.com");
-        message.setReceiverEmail("bob@example.com");
-        message.setContent("Hello Bob");
+        MessageRequest request = new MessageRequest("bob@example.com", "Hello Bob");
 
         Principal principal = () -> "alice@example.com";
 
-        controller.sendMessage(message, principal);
+        controller.sendMessage(request, principal);
 
         verify(messageService).sendMessage(
-                same(message),
+                same(request),
                 eq("alice@example.com")
         );
     }
@@ -58,13 +56,11 @@ class MessageControllerTest {
     @Test
     void unauthenticatedStompMessageShouldBeRejected() {
 
-        Message message = new Message();
-        message.setReceiverEmail("bob@example.com");
-        message.setContent("Hello Bob");
+        MessageRequest request = new MessageRequest("bob@example.com", "Hello Bob");
 
         ResponseStatusException exception = assertThrows(
                 ResponseStatusException.class,
-                () -> controller.sendMessage(message, null)
+                () -> controller.sendMessage(request, null)
         );
 
         assertEquals(
@@ -80,7 +76,7 @@ class MessageControllerTest {
         verify(
                 messageService,
                 never()
-        ).sendMessage(any(Message.class), anyString());
+        ).sendMessage(any(MessageRequest.class), anyString());
     }
 
     // =========================================================

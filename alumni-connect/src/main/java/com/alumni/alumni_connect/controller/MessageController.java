@@ -2,7 +2,7 @@ package com.alumni.alumni_connect.controller;
 
 import com.alumni.alumni_connect.dto.ConversationDTO;
 import com.alumni.alumni_connect.dto.MessageResponse;
-import com.alumni.alumni_connect.entity.Message;
+import com.alumni.alumni_connect.dto.MessageRequest;
 import com.alumni.alumni_connect.service.MessageService;
 
 import java.security.Principal;
@@ -16,8 +16,11 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.validation.annotation.Validated;
+import jakarta.validation.Valid;
 
 @RestController
+@Validated
 public class MessageController {
 
     private final MessageService messageService;
@@ -32,7 +35,7 @@ public class MessageController {
 
     @MessageMapping("/chat")
     public void sendMessage(
-            @Payload Message message,
+            @Valid @Payload MessageRequest request,
             Principal principal
     ) {
         if (principal == null) {
@@ -43,7 +46,7 @@ public class MessageController {
         }
 
         messageService.sendMessage(
-                message,
+                request,
                 principal.getName()
         );
     }

@@ -47,6 +47,12 @@ public class Otp {
 
     private boolean verified = false;
 
+    @Column(name = "reset_token_hash", length = 64)
+    private String resetTokenHash;
+
+    @Column(name = "reset_token_expiry")
+    private LocalDateTime resetTokenExpiry;
+
     public Otp() {
     }
 
@@ -125,5 +131,10 @@ public class Otp {
     public void setVerified(boolean verified) {
         this.verified = verified;
     }
+
+    public String getResetTokenHash() { return resetTokenHash; }
+    public void setResetTokenHash(String resetTokenHash) { this.resetTokenHash = resetTokenHash; }
+    public LocalDateTime getResetTokenExpiry() { return resetTokenExpiry; }
+    public void setResetTokenExpiry(LocalDateTime resetTokenExpiry) { this.resetTokenExpiry = resetTokenExpiry; }
 }
 

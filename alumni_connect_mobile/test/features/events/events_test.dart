@@ -115,7 +115,10 @@ void main() {
       expect(sentRequest, isNotNull);
       expect(sentRequest!.method, 'GET');
       expect(sentRequest!.path, '/events');
-      expect(sentRequest!.queryParameters, isEmpty);
+      expect(
+        sentRequest!.queryParameters,
+        {'page': 0, 'size': 50},
+      );
       expect(sentRequest!.uri.host, 'api.example.test');
       expect(adapter.history, hasLength(1));
 
@@ -187,10 +190,16 @@ void main() {
 
       final events = await repository.events(all: true);
 
-      expect(sentRequest, isNotNull);
+      expect(
+        sentRequest!.queryParameters,
+        {'page': 0, 'size': 50},
+      );
       expect(sentRequest!.method, 'GET');
       expect(sentRequest!.path, '/events/all');
-      expect(sentRequest!.queryParameters, isEmpty);
+      expect(
+        sentRequest!.queryParameters,
+        {'page': 0, 'size': 50},
+      );
       expect(adapter.history, hasLength(1));
 
       expect(events, hasLength(2));
@@ -899,5 +908,55 @@ void main() {
         ),
       );
     });
+  });
+  // ------------------------------------------------------------
+  // ERROR 8 — 429 TOO MANY REQUESTS
+  // ------------------------------------------------------------
+  test('events handles 429 Too Many Requests', () async {
+    final dio = Dio(
+      BaseOptions(
+        baseUrl: 'https://api.example.test',
+        responseType: ResponseType.plain,
+      ),
+    );
+
+    final adapter = DioAdapter(dio: dio);
+
+    adapter.onGet(
+      '/events',
+      (server) => server.reply(
+        429,
+        'Too many requests',
+      ),
+    );
+
+    final repository = AppRepository(
+      ApiClient(
+        SecureStorageService(const FlutterSecureStorage()),
+        dio: dio,
+      ),
+    );
+
+    await expectLater(
+      repository.events(),
+      throwsA(
+        isA<ApiException>()
+            .having(
+              (e) => e.kind,
+              'kind',
+              ApiErrorKind.rateLimited,
+            )
+            .having(
+              (e) => e.statusCode,
+              'statusCode',
+              429,
+            )
+            .having(
+              (e) => e.message,
+              'message',
+              contains('Too many requests'),
+            ),
+      ),
+    );
   });
 }

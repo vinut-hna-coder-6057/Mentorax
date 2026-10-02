@@ -23,6 +23,10 @@ public class ResetPasswordRequest {
     @Size(min = 8, max = 128)
     private String newPassword;
 
+    @NotBlank
+    @Size(max = 64)
+    private String resetToken;
+
     // =====================================
     // GET EMAIL
     // =====================================
@@ -66,4 +70,7 @@ public class ResetPasswordRequest {
 
         this.newPassword = newPassword;
     }
+
+    public String getResetToken() { return resetToken; }
+    public void setResetToken(String resetToken) { this.resetToken = resetToken; }
 }

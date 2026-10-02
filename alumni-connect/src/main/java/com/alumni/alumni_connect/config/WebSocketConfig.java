@@ -52,6 +52,8 @@ public class WebSocketConfig
 
         // WHERE CLIENT SUBSCRIBES
 
+        // The in-memory simple broker supports one application instance only;
+        // subscriptions and deliveries are not shared between replicas.
         registry.enableSimpleBroker(
                 "/topic", "/queue"
         );

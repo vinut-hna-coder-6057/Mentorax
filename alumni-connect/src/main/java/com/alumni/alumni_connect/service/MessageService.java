@@ -2,6 +2,7 @@ package com.alumni.alumni_connect.service;
 
 import com.alumni.alumni_connect.dto.ConversationDTO;
 import com.alumni.alumni_connect.dto.MessageResponse;
+import com.alumni.alumni_connect.dto.MessageRequest;
 import com.alumni.alumni_connect.entity.Conversation;
 import com.alumni.alumni_connect.entity.Message;
 import com.alumni.alumni_connect.entity.User;
@@ -20,10 +21,8 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
+import java.util.Collections;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 
@@ -56,6 +55,14 @@ public class MessageService {
     // =====================================
     // SEND MESSAGE
     // =====================================
+
+    @Transactional
+    public void sendMessage(MessageRequest request, String authenticatedEmail) {
+        Message message = new Message();
+        message.setReceiverEmail(request.receiverEmail());
+        message.setContent(request.content());
+        sendMessage(message, authenticatedEmail);
+    }
 
     @Transactional
     public void sendMessage(Message message, String authenticatedEmail) {
@@ -339,70 +346,16 @@ if (conversation != null) {
     }
 }
 
-List<Message> messages = new ArrayList<>();
-
-// New normalized conversation messages
-if (conversation != null) {
-    messages.addAll(
-            repository.findByConversation_IdOrderByIdAsc(
-                    conversation.getId(), pageable
-            )
-    );
-}
-        // Legacy messages
-        messages.addAll(
-                repository.findConversation(
-                        sender,
-                        receiver, pageable
-                )
+        List<Message> result = repository.findConversationPage(
+                conversation == null ? null : conversation.getId(),
+                sender,
+                receiver,
+                pageable
         );
 
-        messages.addAll(
-                repository.findConversation(
-                        receiver,
-                        sender, pageable
-                )
-        );
-
-        /*
-         * A message should appear only once.
-         *
-         * Normalized messages and legacy messages are stored
-         * differently, so deduplicate by database ID.
-         */
-        Map<Long, Message> uniqueMessages =
-                new LinkedHashMap<>();
-
-        for (Message message : messages) {
-
-            if (message.getId() != null) {
-                uniqueMessages.put(
-                        message.getId(),
-                        message
-                );
-            }
-        }
-
-        List<Message> result =
-                new ArrayList<>(uniqueMessages.values());
-
-        // Oldest -> newest for chat screen
-        result.sort(
-                Comparator
-                        .comparing(
-                                Message::getTimestamp,
-                                Comparator.nullsLast(
-                                        Comparator.naturalOrder()
-                                )
-                        )
-                        .thenComparing(
-                                Message::getId,
-                                Comparator.nullsLast(
-                                        Comparator.naturalOrder()
-                                )
-                        )
-        );
-
+        // Page zero contains the newest messages. Return each page chronologically
+        // so the chat view can append live messages and render oldest to newest.
+        Collections.reverse(result);
         return result;
     }
 
@@ -438,87 +391,8 @@ if (conversation != null) {
                                 )
                         );
 
-        List<Message> messages =
-                new ArrayList<>();
-
-        // New normalized messages
-        messages.addAll(
-                repository.findMessagesForParticipant(
-                        currentUser.getId(), PageRequest.of(0,100)
-                )
-        );
-
-        // Legacy messages
-        messages.addAll(
-                repository.findInboxMessages(
-                        authenticatedEmail, PageRequest.of(0,100)
-                )
-        );
-
-        /*
-         * One conversation can contain many messages.
-         *
-         * Keep only the newest message for each other user.
-         */
-        Map<String, Message> latestByParticipant =
-                new LinkedHashMap<>();
-
-        for (Message message : messages) {
-
-            String otherEmail;
-
-            if (authenticatedEmail.equalsIgnoreCase(
-                    message.getSenderEmail()
-            )) {
-
-                otherEmail =
-                        message.getReceiverEmail();
-
-            } else {
-
-                otherEmail =
-                        message.getSenderEmail();
-            }
-
-            if (otherEmail == null
-                    || otherEmail.isBlank()) {
-                continue;
-            }
-
-            Message existing =
-                    latestByParticipant.get(otherEmail);
-
-            if (existing == null
-                    || isNewer(message, existing)) {
-
-                latestByParticipant.put(
-                        otherEmail,
-                        message
-                );
-            }
-        }
-
-        List<Message> latestMessages =
-                new ArrayList<>(
-                        latestByParticipant.values()
-                );
-
-        // Newest conversation first
-        latestMessages.sort(
-                Comparator
-                        .comparing(
-                                Message::getTimestamp,
-                                Comparator.nullsLast(
-                                        Comparator.reverseOrder()
-                                )
-                        )
-                        .thenComparing(
-                                Message::getId,
-                                Comparator.nullsLast(
-                                        Comparator.reverseOrder()
-                                )
-                        )
-        );
+        List<Message> latestMessages = repository.findLatestMessagesForParticipant(
+                currentUser.getId(), authenticatedEmail);
 
         List<ConversationDTO> conversations =
                 new ArrayList<>();
@@ -545,19 +419,11 @@ if (conversation != null) {
                 continue;
             }
 
-            User otherUser =
-                    userRepository.findByEmail(otherEmail)
-                            .orElse(null);
-
-            if (otherUser == null) {
-                continue;
-            }
-
             ConversationDTO dto =
                     new ConversationDTO();
 
             dto.setEmail(
-                    otherUser.getEmail()
+                    otherEmail
             );
 
             dto.setLatestMessage(
@@ -574,40 +440,4 @@ if (conversation != null) {
         return conversations;
     }
 
-    // =====================================
-    // MESSAGE COMPARISON
-    // =====================================
-
-    private boolean isNewer(
-            Message first,
-            Message second
-    ) {
-
-        if (first.getTimestamp() == null) {
-            return false;
-        }
-
-        if (second.getTimestamp() == null) {
-            return true;
-        }
-
-        int timestampComparison =
-                first.getTimestamp().compareTo(
-                        second.getTimestamp()
-                );
-
-        if (timestampComparison != 0) {
-            return timestampComparison > 0;
-        }
-
-        if (first.getId() == null) {
-            return false;
-        }
-
-        if (second.getId() == null) {
-            return true;
-        }
-
-        return first.getId() > second.getId();
-    }
 }

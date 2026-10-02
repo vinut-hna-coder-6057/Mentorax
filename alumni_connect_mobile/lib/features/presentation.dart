@@ -700,9 +700,11 @@ class PasswordScreen extends StatefulWidget {
     super.key,
     this.forgot = false,
     this.email = '',
+    this.resetToken = '',
   });
   final bool forgot;
   final String email;
+  final String resetToken;
 
   @override
   State<PasswordScreen> createState() => _PasswordScreenState();
@@ -831,7 +833,8 @@ class _PasswordScreenState extends State<PasswordScreen> {
       if (widget.forgot) {
         await repo.forgotPassword(_email.text.trim());
       } else {
-        await repo.resetPassword(_email.text.trim(), _password.text);
+        await repo.resetPassword(
+            _email.text.trim(), _password.text, widget.resetToken);
       }
 
       if (!mounted) return;
@@ -884,13 +887,14 @@ class _OtpScreenState extends State<OtpScreen> {
     });
     try {
       final email = _email.text.trim();
-      await ProviderScope.containerOf(context)
+      final resetToken = await ProviderScope.containerOf(context)
           .read(appRepositoryProvider)
           .verifyOtp(email, _otp.text.trim(), 'PASSWORD_RESET');
 
       if (!mounted) return;
 
-      context.go('/reset-password?email=${Uri.encodeComponent(email)}');
+      context.go('/reset-password?email=${Uri.encodeComponent(email)}',
+          extra: resetToken);
     } catch (error) {
       if (!mounted) return;
 
@@ -1243,9 +1247,9 @@ class HomeScreen extends ConsumerWidget {
                 label: 'Connections',
                 value: connections.when(
                   data: (value) => '${value.where(
-                    (connection) =>
-                        connection.status.toUpperCase() == 'ACCEPTED',
-                  ).length}',
+                        (connection) =>
+                            connection.status.toUpperCase() == 'ACCEPTED',
+                      ).length}',
                   loading: () => '…',
                   error: (_, __) => '—',
                 ),
@@ -1462,6 +1466,7 @@ class _QuickAction extends StatelessWidget {
 
 class DirectoryScreen extends ConsumerStatefulWidget {
   const DirectoryScreen({super.key});
+
   @override
   ConsumerState<DirectoryScreen> createState() => _DirectoryScreenState();
 }
@@ -1469,17 +1474,119 @@ class DirectoryScreen extends ConsumerStatefulWidget {
 class _DirectoryScreenState extends ConsumerState<DirectoryScreen> {
   UserRole _role = UserRole.alumni;
   final _search = TextEditingController();
+  final _scrollController = ScrollController();
+
+  final List<User> _users = [];
+
+  int _page = 0;
+  static const int _pageSize = 50;
+
+  bool _isLoading = true;
+  bool _isLoadingMore = false;
+  bool _hasMore = true;
+  Object? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_onScroll);
+    _loadFirstPage();
+  }
 
   @override
   void dispose() {
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
     _search.dispose();
     super.dispose();
   }
 
+  Future<void> _loadFirstPage() async {
+    if (!mounted) return;
+
+    setState(() {
+      _users.clear();
+      _page = 0;
+      _hasMore = true;
+      _isLoading = true;
+      _isLoadingMore = false;
+      _error = null;
+    });
+
+    try {
+      final results = await ref.read(appRepositoryProvider).users(
+            _role,
+            page: 0,
+            size: _pageSize,
+          );
+
+      if (!mounted) return;
+
+      setState(() {
+        _users.addAll(results);
+        _hasMore = results.length == _pageSize;
+        _isLoading = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+
+      setState(() {
+        _error = error;
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _loadNextPage() async {
+    if (!mounted || _isLoading || _isLoadingMore || !_hasMore) {
+      return;
+    }
+
+    setState(() {
+      _isLoadingMore = true;
+    });
+
+    final nextPage = _page + 1;
+
+    try {
+      final results = await ref.read(appRepositoryProvider).users(
+            _role,
+            page: nextPage,
+            size: _pageSize,
+          );
+
+      if (!mounted) return;
+
+      setState(() {
+        _users.addAll(results);
+        _page = nextPage;
+        _hasMore = results.length == _pageSize;
+        _isLoadingMore = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+
+      setState(() {
+        _isLoadingMore = false;
+        _error = error;
+      });
+    }
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+
+    final position = _scrollController.position;
+
+    if (position.pixels >= position.maxScrollExtent - 300) {
+      _loadNextPage();
+    }
+  }
+
   @override
   Widget build(BuildContext c) {
-    final users = ref.watch(directoryProvider(_role));
     final query = _search.text.trim().toLowerCase();
+
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 1000),
@@ -1488,8 +1595,10 @@ class _DirectoryScreenState extends ConsumerState<DirectoryScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Discover people',
-                  style: Theme.of(c).textTheme.headlineSmall),
+              Text(
+                'Discover people',
+                style: Theme.of(c).textTheme.headlineSmall,
+              ),
               const SizedBox(height: 4),
               Text(
                 'Find students and alumni and grow your professional network.',
@@ -1519,125 +1628,147 @@ class _DirectoryScreenState extends ConsumerState<DirectoryScreen> {
               DropdownButtonFormField<UserRole>(
                 initialValue: _role,
                 decoration: const InputDecoration(
-                    labelText: 'Browse', prefixIcon: Icon(Icons.filter_list)),
+                  labelText: 'Browse',
+                  prefixIcon: Icon(Icons.filter_list),
+                ),
                 items: const [
                   DropdownMenuItem(
-                      value: UserRole.alumni, child: Text('Alumni')),
+                    value: UserRole.alumni,
+                    child: Text('Alumni'),
+                  ),
                   DropdownMenuItem(
-                      value: UserRole.student, child: Text('Students')),
+                    value: UserRole.student,
+                    child: Text('Students'),
+                  ),
                 ],
                 onChanged: (value) {
-                  if (value != null) setState(() => _role = value);
+                  if (value == null || value == _role) return;
+
+                  setState(() {
+                    _role = value;
+                  });
+
+                  _loadFirstPage();
                 },
               ),
               const SizedBox(height: 12),
               Expanded(
-                child: users.when(
-                  loading: () => const LoadingState(),
-                  error: (error, _) => ErrorState(
-                    message: userFacingError(error),
-                    onRetry: () => ref.invalidate(directoryProvider(_role)),
-                  ),
-                  data: (results) {
-                    final filtered = results.where((user) {
-                      if (query.isEmpty) return true;
-                      final haystack = [
-                        user.name,
-                        user.email,
-                        user.company,
-                        user.jobRole,
-                        user.branch,
-                        user.location,
-                        user.skills,
-                      ].whereType<String>().join(' ').toLowerCase();
-                      return haystack.contains(query);
-                    }).toList();
-                    if (filtered.isEmpty) {
-                      return EmptyState(
-                        title: query.isEmpty
-                            ? 'No ${_role.name}s to show'
-                            : 'No matches found',
-                        message: query.isEmpty
-                            ? 'People will appear here when they join the community.'
-                            : 'Try another name, skill, company, or location.',
-                        icon: Icons.person_search_outlined,
-                      );
-                    }
-                    return GridView.builder(
-                      padding: const EdgeInsets.only(bottom: AppSpacing.lg),
-                      gridDelegate:
-                          const SliverGridDelegateWithMaxCrossAxisExtent(
-                        maxCrossAxisExtent: 480,
-                        mainAxisExtent: 124,
-                        crossAxisSpacing: AppSpacing.md,
-                        mainAxisSpacing: AppSpacing.md,
-                      ),
-                      itemCount: filtered.length,
-                      itemBuilder: (context, index) {
-                        final u = filtered[index];
-                        final details = [
-                          if (u.jobRole?.isNotEmpty == true) u.jobRole!,
-                          if (u.company?.isNotEmpty == true) u.company!,
-                          if (u.branch?.isNotEmpty == true) u.branch!,
-                          if (u.passoutYear?.isNotEmpty == true)
-                            'Class of ${u.passoutYear}',
-                          if (u.location?.isNotEmpty == true) u.location!,
-                        ];
-                        return AppCard(
-                          child: InkWell(
-                            onTap: () => c.push('/user/${u.id}'),
-                            borderRadius: BorderRadius.circular(AppRadius.lg),
-                            child: Padding(
-                              padding: const EdgeInsets.all(AppSpacing.md),
-                              child: Row(
-                                children: [
-                                  UserAvatar(
-                                    name: u.name,
-                                    imageUrl: u.profileImage,
-                                  ),
-                                  const SizedBox(width: AppSpacing.md),
-                                  Expanded(
-                                    child: Column(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.center,
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          u.name,
-                                          style: Theme.of(context)
-                                              .textTheme
-                                              .titleMedium,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                        const SizedBox(height: AppSpacing.xs),
-                                        Text(
-                                          details.isEmpty
-                                              ? u.email
-                                              : details.join(' · '),
-                                          maxLines: 2,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  const SizedBox(width: AppSpacing.xs),
-                                  const Icon(Icons.chevron_right),
-                                ],
-                              ),
-                            ),
-                          ),
-                        );
-                      },
-                    );
-                  },
-                ),
+                child: _isLoading
+                    ? const LoadingState()
+                    : _error != null && _users.isEmpty
+                        ? ErrorState(
+                            message: userFacingError(_error!),
+                            onRetry: _loadFirstPage,
+                          )
+                        : _buildUserGrid(c, query),
               ),
             ],
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildUserGrid(BuildContext c, String query) {
+    final filtered = _users.where((user) {
+      if (query.isEmpty) return true;
+
+      final haystack = [
+        user.name,
+        user.email,
+        user.company,
+        user.jobRole,
+        user.branch,
+        user.location,
+        user.skills,
+      ].whereType<String>().join(' ').toLowerCase();
+
+      return haystack.contains(query);
+    }).toList();
+
+    if (filtered.isEmpty) {
+      return EmptyState(
+        title: query.isEmpty
+            ? 'No ${_role.name}s to show'
+            : 'No matches found in loaded users',
+        message: query.isEmpty
+            ? 'People will appear here when they join the community.'
+            : 'Try another name, skill, company, or location.',
+        icon: Icons.person_search_outlined,
+      );
+    }
+
+    return GridView.builder(
+      controller: _scrollController,
+      padding: const EdgeInsets.only(bottom: AppSpacing.lg),
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 480,
+        mainAxisExtent: 124,
+        crossAxisSpacing: AppSpacing.md,
+        mainAxisSpacing: AppSpacing.md,
+      ),
+      itemCount: filtered.length + (_isLoadingMore ? 1 : 0),
+      itemBuilder: (context, index) {
+        if (index >= filtered.length) {
+          return const Center(
+            child: Padding(
+              padding: EdgeInsets.all(AppSpacing.md),
+              child: CircularProgressIndicator(),
+            ),
+          );
+        }
+
+        final u = filtered[index];
+
+        final details = [
+          if (u.jobRole?.isNotEmpty == true) u.jobRole!,
+          if (u.company?.isNotEmpty == true) u.company!,
+          if (u.branch?.isNotEmpty == true) u.branch!,
+          if (u.passoutYear?.isNotEmpty == true) 'Class of ${u.passoutYear}',
+          if (u.location?.isNotEmpty == true) u.location!,
+        ];
+
+        return AppCard(
+          child: InkWell(
+            onTap: () => c.push('/user/${u.id}'),
+            borderRadius: BorderRadius.circular(AppRadius.lg),
+            child: Padding(
+              padding: const EdgeInsets.all(AppSpacing.md),
+              child: Row(
+                children: [
+                  UserAvatar(
+                    name: u.name,
+                    imageUrl: u.profileImage,
+                  ),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          u.name,
+                          style: Theme.of(context).textTheme.titleMedium,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: AppSpacing.xs),
+                        Text(
+                          details.isEmpty ? u.email : details.join(' · '),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.xs),
+                  const Icon(Icons.chevron_right),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -1841,9 +1972,18 @@ class _EventsScreenState extends ConsumerState<EventsScreen> {
                   ],
                 ),
               ),
-              onRetry: () => r.invalidate(user?.role == UserRole.admin
-                  ? adminEventsProvider
-                  : eventsProvider),
+              onRetry: () => r.invalidate(
+                user?.role == UserRole.admin
+                    ? adminEventsProvider
+                    : eventsProvider,
+              ),
+              onLoadMore: () {
+                if (user?.role == UserRole.admin) {
+                  r.read(adminEventsProvider.notifier).loadNextPage();
+                } else {
+                  r.read(eventsProvider.notifier).loadNextPage();
+                }
+              },
             ),
           ),
         ],
@@ -1853,45 +1993,56 @@ class _EventsScreenState extends ConsumerState<EventsScreen> {
 }
 
 Future<void> _eventAction(
-    BuildContext c,
-    WidgetRef r,
-    Future<void> Function() action,
-    FutureProvider<List<EventItem>> provider) async {
+  BuildContext c,
+  WidgetRef r,
+  Future<void> Function() action,
+  VoidCallback refresh,
+) async {
   try {
     await action();
-    r.invalidate(provider);
+    refresh();
   } catch (error) {
     if (c.mounted) {
-      ScaffoldMessenger.of(c)
-          .showSnackBar(SnackBar(content: Text(userFacingError(error))));
+      ScaffoldMessenger.of(c).showSnackBar(
+        SnackBar(content: Text(userFacingError(error))),
+      );
     }
   }
 }
 
 Future<void> _deleteEvent(BuildContext c, WidgetRef r, int id) async {
   final confirmed = await showDialog<bool>(
-      context: c,
-      builder: (context) => AlertDialog(
-            title: const Text('Delete event?'),
-            content: const Text('This action cannot be undone.'),
-            actions: [
-              TextButton(
-                  onPressed: () => Navigator.pop(context, false),
-                  child: const Text('Cancel')),
-              FilledButton(
-                  onPressed: () => Navigator.pop(context, true),
-                  child: const Text('Delete')),
-            ],
-          ));
+    context: c,
+    builder: (context) => AlertDialog(
+      title: const Text('Delete event?'),
+      content: const Text('This action cannot be undone.'),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, true),
+          child: const Text('Delete'),
+        ),
+      ],
+    ),
+  );
+
   if (confirmed != true) return;
   if (!c.mounted) return;
+
   await _eventAction(
-      c,
-      r,
-      () => r.read(appRepositoryProvider).deleteEvent(id),
+    c,
+    r,
+    () => r.read(appRepositoryProvider).deleteEvent(id),
+    () => r.invalidate(
       r.read(authProvider).valueOrNull?.role == UserRole.admin
           ? adminEventsProvider
-          : eventsProvider);
+          : eventsProvider,
+    ),
+  );
+
   if (!c.mounted) return;
 }
 
@@ -3099,7 +3250,8 @@ class _EventDetailsState extends ConsumerState<_EventDetails> {
                             : () => _updateRegistration(
                                   id,
                                   register: false,
-                                  refreshProvider: eventsProviderToRefresh,
+                                  refreshProvider: () =>
+                                      ref.invalidate(eventsProviderToRefresh),
                                 ),
                         icon: _registering
                             ? const SizedBox(
@@ -3120,7 +3272,8 @@ class _EventDetailsState extends ConsumerState<_EventDetails> {
                             : () => _updateRegistration(
                                   id,
                                   register: true,
-                                  refreshProvider: eventsProviderToRefresh,
+                                  refreshProvider: () =>
+                                      ref.invalidate(eventsProviderToRefresh),
                                 ),
                         icon: _registering
                             ? const SizedBox(
@@ -3152,7 +3305,7 @@ class _EventDetailsState extends ConsumerState<_EventDetails> {
   Future<void> _updateRegistration(
     int id, {
     required bool register,
-    required FutureProvider<List<EventItem>> refreshProvider,
+    required VoidCallback refreshProvider,
   }) async {
     setState(() => _registering = true);
     try {
@@ -3164,7 +3317,7 @@ class _EventDetailsState extends ConsumerState<_EventDetails> {
       }
       if (!mounted) return;
       setState(() => _registeredDuringSession = register);
-      ref.invalidate(refreshProvider);
+      refreshProvider();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -3247,6 +3400,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   StreamSubscription<RealtimeState>? _realtimeSub;
   RealtimeState _realtimeState = RealtimeState.disconnected;
   bool _loading = true;
+  bool _loadingOlder = false;
+  bool _hasMoreHistory = true;
+  int _nextHistoryPage = 1;
+  static const _historyPageSize = 50;
   String? _error;
   String? _sendError;
 
@@ -3255,6 +3412,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   @override
   void initState() {
     super.initState();
+    _scrollController.addListener(_loadOlderWhenAtTop);
     final realtime = ref.read(realtimeServiceProvider);
     _realtimeState = realtime.current;
     _realtimeSub = realtime.states.listen((state) {
@@ -3279,6 +3437,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
   }
 
+  void _loadOlderWhenAtTop() {
+    if (_scrollController.hasClients &&
+        _scrollController.position.pixels <= 80) {
+      _loadOlderMessages();
+    }
+  }
+
   Future<void> _loadHistory() async {
     setState(() {
       _loading = true;
@@ -3293,8 +3458,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       return;
     }
     try {
-      final list =
-          await ref.read(appRepositoryProvider).messages(me, widget.email);
+      final list = await ref.read(appRepositoryProvider).messages(
+            me,
+            widget.email,
+            page: 0,
+            size: _historyPageSize,
+          );
       if (!mounted) return;
       setState(() {
         final liveMessages = List<ChatMessage>.of(_messages);
@@ -3307,6 +3476,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           }
         }
         _sortMessages();
+        _nextHistoryPage = 1;
+        _hasMoreHistory = list.length == _historyPageSize;
         _loading = false;
       });
       _scrollToLatest();
@@ -3316,6 +3487,51 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         _loading = false;
         _error = userFacingError(e);
       });
+    }
+  }
+
+  Future<void> _loadOlderMessages() async {
+    if (_loading || _loadingOlder || !_hasMoreHistory || _messages.isEmpty) {
+      return;
+    }
+    final me = ref.read(authProvider).valueOrNull?.email;
+    if (me == null || me.isEmpty) return;
+
+    _loadingOlder = true;
+    final oldPixels = _scrollController.hasClients
+        ? _scrollController.position.pixels
+        : 0.0;
+    final oldMaxExtent = _scrollController.hasClients
+        ? _scrollController.position.maxScrollExtent
+        : 0.0;
+    try {
+      final older = await ref.read(appRepositoryProvider).messages(
+            me,
+            widget.email,
+            page: _nextHistoryPage,
+            size: _historyPageSize,
+          );
+      if (!mounted) return;
+      setState(() {
+        for (final message in older) {
+          if (!_messages.any((existing) => _sameMessage(existing, message))) {
+            _messages.add(message);
+          }
+        }
+        _sortMessages();
+        _nextHistoryPage++;
+        _hasMoreHistory = older.length == _historyPageSize;
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!_scrollController.hasClients) return;
+        final extentAdded =
+            _scrollController.position.maxScrollExtent - oldMaxExtent;
+        _scrollController.jumpTo(oldPixels + extentAdded);
+      });
+    } catch (_) {
+      // Keep the page index unchanged so reaching the top can retry.
+    } finally {
+      _loadingOlder = false;
     }
   }
 
@@ -3332,7 +3548,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       final secondTime = DateTime.tryParse(second.timestamp ?? '');
       if (firstTime == null) return secondTime == null ? 0 : -1;
       if (secondTime == null) return 1;
-      return firstTime.compareTo(secondTime);
+      final timeOrder = firstTime.compareTo(secondTime);
+      if (timeOrder != 0) return timeOrder;
+      return (first.id ?? 0).compareTo(second.id ?? 0);
     });
   }
 
@@ -3368,6 +3586,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   void dispose() {
     _sub?.cancel();
     _realtimeSub?.cancel();
+    _scrollController.removeListener(_loadOlderWhenAtTop);
     _input.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -3635,25 +3854,40 @@ Widget _list<T>(
   AsyncValue<List<T>> v,
   Widget Function(T) item, {
   VoidCallback? onRetry,
+  VoidCallback? onLoadMore,
   String emptyTitle = 'Nothing here yet',
   String? emptyMessage = 'New activity will appear here when it is available.',
   IconData emptyIcon = Icons.inbox_outlined,
 }) =>
     v.when(
-        loading: () => const LoadingState(),
-        error: (e, _) => ErrorState(
-              message: userFacingError(e),
-              onRetry: onRetry,
-            ),
-        data: (x) => x.isEmpty
-            ? EmptyState(
-                title: emptyTitle,
-                message: emptyMessage,
-                icon: emptyIcon,
-              )
-            : ListView.builder(
+      loading: () => const LoadingState(),
+      error: (e, _) => ErrorState(
+        message: e.toString(),
+        onRetry: onRetry,
+      ),
+      data: (x) => x.isEmpty
+          ? EmptyState(
+              icon: emptyIcon,
+              title: emptyTitle,
+              message: emptyMessage,
+            )
+          : NotificationListener<ScrollNotification>(
+              onNotification: (notification) {
+                if (onLoadMore != null &&
+                    notification.metrics.axis == Axis.vertical &&
+                    notification.metrics.pixels >=
+                        notification.metrics.maxScrollExtent - 300) {
+                  onLoadMore();
+                }
+                return false;
+              },
+              child: ListView.builder(
                 padding: const EdgeInsets.all(16),
                 itemCount: x.length,
                 itemBuilder: (_, i) => Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: item(x[i]))));
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: item(x[i]),
+                ),
+              ),
+            ),
+    );

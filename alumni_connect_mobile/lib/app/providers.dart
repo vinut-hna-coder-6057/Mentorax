@@ -88,8 +88,7 @@ final directoryProvider = FutureProvider.family<List<User>, UserRole>(
     (ref, role) => ref.watch(appRepositoryProvider).users(role));
 final userByIdProvider = FutureProvider.family<User, int>(
     (ref, id) => ref.watch(appRepositoryProvider).user(id));
-final eventsProvider = FutureProvider<List<EventItem>>(
-    (ref) => ref.watch(appRepositoryProvider).events());
+
 final connectionsProvider = FutureProvider<List<ConnectionItem>>(
     (ref) => ref.watch(appRepositoryProvider).connections());
 final notificationsProvider = FutureProvider<List<NotificationItem>>(
@@ -103,9 +102,97 @@ final allUsersProvider = FutureProvider<List<User>>(
 final pendingUsersProvider = FutureProvider<List<User>>(
   (ref) => ref.watch(appRepositoryProvider).pendingUsers(),
 );
-final adminEventsProvider = FutureProvider<List<EventItem>>(
-    (ref) => ref.watch(appRepositoryProvider).events(all: true));
+final eventsProvider = StateNotifierProvider<EventsPaginationNotifier,
+    AsyncValue<List<EventItem>>>(
+  (ref) => EventsPaginationNotifier(
+    ref.watch(appRepositoryProvider),
+    all: false,
+  ),
+);
 
+final adminEventsProvider = StateNotifierProvider<EventsPaginationNotifier,
+    AsyncValue<List<EventItem>>>(
+  (ref) => EventsPaginationNotifier(
+    ref.watch(appRepositoryProvider),
+    all: true,
+  ),
+);
+
+class EventsPaginationNotifier
+    extends StateNotifier<AsyncValue<List<EventItem>>> {
+  EventsPaginationNotifier(
+    this._repo, {
+    required this.all,
+  }) : super(const AsyncLoading()) {
+    unawaited(loadFirstPage());
+  }
+
+  final AppRepository _repo;
+  final bool all;
+
+  static const int pageSize = 50;
+
+  int _page = 0;
+  bool _hasMore = true;
+  bool _loadingMore = false;
+
+  Future<void> loadFirstPage() async {
+    _page = 0;
+    _hasMore = true;
+    _loadingMore = false;
+
+    state = const AsyncLoading();
+
+    try {
+      final results = await _repo.events(
+        all: all,
+        page: 0,
+        size: pageSize,
+      );
+
+      _hasMore = results.length == pageSize;
+      state = AsyncData(results);
+    } catch (error, stackTrace) {
+      state = AsyncError(error, stackTrace);
+    }
+  }
+
+  Future<void> loadNextPage() async {
+    if (_loadingMore || !_hasMore) return;
+
+    _loadingMore = true;
+
+    final nextPage = _page + 1;
+
+    try {
+      final results = await _repo.events(
+        all: all,
+        page: nextPage,
+        size: pageSize,
+      );
+
+      final current = state.valueOrNull ?? <EventItem>[];
+
+      _page = nextPage;
+      _hasMore = results.length == pageSize;
+
+      state = AsyncData([
+        ...current,
+        ...results,
+      ]);
+    } catch (error, stackTrace) {
+      // Keep the already-loaded events visible if loading another
+      // page fails.
+      if (state.hasValue) {
+        state = AsyncData(state.value!);
+      } else {
+        state = AsyncError(error, stackTrace);
+      }
+    } finally {
+      _loadingMore = false;
+    }
+  }
+}
 class AuthNotifier extends StateNotifier<AsyncValue<User?>> {
   AuthNotifier(this._repo, this._storage, this._realtime)
       : super(const AsyncLoading());

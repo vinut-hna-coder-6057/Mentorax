@@ -24,12 +24,36 @@ ApiException toApiException(Object error) {
           ApiErrorKind.notFound, 'The requested item was not found.',
           statusCode: status);
     }
-    if (status == 409) {
-      return ApiException(ApiErrorKind.conflict, message, statusCode: status);
-    }
-    if (status == 400 || status == 422) {
-      return ApiException(ApiErrorKind.validation, message, statusCode: status);
-    }
+   if (status == 409) {
+  return ApiException(
+    ApiErrorKind.conflict,
+    message,
+    statusCode: status,
+  );
+}
+
+if (status == 429) {
+  final retryAfter = error.response?.headers.value('retry-after');
+
+  final rateLimitMessage =
+      retryAfter != null && retryAfter.trim().isNotEmpty
+          ? 'Too many requests. Please wait $retryAfter seconds and try again.'
+          : 'Too many requests. Please wait a moment and try again.';
+
+  return ApiException(
+    ApiErrorKind.rateLimited,
+    rateLimitMessage,
+    statusCode: status,
+  );
+}
+
+if (status == 400 || status == 422) {
+  return ApiException(
+    ApiErrorKind.validation,
+    message,
+    statusCode: status,
+  );
+}
     if (status != null && status >= 500) {
       return ApiException(ApiErrorKind.server,
           'The service is temporarily unavailable. Try again shortly.',

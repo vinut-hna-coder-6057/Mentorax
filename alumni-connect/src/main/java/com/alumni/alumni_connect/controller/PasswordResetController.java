@@ -68,7 +68,7 @@ public class PasswordResetController {
             "/verify-otp"
     )
 
-    public String verifyOtp(
+    public ResetAuthorizationResponse verifyOtp(
 
             @Valid @RequestBody
             VerifyOtpRequest request, HttpServletRequest http

@@ -17,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Optional;
+import java.time.LocalDateTime;
 
 @Service
 public class AuthService {
@@ -229,6 +230,7 @@ public class AuthService {
     // APPROVE USER
     // =====================================
 @PreAuthorize("hasRole('ADMIN')")
+@Transactional
 public User approveUser(Long id) {
 
     User user = repository.findById(id)
@@ -238,7 +240,18 @@ public User approveUser(Long id) {
             ));
 
     user.setStatus("APPROVED");
-
-    return repository.save(user);
+    User saved = repository.save(user);
+    if ("ALUMNI".equalsIgnoreCase(saved.getRole())) {
+        AlumniProfile profile = alumniProfileRepository.findById(saved.getId())
+                .orElseGet(() -> {
+                    AlumniProfile created = new AlumniProfile(saved);
+                    created.copyLegacyFields(saved);
+                    return created;
+                });
+        profile.setApprovalStatus(saved.getStatus());
+        profile.setApprovedAt(LocalDateTime.now());
+        alumniProfileRepository.save(profile);
+    }
+    return saved;
 }
 }

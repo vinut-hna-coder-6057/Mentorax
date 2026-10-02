@@ -54,55 +54,62 @@ public class EventService {
     // =====================================
     // CREATE EVENT
     // =====================================
+    public Event createEvent(EventRequest request, String authenticatedEmail) {
+    User creator = userRepository.findByEmail(authenticatedEmail)
+            .orElseThrow(() ->
+                    new IllegalArgumentException("Authenticated user not found"));
 
-    public Event createEvent(Event event, String authenticatedEmail) {
-        User creator = userRepository.findByEmail(authenticatedEmail)
-                .orElseThrow(() -> new IllegalArgumentException("Authenticated user not found"));
-        event.setCreator(creator);
-        event.setRole(creator.getRole());
+    Event event = new Event();
 
-        event.setCreatedAt(
-                LocalDateTime.now()
-        );
+    event.setTitle(request.title());
+    event.setDescription(request.description());
+    event.setLocation(request.location());
+    event.setEventDate(request.eventDate());
+    event.setCategory(request.category());
+    event.setMeetingLink(request.meetingLink());
+    event.setImageUrl(request.imageUrl());
 
-        // ADMIN EVENTS AUTO APPROVED
+    event.setCreator(creator);
+    event.setRole(creator.getRole());
+    event.setCreatedAt(LocalDateTime.now());
 
-        if (
-                creator.getRole() != null
-                        &&
-                creator.getRole()
-                        .toUpperCase()
-                        .contains("ADMIN")
-        ) {
-
-            event.setStatus("APPROVED");
-
-        } else {
-
-            event.setStatus("PENDING");
-        }
-
-        event.setAttendeeCount(0);
-
-        return eventRepository.save(event);
+    if (creator.getRole() != null
+            && creator.getRole().toUpperCase().contains("ADMIN")) {
+        event.setStatus("APPROVED");
+    } else {
+        event.setStatus("PENDING");
     }
 
+    event.setAttendeeCount(0);
+
+    return eventRepository.save(event);
+}
     @Transactional
-    public Event updateEvent(Long id, Event request, String authenticatedEmail) {
-        Event event = eventRepository.findById(id)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Event not found"));
-        requireCreatorOrAdmin(event, authenticatedEmail);
-        event.setTitle(request.getTitle());
-        event.setDescription(request.getDescription());
-        event.setLocation(request.getLocation());
-        event.setEventDate(request.getEventDate());
-        event.setCategory(request.getCategory());
-        event.setMeetingLink(request.getMeetingLink());
-        event.setImageUrl(request.getImageUrl());
-        // Never copy createdBy, creator, role, status, or attendeeCount from client data.
-        return eventRepository.save(event);
-    }
+public Event updateEvent(
+        Long id,
+        EventRequest request,
+        String authenticatedEmail
+) {
+    Event event = eventRepository.findById(id)
+            .orElseThrow(() ->
+                    new ResponseStatusException(
+                            HttpStatus.NOT_FOUND,
+                            "Event not found"
+                    ));
 
+    requireCreatorOrAdmin(event, authenticatedEmail);
+
+    event.setTitle(request.title());
+    event.setDescription(request.description());
+    event.setLocation(request.location());
+    event.setEventDate(request.eventDate());
+    event.setCategory(request.category());
+    event.setMeetingLink(request.meetingLink());
+    event.setImageUrl(request.imageUrl());
+
+    // Never copy privileged fields from client data.
+    return eventRepository.save(event);
+}
     @Transactional
     public void deleteEvent(Long id, String authenticatedEmail) {
         Event event = eventRepository.findById(id)

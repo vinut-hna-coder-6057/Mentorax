@@ -14,10 +14,19 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.time.LocalDateTime;
 import java.security.SecureRandom;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.Base64;
+import java.util.Optional;
+import java.time.Duration;
+import com.alumni.alumni_connect.dto.ResetAuthorizationResponse;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class OtpService {
+
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+    private static final Duration RESET_AUTHORIZATION_TTL = Duration.ofMinutes(10);
 
     private final OtpRepository otpRepository;
 
@@ -100,7 +109,7 @@ public class OtpService {
             return false;
         }
 
-                if (otp.isVerified() || otp.getAttemptCount() >= 5) {
+                if (otp.isVerified() || otp.getConsumedAt() != null || otp.getAttemptCount() >= 5) {
                         return false;
                 }
 
@@ -136,6 +145,51 @@ public class OtpService {
         otpRepository.save(otp);
 
         return true;
+    }
+
+    @Transactional
+    public Optional<ResetAuthorizationResponse> verifyPasswordResetOtp(
+            String email,
+            String otpValue) {
+        Otp otp = otpRepository.findFirstByEmailAndPurposeOrderByIdDesc(email, "PASSWORD_RESET")
+                .orElse(null);
+        if (otp == null || otp.isVerified() || otp.getConsumedAt() != null
+                || otp.getAttemptCount() >= 5) {
+            return Optional.empty();
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        if (otp.getExpiry() == null || !otp.getExpiry().isAfter(now)) {
+            otp.setConsumedAt(now);
+            otpRepository.save(otp);
+            return Optional.empty();
+        }
+        if (!passwordEncoder.matches(otpValue, otp.getCodeHash())) {
+            otp.setAttemptCount(otp.getAttemptCount() + 1);
+            otpRepository.save(otp);
+            return Optional.empty();
+        }
+
+        byte[] tokenBytes = new byte[32];
+        SECURE_RANDOM.nextBytes(tokenBytes);
+        String token = Base64.getUrlEncoder().withoutPadding().encodeToString(tokenBytes);
+        LocalDateTime expiresAt = now.plus(RESET_AUTHORIZATION_TTL);
+        otp.setVerified(true);
+        otp.setConsumedAt(now);
+        otp.setResetTokenHash(hashResetToken(token));
+        otp.setResetTokenExpiry(expiresAt);
+        otpRepository.save(otp);
+        return Optional.of(new ResetAuthorizationResponse(token, expiresAt));
+    }
+
+    public String hashResetToken(String token) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(token.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            return java.util.HexFormat.of().formatHex(digest);
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256 is unavailable", exception);
+        }
     }
 }
 

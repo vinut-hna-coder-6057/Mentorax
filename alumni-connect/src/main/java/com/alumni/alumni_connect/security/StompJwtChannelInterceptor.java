@@ -18,6 +18,8 @@ import org.springframework.messaging.support.MessageHeaderAccessor;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.stereotype.Component;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 import java.util.Locale;
@@ -26,10 +28,13 @@ import java.util.Locale;
 public class StompJwtChannelInterceptor implements ChannelInterceptor {
     private final JwtUtil jwtUtil;
     private final UserRepository userRepository;
+    private final WebSocketMessageRateLimiter rateLimiter;
 
-    public StompJwtChannelInterceptor(JwtUtil jwtUtil, UserRepository userRepository) {
+    public StompJwtChannelInterceptor(JwtUtil jwtUtil, UserRepository userRepository,
+                                      WebSocketMessageRateLimiter rateLimiter) {
         this.jwtUtil = jwtUtil;
         this.userRepository = userRepository;
+        this.rateLimiter = rateLimiter;
     }
 
     @Override
@@ -54,9 +59,18 @@ public class StompJwtChannelInterceptor implements ChannelInterceptor {
             }
             accessor.setUser(new UsernamePasswordAuthenticationToken(email, null,
                     List.of(new SimpleGrantedAuthority("ROLE_" + role))));
-        } else if (StompCommand.SEND.equals(accessor.getCommand())
-                && accessor.getUser() == null) {
-            throw new IllegalArgumentException("Authentication is required for this WebSocket operation");
+        } else if (StompCommand.SEND.equals(accessor.getCommand())) {
+            if (accessor.getUser() == null) {
+                throw new IllegalArgumentException("Authentication is required for this WebSocket operation");
+            }
+            String email = accessor.getUser().getName();
+            var user = userRepository.findByEmail(email).orElse(null);
+            if (user == null || !"APPROVED".equalsIgnoreCase(user.getStatus())) {
+                throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authenticated account is not active");
+            }
+            rateLimiter.check(email, accessor.getSessionId());
+        } else if (StompCommand.DISCONNECT.equals(accessor.getCommand())) {
+            rateLimiter.removeSession(accessor.getSessionId());
         } else if (StompCommand.SUBSCRIBE.equals(accessor.getCommand())) {
             if (accessor.getUser() == null) {
                 throw new IllegalArgumentException("Authentication is required for this WebSocket operation");
