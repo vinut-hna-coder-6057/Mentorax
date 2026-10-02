@@ -365,6 +365,11 @@ if (conversation != null) {
 
     @Transactional(readOnly = true)
     public List<ConversationDTO> getConversations() {
+        return getConversations(0, 50);
+    }
+
+    @Transactional(readOnly = true)
+    public List<ConversationDTO> getConversations(int page, int size) {
 
         Authentication authentication =
                 SecurityContextHolder
@@ -392,7 +397,8 @@ if (conversation != null) {
                         );
 
         List<Message> latestMessages = repository.findLatestMessagesForParticipant(
-                currentUser.getId(), authenticatedEmail);
+                currentUser.getId(), authenticatedEmail,
+                PageRequest.of(Math.max(0, page), Math.max(1, Math.min(size, 100))));
 
         List<ConversationDTO> conversations =
                 new ArrayList<>();

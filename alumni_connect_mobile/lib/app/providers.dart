@@ -95,8 +95,10 @@ final notificationsProvider = FutureProvider<List<NotificationItem>>(
     (ref) => ref.watch(appRepositoryProvider).notifications());
 final unreadNotificationCountProvider = FutureProvider<int>(
     (ref) => ref.watch(appRepositoryProvider).unreadCount());
-final conversationsProvider = FutureProvider<List<Conversation>>(
-    (ref) => ref.watch(appRepositoryProvider).conversations());
+final conversationsProvider = StateNotifierProvider<ConversationsPaginationNotifier,
+    AsyncValue<List<Conversation>>>(
+  (ref) => ConversationsPaginationNotifier(ref.watch(appRepositoryProvider)),
+);
 final allUsersProvider = FutureProvider<List<User>>(
     (ref) => ref.watch(appRepositoryProvider).allUsers());
 final pendingUsersProvider = FutureProvider<List<User>>(
@@ -193,6 +195,51 @@ class EventsPaginationNotifier
     }
   }
 }
+
+class ConversationsPaginationNotifier
+    extends StateNotifier<AsyncValue<List<Conversation>>> {
+  ConversationsPaginationNotifier(this._repo) : super(const AsyncLoading()) {
+    unawaited(loadFirstPage());
+  }
+
+  final AppRepository _repo;
+  static const int pageSize = 50;
+  int _page = 0;
+  bool _hasMore = true;
+  bool _loadingMore = false;
+
+  Future<void> loadFirstPage() async {
+    _page = 0;
+    _hasMore = true;
+    _loadingMore = false;
+    state = const AsyncLoading();
+    try {
+      final result = await _repo.conversations(page: 0, size: pageSize);
+      _hasMore = result.length == pageSize;
+      state = AsyncData(result);
+    } catch (error, stackTrace) {
+      state = AsyncError(error, stackTrace);
+    }
+  }
+
+  Future<void> loadNextPage() async {
+    if (_loadingMore || !_hasMore) return;
+    _loadingMore = true;
+    final nextPage = _page + 1;
+    try {
+      final result = await _repo.conversations(page: nextPage, size: pageSize);
+      final current = state.valueOrNull ?? <Conversation>[];
+      _page = nextPage;
+      _hasMore = result.length == pageSize;
+      state = AsyncData([...current, ...result]);
+    } catch (error, stackTrace) {
+      if (!state.hasValue) state = AsyncError(error, stackTrace);
+    } finally {
+      _loadingMore = false;
+    }
+  }
+}
+
 class AuthNotifier extends StateNotifier<AsyncValue<User?>> {
   AuthNotifier(this._repo, this._storage, this._realtime)
       : super(const AsyncLoading());

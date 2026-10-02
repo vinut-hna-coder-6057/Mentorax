@@ -93,7 +93,10 @@ public class MessageController {
     // =====================================
 
     @GetMapping("/conversations")
-    public List<ConversationDTO> getConversations() {
-        return messageService.getConversations();
+    public List<ConversationDTO> getConversations(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "50") int size
+    ) {
+        return messageService.getConversations(page, size);
     }
 }

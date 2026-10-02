@@ -18,7 +18,7 @@ The repository’s local MySQL 8.0.46 history was inspected during this change. 
 
 The fresh V1 includes the normalized schema plus the conversation-pair and canonical-connection constraints currently supplied by legacy V5 and V7. V1 already includes the `email_verified` column and `messages.conversation_id` foreign key; those operations are not repeated in the fresh baseline. Profile data backfill is run only for databases that already contain user rows.
 
-New schema changes should be added as migrations in `db/shared` with a version after V7. The shared location is used by each routed history, so a new migration runs once regardless of how the database was initialized. Keep the historical files in `db/migration` immutable.
+Keep applied migration files in `db/migration` immutable. Because the fresh and normalized histories use separate Flyway locations, changes added after their baselines must also be represented in those routed chains. The password-reset and alumni-status changes use V8/V9 for the legacy history, V2/V3 for the fresh history, and V3/V4 for the normalized history. Add future schema changes to every supported chain (or to a shared location only when the migration version is valid and non-conflicting in all of them).
 
 ## Existing database deployment
 

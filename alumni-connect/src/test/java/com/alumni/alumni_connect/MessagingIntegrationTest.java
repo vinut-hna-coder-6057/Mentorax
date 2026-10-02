@@ -985,6 +985,25 @@ void messageContentLongerThan2000CharactersIsRejected() {
         );
     }
 
+    @Test
+    void inboxConversationPagesAreBoundedAndDoNotRepeatThreads() {
+        User dave = createUser("message-dave-" + UUID.randomUUID() + "@example.test");
+        messageService.sendMessage(request(bob.getEmail(), "Bob thread", null), alice.getEmail());
+        messageService.sendMessage(request(charlie.getEmail(), "Charlie thread", null), alice.getEmail());
+        messageService.sendMessage(request(dave.getEmail(), "Dave thread", null), alice.getEmail());
+        SecurityContextHolder.getContext().setAuthentication(
+                new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(
+                        alice.getEmail(), null));
+
+        List<ConversationDTO> firstPage = messageService.getConversations(0, 1);
+        List<ConversationDTO> secondPage = messageService.getConversations(1, 1);
+        List<ConversationDTO> boundedNegativePage = messageService.getConversations(-1, 0);
+
+        assertEquals(1, firstPage.size());
+        assertEquals(1, secondPage.size());
+        assertNotEquals(firstPage.get(0).getEmail(), secondPage.get(0).getEmail());
+        assertEquals(firstPage.get(0).getEmail(), boundedNegativePage.get(0).getEmail());
+    }
 
     // =========================================================
     // CREATE TEST USER

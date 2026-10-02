@@ -41,6 +41,16 @@ class FreshMySqlMigrationTest {
                 while (tables.next()) actual.add(tables.getString("TABLE_NAME").toLowerCase());
                 assertTrue(actual.containsAll(REQUIRED_TABLES), "Fresh MySQL schema is missing required tables: " + REQUIRED_TABLES.stream().filter(t -> !actual.contains(t)).toList());
             }
+            try (var connection = DriverManager.getConnection(url, username, password);
+                 var statement = connection.createStatement();
+                 var migrations = statement.executeQuery("SELECT COUNT(*) FROM flyway_schema_history WHERE version IN ('2', '3') AND success = 1")) {
+                assertTrue(migrations.next() && migrations.getInt(1) == 2,
+                        "Fresh schema did not apply the fresh-chain hardening migrations");
+                assertTrue(hasColumn(connection, "otp_verifications", "reset_token_hash"),
+                        "Fresh schema is missing the reset-token hash column");
+                assertTrue(hasColumn(connection, "otp_verifications", "reset_token_expiry"),
+                        "Fresh schema is missing the reset-token expiry column");
+            }
         }
     }
 
@@ -66,6 +76,12 @@ class FreshMySqlMigrationTest {
             try (var failedRows = statement.executeQuery("SELECT COUNT(*) FROM flyway_schema_history WHERE success = 0")) {
                 assertTrue(failedRows.next() && failedRows.getInt(1) == 0, "Failed history rows remain after recovery");
             }
+        }
+    }
+
+    private static boolean hasColumn(java.sql.Connection connection, String table, String column) throws Exception {
+        try (var columns = connection.getMetaData().getColumns(connection.getCatalog(), null, table, column)) {
+            return columns.next();
         }
     }
 

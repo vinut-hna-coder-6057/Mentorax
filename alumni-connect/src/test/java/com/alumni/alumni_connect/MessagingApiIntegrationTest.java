@@ -235,6 +235,8 @@ class MessagingApiIntegrationTest {
         messageRepository.save(message);
         mockMvc.perform(
         get("/conversations")
+                .param("page", "0")
+                .param("size", "1")
                 .header(
                         "Authorization",
                         bearer(alice.getEmail(), "STUDENT")

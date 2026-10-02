@@ -3627,6 +3627,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     onTap: () =>
                         c.push('/chat/${Uri.encodeComponent(x.email)}'))),
             onRetry: () => ref.invalidate(conversationsProvider),
+            onLoadMore: () =>
+                ref.read(conversationsProvider.notifier).loadNextPage(),
             emptyTitle: 'No conversations yet',
             emptyMessage:
                 'Start a conversation from a connected person’s profile.',

@@ -150,11 +150,18 @@ class AppRepository {
       api.get('/notifications/unread', decode: (d) => (d as num).toInt());
   Future<void> markRead(int id) =>
       api.put('/notifications/read/$id', decode: (_) {});
-  Future<List<Conversation>> conversations() => api.get('/conversations',
-      decode: (d) => (d as List)
-          .map(
-              (e) => Conversation.fromJson(Map<String, dynamic>.from(e as Map)))
-          .toList());
+  Future<List<Conversation>> conversations({
+    int page = 0,
+    int size = 50,
+  }) =>
+      api.get(
+        '/conversations',
+        query: {'page': page, 'size': size},
+        decode: (d) => (d as List)
+            .map((e) =>
+                Conversation.fromJson(Map<String, dynamic>.from(e as Map)))
+            .toList(),
+      );
  Future<List<ChatMessage>> messages(
   String sender,
   String receiver, {

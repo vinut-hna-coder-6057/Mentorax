@@ -96,7 +96,8 @@ public interface MessageRepository
             """)
     List<Message> findLatestMessagesForParticipant(
             @Param("userId") Long userId,
-            @Param("email") String email);
+            @Param("email") String email,
+            Pageable pageable);
 
     @Query("""
             SELECT m FROM Message m
