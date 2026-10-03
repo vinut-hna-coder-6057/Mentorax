@@ -17,6 +17,26 @@ jobs:
   backend:
     name: Backend Tests
     runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: mentorax-ci-root-password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -pmentorax-ci-root-password"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+    env:
+      MYSQL_ROOT_PASSWORD: mentorax-ci-root-password
+      MENTORAX_MYSQL_MIGRATION_TEST_URL: jdbc:mysql://127.0.0.1:3306/mentorax_migration_test
+      MENTORAX_MYSQL_MIGRATION_TEST_USERNAME: root
+      MENTORAX_MYSQL_MIGRATION_TEST_PASSWORD: mentorax-ci-root-password
+      MENTORAX_MYSQL_RECOVERY_TEST_URL: jdbc:mysql://127.0.0.1:3306/mentorax_recovery_test
+      MENTORAX_MYSQL_RECOVERY_TEST_USERNAME: root
+      MENTORAX_MYSQL_RECOVERY_TEST_PASSWORD: mentorax-ci-root-password
 
     defaults:
       run:
@@ -35,6 +55,11 @@ jobs:
 
       - name: Make Maven wrapper executable
         run: chmod +x mvnw
+
+      - name: Create disposable MySQL integration-test schemas
+        run: |
+          mysql --host=127.0.0.1 --port=3306 --user=root --password="$MYSQL_ROOT_PASSWORD" \
+            --execute="CREATE DATABASE mentorax_migration_test; CREATE DATABASE mentorax_recovery_test;"
 
       - name: Run backend tests
         run: ./mvnw test

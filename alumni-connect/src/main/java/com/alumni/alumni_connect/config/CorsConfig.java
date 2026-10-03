@@ -19,6 +19,9 @@ public class CorsConfig {
                 .map(String::trim)
                 .filter(origin -> !origin.isEmpty())
                 .toArray(String[]::new);
+        if (patterns.length == 0) {
+            throw new IllegalStateException("CORS_ALLOWED_ORIGIN_PATTERNS must contain at least one origin pattern.");
+        }
 
         return new WebMvcConfigurer() {
             @Override

@@ -40,6 +40,9 @@ public class WebSocketConfig
                 .map(String::trim)
                 .filter(origin -> !origin.isEmpty())
                 .toArray(String[]::new);
+        if (this.allowedOrigins.length == 0) {
+            throw new IllegalStateException("WEBSOCKET_ALLOWED_ORIGINS must contain at least one origin.");
+        }
     }
 
     @Override
@@ -89,4 +92,3 @@ public class WebSocketConfig
         registration.interceptors(stompJwtChannelInterceptor);
     }
 }
-

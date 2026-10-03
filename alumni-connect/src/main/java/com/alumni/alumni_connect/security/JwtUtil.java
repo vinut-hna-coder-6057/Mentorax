@@ -18,6 +18,7 @@ import io.jsonwebtoken.security.Keys;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import jakarta.annotation.PostConstruct;
 import java.nio.charset.StandardCharsets;
 import java.security.Key;
 import java.util.Date;
@@ -30,6 +31,11 @@ public class JwtUtil {
 
     @Value("${jwt.expiration-ms:3600000}")
     private long expirationMs;
+
+    @PostConstruct
+    void validateSecret() {
+        getKey();
+    }
 
     private Key getKey() {
         if (secret == null || secret.getBytes(StandardCharsets.UTF_8).length < 32) {
@@ -89,4 +95,3 @@ public class JwtUtil {
                 .getBody();
     }
 }
-

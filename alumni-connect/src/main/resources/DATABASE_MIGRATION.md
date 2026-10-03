@@ -10,9 +10,13 @@ Flyway is enabled for normal application startup, and Hibernate uses `ddl-auto=v
 | --- | --- | --- |
 | Empty schema | `db/fresh`, `db/shared` | Run the complete current schema baseline in `db/fresh/V1__create_current_schema.sql`. |
 | Historical legacy chain (baseline at version 1, or successful legacy V2+) | `db/migration`, `db/shared` | Keep the original V1–V7 migration identities and checksums; apply pending legacy-chain migrations. |
-| Existing normalized V1 without the legacy chain | `db/normalized`, `db/shared` | Validate the copied V1 checksum, then run V2 to backfill profile data and add the current hardening. |
+| Existing normalized V1 baseline (`Existing normalized V1 baseline`) | `db/normalized`, `db/shared` | Run V2 to backfill profile data and add the current hardening. |
 | Pre-Flyway legacy schema with `users.password` | `db/migration`, `db/shared` | Baseline at version 1, then run the legacy conversion and hardening migrations. |
 | Unknown or inconsistent schema/history | None | Startup stops before migration; inspect and resolve the history explicitly. |
+
+The SQL V1 history entry `create alumni connect schema` is shared by more than one historical route. If it appears without a successful chain-identifying migration, startup treats it as ambiguous and stops. The one recognized failed-V2 recovery is accepted only when the exact history rows and current normalized schema shape are verified; all other failed histories remain untouched and block startup.
+
+When a Flyway history table exists, the detected history is authoritative. An explicit `spring.flyway.locations` override must match the detected chain or startup fails before Flyway validation; it cannot silently redirect an existing database to another chain. For a database without Flyway history, an explicit locations override remains supported.
 
 The repository’s local MySQL 8.0.46 history was inspected during this change. It contains Flyway’s version-1 baseline marker and successful V2–V6 rows; V7 is pending. That database uses the historical legacy chain. The old migration files were therefore left byte-for-byte unchanged. `db/normalized/V1__create_alumni_connect_schema.sql` is a byte-identical copy of historical V1 so a database that actually applied V1 can retain its checksum.
 
@@ -52,6 +56,19 @@ SHOW TABLES;
 The schema must include users, student_profiles, alumni_profiles, skills, user_skills, events, event_registrations, connections, conversations, conversation_participants, messages, notifications, and otp_verifications. Inspect the important table definitions with `SHOW CREATE TABLE` before promoting the configuration.
 
 An optional real-MySQL startup test can be run against an empty disposable schema by setting `MENTORAX_MYSQL_MIGRATION_TEST_URL`, `MENTORAX_MYSQL_MIGRATION_TEST_USERNAME`, and `MENTORAX_MYSQL_MIGRATION_TEST_PASSWORD`, then selecting `FreshMySqlMigrationTest`. It refuses a schema that already contains tables.
+
+The backend CI job provisions two isolated MySQL 8 schemas for the fresh migration and known failed-V2 recovery tests. These tests apply the current Flyway locations, run Spring Boot with `ddl-auto=validate`, verify the fresh production checksums, and assert key foreign keys and unique indexes. Never point either test URL at production or a schema containing data.
+
+## Railway runtime configuration
+
+Configure the Railway backend service root directory as `alumni-connect`. Build with `./mvnw package` and start the repackaged JAR with `java -jar target/alumni-connect-0.0.1-SNAPSHOT.jar`. Spring listens on Railway’s `PORT` environment value and defaults to port 8080 for local use. Configure the following environment variables in Railway’s secret/environment settings; do not place their values in repository files:
+
+- `DB_URL`, `DB_USERNAME`, and `DB_PASSWORD`
+- `JWT_SECRET` (at least 32 UTF-8 bytes)
+- `MAIL_USERNAME` and `MAIL_PASSWORD`
+- `CORS_ALLOWED_ORIGIN_PATTERNS` and `WEBSOCKET_ALLOWED_ORIGINS` (comma-separated trusted origins; avoid broad wildcards in production)
+
+The public readiness endpoint is `/actuator/health/readiness`. It reports readiness only while the application is accepting traffic and the configured database is available. Only the health actuator endpoint is exposed, and health details are not included in responses.
 
 ## Checksum or history conflicts
 

@@ -97,6 +97,8 @@ public class SecurityConfig {
                         // PUBLIC ROUTES
                         // =================================
 
+                        .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
+
                         .requestMatchers(
 
                                 "/",
