@@ -49,22 +49,20 @@ Configure the required database, Resend, and JWT settings using local
 environment variables or the local application configuration. Do not commit
 credentials or other secrets.
 
-## Temporary email verification setting
+## Email verification status
 
-Email OTP verification is temporarily disabled for signup and signin by
-default (`EMAIL_VERIFICATION_REQUIRED=false`). Signup will not enqueue an
-email-verification OTP, and approved accounts may sign in without setting
-`email_verified`; password checks, role checks, account approval/rejection,
-rate limits, and authorization remain enforced. Alumni still require approval.
+Email OTP verification has been removed from signup and signin for the current
+testing phase. Signup does not send verification email, and any account with
+valid credentials and an approved status can sign in regardless of the legacy
+`email_verified` database column. Alumni continue to require administrator
+approval. Password-reset OTP and other application email notifications remain
+separate and continue to use the configured Resend integration.
 
-The Flutter app follows the same temporary default. Restore verification
-before treating the application as production-ready: set backend
-`EMAIL_VERIFICATION_REQUIRED=true` and build Flutter with
-`--dart-define=EMAIL_VERIFICATION_ENABLED=true`. Re-enable and verify OTP
-delivery before relying on email ownership for account security. Existing
-unverified accounts are not modified; while verification is disabled, an
-unverified account can sign in only if its other account-status checks permit
-it.
+This is a temporary product decision, not a production-ready account-security
+policy. Restore and test email ownership verification before relying on
+verified email addresses for production security decisions. No migration or
+bulk update is required; existing verification data and Flyway history are
+left unchanged.
 
 ## Running the Flutter application
 

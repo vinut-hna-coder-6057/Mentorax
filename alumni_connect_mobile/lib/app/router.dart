@@ -29,7 +29,6 @@ final routerProvider = Provider<GoRouter>((ref) {
           '/forgot-password',
           '/reset-password',
           '/otp-verify',
-          '/email-verification',
           '/pending-approval'
         };
         final loggedIn = user != null &&
@@ -61,25 +60,13 @@ final routerProvider = Provider<GoRouter>((ref) {
       },
       routes: [
         GoRoute(path: '/splash', builder: (_, __) => const SplashScreen()),
-        GoRoute(path: '/login', builder: (_, __) => const LoginScreen()),
-        GoRoute(path: '/register', builder: (_, __) => const RegisterScreen()),
         GoRoute(
-          path: '/email-verification',
-          builder: (_, state) {
-            final email = state.uri.queryParameters['email'] ?? '';
-            final roleValue = state.uri.queryParameters['role'] ?? 'student';
-
-            final role = UserRole.values.firstWhere(
-              (r) => r.name == roleValue,
-              orElse: () => UserRole.student,
-            );
-
-            return EmailVerificationScreen(
-              email: email,
-              role: role,
-            );
-          },
+          path: '/login',
+          builder: (_, state) => LoginScreen(
+            signupComplete: state.uri.queryParameters['registered'] == '1',
+          ),
         ),
+        GoRoute(path: '/register', builder: (_, __) => const RegisterScreen()),
         GoRoute(
             path: '/forgot-password',
             builder: (_, __) => const PasswordScreen(forgot: true)),

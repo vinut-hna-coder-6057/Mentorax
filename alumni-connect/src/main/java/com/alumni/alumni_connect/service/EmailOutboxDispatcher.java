@@ -3,7 +3,6 @@ package com.alumni.alumni_connect.service;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -20,8 +19,6 @@ public class EmailOutboxDispatcher {
     private final EmailOutboxService outboxService;
     private final EmailOutboxCipher cipher;
     private final EmailService emailService;
-    @Value("${app.email-verification.required:false}")
-    private boolean emailVerificationRequired = true;
 
     public EmailOutboxDispatcher(
             EmailOutboxService outboxService,
@@ -38,20 +35,17 @@ public class EmailOutboxDispatcher {
     }
 
     private void deliver(EmailOutboxService.ClaimedMessage message) {
-        if ("EMAIL_VERIFICATION".equals(message.purpose())
-                && !emailVerificationRequired) {
+        if (!"PASSWORD_RESET".equals(message.purpose())) {
+            log.info(
+                    "Discarding unsupported queued email purpose: outboxId={}, purpose={}",
+                    message.id(),
+                    message.purpose());
             outboxService.markDelivered(message.id());
             return;
         }
         try {
             String otp = cipher.decrypt(message.encryptedOtp());
-            if ("EMAIL_VERIFICATION".equals(message.purpose())) {
-                emailService.sendEmailVerificationOtp(message.recipient(), otp);
-            } else if ("PASSWORD_RESET".equals(message.purpose())) {
-                emailService.sendOtpEmail(message.recipient(), otp);
-            } else {
-                throw new IllegalStateException("Unsupported email outbox message purpose");
-            }
+            emailService.sendOtpEmail(message.recipient(), otp);
         } catch (RuntimeException exception) {
             log.warn(
                     "Queued OTP delivery deferred: outboxId={}, exceptionType={}",

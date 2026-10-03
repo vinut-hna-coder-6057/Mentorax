@@ -84,7 +84,6 @@ class ApiClient {
         '/signup',
         '/forgot-password',
         '/verify-otp',
-        '/verify-email',
         '/reset-password',
       };
 

@@ -5,7 +5,6 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../app/providers.dart';
-import '../app/email_verification_config.dart';
 import '../core/errors/api_exception.dart';
 import '../core/errors/error_handler.dart';
 import '../core/network/realtime_service.dart';
@@ -15,6 +14,9 @@ import '../shared/widgets/ui_components.dart';
 final _emailPattern = RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$');
 
 bool _isValidEmail(String email) => _emailPattern.hasMatch(email.trim());
+
+String registrationSuccessLocation(UserRole role) =>
+    role == UserRole.alumni ? '/pending-approval' : '/login?registered=1';
 
 class SplashScreen extends ConsumerWidget {
   const SplashScreen({super.key});
@@ -318,7 +320,9 @@ class _ApprovalsScreenState extends ConsumerState<ApprovalsScreen> {
 }
 
 class LoginScreen extends ConsumerStatefulWidget {
-  const LoginScreen({super.key});
+  const LoginScreen({super.key, this.signupComplete = false});
+  final bool signupComplete;
+
   @override
   ConsumerState<LoginScreen> createState() => _LoginScreenState();
 }
@@ -386,6 +390,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                                   .bodyMedium,
                                               textAlign: TextAlign.center,
                                             ),
+                                            if (widget.signupComplete) ...[
+                                              const SizedBox(height: 12),
+                                              const Text(
+                                                'Your account was created. Sign in to continue.',
+                                                textAlign: TextAlign.center,
+                                              ),
+                                            ],
                                             const SizedBox(height: 16),
                                             TextFormField(
                                                 controller: _email,
@@ -518,14 +529,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       if (!mounted) return;
       if (x == 'WAIT_APPROVAL') {
         context.go('/pending-approval');
-      } else if (x == 'VERIFY_EMAIL') {
-        context.go(Uri(
-          path: '/email-verification',
-          queryParameters: {
-            'email': email,
-            'role': _role.name,
-          },
-        ).toString());
       } else {
         setState(() => _error = x);
       }
@@ -551,7 +554,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   String? _error;
   bool _busy = false;
   bool _showPassword = false;
-  bool _showVerificationRecovery = false;
+  bool _showSignInRecovery = false;
   final _formKey = GlobalKey<FormState>();
 
   @override
@@ -659,20 +662,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         Padding(
                             padding: const EdgeInsets.only(top: 8),
                             child: InlineError(_error!)),
-                      if (_showVerificationRecovery)
+                      if (_showSignInRecovery)
                         TextButton(
-                          onPressed: _busy
-                              ? null
-                              : () => c.go(emailVerificationEnabled
-                                  ? signupSuccessLocation(
-                                      role: _role,
-                                      email: _email.text.trim(),
-                                      verificationEnabled: true,
-                                    )
-                                  : '/login'),
-                          child: const Text(emailVerificationEnabled
-                              ? 'Continue to email verification'
-                              : 'Continue to sign in'),
+                          onPressed: _busy ? null : () => c.go('/login'),
+                          child: const Text('Go to sign in'),
                         ),
                       FilledButton(
                           onPressed: _busy
@@ -684,9 +677,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                   setState(() {
                                     _busy = true;
                                     _error = null;
-                                    _showVerificationRecovery = false;
+                                    _showSignInRecovery = false;
                                   });
-                                  final email = _email.text.trim();
                                   try {
                                     await ProviderScope.containerOf(c)
                                         .read(appRepositoryProvider)
@@ -700,12 +692,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                             _password.text);
                                     if (!c.mounted) return;
 
-                                    c.go(signupSuccessLocation(
-                                      role: _role,
-                                      email: email,
-                                      verificationEnabled:
-                                          emailVerificationEnabled,
-                                    ));
+                                    c.go(registrationSuccessLocation(_role));
                                   } catch (error) {
                                     if (!c.mounted) return;
                                     final apiError = toApiException(
@@ -720,26 +707,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                     }.contains(apiError.kind);
                                     setState(() {
                                       _busy = false;
-                                      _showVerificationRecovery = canResume;
+                                      _showSignInRecovery = canResume;
                                       _error = apiError.kind ==
                                                   ApiErrorKind.timeout ||
                                               apiError.kind ==
                                                   ApiErrorKind.network ||
                                               apiError.kind ==
                                                   ApiErrorKind.server
-                                          ? emailVerificationEnabled
-                                              ? "We couldn't confirm signup. Your account may have been created. Continue to email verification or retry using the same details."
-                                              : "We couldn't confirm signup. Your account may have been created. Continue to sign in or retry using the same details."
+                                          ? "We couldn't confirm signup. Your account may have been created. Try signing in before registering again."
                                           : apiError.message;
                                     });
                                   }
                                 },
                           child: Text(
-                            _busy
-                                ? 'Creating account…'
-                                : emailVerificationEnabled
-                                    ? 'Continue to verification'
-                                    : 'Create account',
+                            _busy ? 'Creating account…' : 'Create account',
                           ))
                     ]))),
           ),
@@ -805,8 +786,8 @@ class _PasswordScreenState extends State<PasswordScreen> {
                       const SizedBox(height: 8),
                       Text(
                         widget.forgot
-                            ? 'We’ll send a verification code to your email.'
-                            : 'Enter the email address you verified and choose a new password.',
+                            ? 'We’ll send a password reset code to your email.'
+                            : 'Enter your account email and choose a new password.',
                         textAlign: TextAlign.center,
                       ),
                       const SizedBox(height: 20),
@@ -941,7 +922,7 @@ class _OtpScreenState extends State<OtpScreen> {
       final email = _email.text.trim();
       final resetToken = await ProviderScope.containerOf(context)
           .read(appRepositoryProvider)
-          .verifyOtp(email, _otp.text.trim(), 'PASSWORD_RESET');
+          .verifyOtp(email, _otp.text.trim());
 
       if (!mounted) return;
 
@@ -1023,203 +1004,6 @@ class _OtpScreenState extends State<OtpScreen> {
                   ),
                 ],
               ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class EmailVerificationScreen extends StatefulWidget {
-  const EmailVerificationScreen({
-    super.key,
-    required this.email,
-    required this.role,
-  });
-
-  final String email;
-  final UserRole role;
-
-  @override
-  State<EmailVerificationScreen> createState() =>
-      _EmailVerificationScreenState();
-}
-
-class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
-  final _otp = TextEditingController();
-
-  bool _busy = false;
-  bool _resending = false;
-  int _resendCooldown = 0;
-  Timer? _resendTimer;
-  String? _error;
-
-  @override
-  void dispose() {
-    _resendTimer?.cancel();
-    _otp.dispose();
-    super.dispose();
-  }
-
-  Future<void> _resend() async {
-    setState(() {
-      _resending = true;
-      _error = null;
-    });
-    try {
-      await ProviderScope.containerOf(context)
-          .read(appRepositoryProvider)
-          .resendVerification(widget.email);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'If this account needs verification, a new code will be sent shortly.',
-          ),
-        ),
-      );
-      setState(() => _resendCooldown = 60);
-      _resendTimer?.cancel();
-      _resendTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-        if (!mounted || _resendCooldown <= 1) {
-          timer.cancel();
-          if (mounted) setState(() => _resendCooldown = 0);
-          return;
-        }
-        setState(() => _resendCooldown -= 1);
-      });
-    } catch (error) {
-      if (!mounted) return;
-      setState(() => _error = userFacingError(error));
-    } finally {
-      if (mounted) setState(() => _resending = false);
-    }
-  }
-
-  Future<void> _verify() async {
-    final otp = _otp.text.trim();
-
-    if (!RegExp(r'^\d{6}$').hasMatch(otp)) {
-      setState(() {
-        _error = 'Enter the 6-digit OTP sent to your email.';
-      });
-      return;
-    }
-
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
-
-    try {
-      await ProviderScope.containerOf(context)
-          .read(appRepositoryProvider)
-          .verifyEmail(widget.email, otp);
-
-      if (!mounted) return;
-
-      if (widget.role == UserRole.alumni) {
-        context.go('/pending-approval');
-      } else {
-        context.go('/login');
-      }
-    } catch (error) {
-      if (!mounted) return;
-
-      setState(() {
-        _error = userFacingError(error);
-      });
-    } finally {
-      if (mounted) {
-        setState(() {
-          _busy = false;
-        });
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Verify your email'),
-      ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: responsiveContent(
-            context,
-            Column(
-              children: [
-                const SizedBox(height: 24),
-                Icon(
-                  Icons.mark_email_read_outlined,
-                  size: 64,
-                  color: Theme.of(context).colorScheme.primary,
-                ),
-                const SizedBox(height: 20),
-                Text(
-                  'Check your email',
-                  style: Theme.of(context).textTheme.headlineSmall,
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  'Enter the 6-digit verification code for ${widget.email}. '
-                  'You can request a new code if needed.',
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-                const SizedBox(height: 24),
-                TextField(
-                  controller: _otp,
-                  keyboardType: TextInputType.number,
-                  maxLength: 6,
-                  decoration: const InputDecoration(
-                    labelText: 'Verification code',
-                    prefixIcon: Icon(Icons.pin_outlined),
-                    counterText: '',
-                  ),
-                  onSubmitted: (_) => _busy || _resending ? null : _verify(),
-                ),
-                if (_error != null) ...[
-                  const SizedBox(height: 8),
-                  InlineError(_error!),
-                ],
-                const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton(
-                    onPressed: _busy || _resending ? null : _verify,
-                    child: Text(
-                      _busy ? 'Verifying…' : 'Verify email',
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextButton(
-                  onPressed: _busy ||
-                          _resending ||
-                          _resendCooldown > 0 ||
-                          widget.email.isEmpty
-                      ? null
-                      : _resend,
-                  child: Text(
-                    _resending
-                        ? 'Sending…'
-                        : _resendCooldown > 0
-                            ? 'Resend code in ${_resendCooldown}s'
-                            : 'Resend verification code',
-                  ),
-                ),
-                const SizedBox(height: 4),
-                TextButton(
-                  onPressed:
-                      _busy || _resending ? null : () => context.go('/login'),
-                  child: const Text('Back to sign in'),
-                ),
-              ],
             ),
           ),
         ),

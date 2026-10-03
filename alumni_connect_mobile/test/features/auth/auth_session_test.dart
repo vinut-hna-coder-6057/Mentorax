@@ -123,7 +123,6 @@ void main() {
         '/signup',
         '/forgot-password',
         '/verify-otp',
-        '/verify-email',
         '/reset-password',
       ];
 

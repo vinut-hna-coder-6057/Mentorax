@@ -16,7 +16,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.beans.factory.annotation.Value;
 
 import java.util.Optional;
 import java.time.LocalDateTime;
@@ -27,27 +26,19 @@ public class AuthService {
     private final UserRepository repository;
     private final BCryptPasswordEncoder encoder;
     private final JwtUtil jwtUtil;
-    private final StudentProfileRepository studentProfileRepository;
     private final AlumniProfileRepository alumniProfileRepository;
-    private final OtpService otpService;
-        private final SignupTransactionService signupTransactionService;
-    @Value("${app.email-verification.required:false}")
-    private boolean emailVerificationRequired = true;
+    private final SignupTransactionService signupTransactionService;
     public AuthService(
         UserRepository repository,
         BCryptPasswordEncoder encoder,
         JwtUtil jwtUtil,
-        StudentProfileRepository studentProfileRepository,
         AlumniProfileRepository alumniProfileRepository,
-        OtpService otpService,
         SignupTransactionService signupTransactionService
 ) {
     this.repository = repository;
     this.encoder = encoder;
     this.jwtUtil = jwtUtil;
-    this.studentProfileRepository = studentProfileRepository;
     this.alumniProfileRepository = alumniProfileRepository;
-    this.otpService = otpService;
     this.signupTransactionService = signupTransactionService;
 }
     // =====================================
@@ -55,12 +46,12 @@ public class AuthService {
     // =====================================
 public String signup(SignupRequest request) {
     try {
-        signupTransactionService.createAccountAndOtp(request);
+        signupTransactionService.createAccount(request);
     } catch (DataIntegrityViolationException exception) {
         if (repository.findByEmailIgnoreCase(request.email()).isEmpty()) {
             throw exception;
         }
-        signupTransactionService.createAccountAndOtp(request);
+        signupTransactionService.createAccount(request);
     }
 
     return "Signup successful";
@@ -138,14 +129,6 @@ public String signup(User user) {
             );
         }
 
-        // Email must be verified before login.
-        if (emailVerificationRequired && !existing.isEmailVerified()) {
-            throw new ResponseStatusException(
-                    HttpStatus.FORBIDDEN,
-                    "Email verification required"
-            );
-        }
-
         // Rejected account.
         if ("REJECTED".equalsIgnoreCase(existing.getStatus())) {
             throw new ResponseStatusException(
@@ -170,7 +153,7 @@ public String signup(User user) {
             );
         }
 
-        // Approved and verified user.
+        // Approved user.
         return jwtUtil.generateToken(
                 existing.getEmail(),
                 existing.getRole()

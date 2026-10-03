@@ -110,9 +110,7 @@ AuthService authService = new AuthService(
         users,
         encoder,
         jwtUtil,
-        students,
         alumniProfiles,
-        otpService,
         mock(SignupTransactionService.class)
 );
         assertThrows(
@@ -126,16 +124,11 @@ AuthService authService = new AuthService(
     @Test
     void legacyStudentSignupDelegatesToCanonicalSignupFlow() {
         SignupTransactionService signupTransactions = mock(SignupTransactionService.class);
-        when(signupTransactions.createAccountAndOtp(any()))
-                .thenReturn(new SignupTransactionService.SignupResult(
-                        "student@example.com"));
         AuthService authService = new AuthService(
                 users,
                 encoder,
                 jwtUtil,
-                students,
                 alumniProfiles,
-                otpService,
                 signupTransactions);
         User request = user("student@example.com", "STUDENT", null);
         request.setPassword("StudentPassword123");
@@ -146,12 +139,11 @@ AuthService authService = new AuthService(
 
         ArgumentCaptor<com.alumni.alumni_connect.dto.SignupRequest> captor =
                 ArgumentCaptor.forClass(com.alumni.alumni_connect.dto.SignupRequest.class);
-        verify(signupTransactions).createAccountAndOtp(captor.capture());
+        verify(signupTransactions).createAccount(captor.capture());
         assertEquals("student@example.com", captor.getValue().email());
         assertEquals("STUDENT", captor.getValue().role());
         assertEquals("Mentorax University", captor.getValue().college());
         assertEquals("Computer Science", captor.getValue().branch());
-        verify(email, never()).sendEmailVerificationOtp(anyString(), anyString());
     }
 
     @Test
@@ -503,13 +495,13 @@ AuthService authService = new AuthService(
         otp.setVerified(false);
         otp.setCodeHash("stored-hash");
         when(otps.findFirstByEmailAndPurposeOrderByIdDesc(
-                "user@example.com", "EMAIL_VERIFICATION"))
+                "user@example.com", "PASSWORD_RESET"))
                 .thenReturn(Optional.of(otp));
         when(encoder.matches("000000", "stored-hash")).thenReturn(false);
 
         OtpService service = new OtpService(otps, encoder);
         assertFalse(service.verifyOtp(
-                "user@example.com", "000000", "EMAIL_VERIFICATION"));
+                "user@example.com", "000000", "PASSWORD_RESET"));
         assertEquals(1, otp.getAttemptCount());
         assertNull(otp.getConsumedAt());
         verify(otps).save(otp);
@@ -523,12 +515,12 @@ AuthService authService = new AuthService(
         otp.setVerified(true);
         otp.setCodeHash("stored-hash");
         when(otps.findFirstByEmailAndPurposeOrderByIdDesc(
-                "user@example.com", "EMAIL_VERIFICATION"))
+                "user@example.com", "PASSWORD_RESET"))
                 .thenReturn(Optional.of(otp));
 
         OtpService service = new OtpService(otps, encoder);
         assertFalse(service.verifyOtp(
-                "user@example.com", "123456", "EMAIL_VERIFICATION"));
+                "user@example.com", "123456", "PASSWORD_RESET"));
         verify(encoder, never()).matches(anyString(), anyString());
         verify(otps, never()).save(any(Otp.class));
 
@@ -537,7 +529,7 @@ AuthService authService = new AuthService(
                 .thenReturn(Optional.empty());
         assertFalse(service.verifyOtp(
                 "user@example.com", "123456", "PASSWORD_RESET"));
-        verify(otps).findFirstByEmailAndPurposeOrderByIdDesc(
+        verify(otps, times(2)).findFirstByEmailAndPurposeOrderByIdDesc(
                 "user@example.com", "PASSWORD_RESET");
     }
 

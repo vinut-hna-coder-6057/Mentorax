@@ -47,18 +47,6 @@ class EmailServiceTest {
     }
 
     @Test
-    void sendsEmailVerificationOtpThroughResend() {
-        expectRequest("Verify your Mentorax email")
-                .andExpect(jsonPath("$.to[0]").value("student@example.test"))
-                .andExpect(jsonPath("$.text").value(org.hamcrest.Matchers.containsString("123456")))
-                .andRespond(withSuccess("{\"id\":\"email-id\"}", APPLICATION_JSON));
-
-        emailService.sendEmailVerificationOtp("student@example.test", "123456");
-
-        server.verify();
-    }
-
-    @Test
     void sendsPasswordResetOtpThroughResend() {
         expectRequest("Password Reset OTP")
                 .andExpect(jsonPath("$.to[0]").value("student@example.test"))
@@ -71,22 +59,14 @@ class EmailServiceTest {
     }
 
     @Test
-    void verificationAndPasswordOtpEmailsUseEachRequestedRecipient() {
-        expectRequest("Verify your Mentorax email")
+    void passwordOtpEmailsUseEachRequestedRecipient() {
+        expectRequest("Password Reset OTP")
                 .andExpect(jsonPath("$.to[0]").value("first@example.test"))
                 .andRespond(withSuccess("{\"id\":\"email-id-1\"}", APPLICATION_JSON));
-        expectRequest("Verify your Mentorax email")
+        expectRequest("Password Reset OTP")
                 .andExpect(jsonPath("$.to[0]").value("second@example.test"))
                 .andRespond(withSuccess("{\"id\":\"email-id-2\"}", APPLICATION_JSON));
-        expectRequest("Password Reset OTP")
-                .andExpect(jsonPath("$.to[0]").value("first@example.test"))
-                .andRespond(withSuccess("{\"id\":\"email-id-3\"}", APPLICATION_JSON));
-        expectRequest("Password Reset OTP")
-                .andExpect(jsonPath("$.to[0]").value("second@example.test"))
-                .andRespond(withSuccess("{\"id\":\"email-id-4\"}", APPLICATION_JSON));
 
-        emailService.sendEmailVerificationOtp(" first@example.test ", "123456");
-        emailService.sendEmailVerificationOtp("SECOND@example.test", "654321");
         emailService.sendOtpEmail("first@example.test", "123456");
         emailService.sendOtpEmail("second@example.test", "654321");
 

@@ -35,14 +35,8 @@ public class EmailOutboxService {
     }
 
     @Transactional
-    public void enqueueVerification(String email, String otp) {
-        enqueueOtp(email, "EMAIL_VERIFICATION", otp);
-    }
-
-    @Transactional
     public void enqueueOtp(String email, String purpose, String otp) {
-        if (!"EMAIL_VERIFICATION".equals(purpose)
-                && !"PASSWORD_RESET".equals(purpose)) {
+        if (!"PASSWORD_RESET".equals(purpose)) {
             throw new IllegalArgumentException("Unsupported email OTP purpose");
         }
         LocalDateTime now = LocalDateTime.now();

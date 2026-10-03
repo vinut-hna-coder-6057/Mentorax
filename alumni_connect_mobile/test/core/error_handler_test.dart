@@ -43,24 +43,6 @@ void main() {
     expect(mapped.message, contains('selected account type'));
   });
 
-  test('maps unverified-account 403 to a verification instruction', () {
-    final request = RequestOptions(path: '/login');
-    final error = DioException(
-      requestOptions: request,
-      type: DioExceptionType.badResponse,
-      response: Response<dynamic>(
-        requestOptions: request,
-        statusCode: 403,
-        data: '{"error":"Email verification required"}',
-      ),
-    );
-
-    final mapped = toApiException(error, requestPath: '/login');
-
-    expect(mapped.kind, ApiErrorKind.forbidden);
-    expect(mapped.message, contains('verify your email'));
-  });
-
   test('keeps protected-route 401 distinct from login failure', () {
     final request = RequestOptions(path: '/users');
     final error = DioException(

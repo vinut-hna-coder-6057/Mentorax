@@ -5,7 +5,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../core/errors/error_handler.dart';
-import '../core/errors/api_exception.dart';
 import '../core/network/api_client.dart';
 import '../core/network/realtime_service.dart';
 import '../core/storage/secure_storage_service.dart';
@@ -324,11 +323,6 @@ class AuthNotifier extends StateNotifier<AsyncValue<User?>> {
     } catch (error) {
       state = const AsyncData(null);
       final apiError = toApiException(error, requestPath: '/login');
-      if (apiError.statusCode == 403 &&
-          apiError.kind == ApiErrorKind.forbidden &&
-          apiError.message == 'Please verify your email before signing in.') {
-        return 'VERIFY_EMAIL';
-      }
       return apiError.message;
     }
   }

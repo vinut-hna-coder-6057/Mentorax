@@ -108,14 +108,8 @@ public class SecurityConfig {
                                 "/signup",
 
                                 "/forgot-password",
-
                                 "/verify-otp",
-
-                                "/reset-password",
-                                
-                                "/verify-email",
-
-                                "/resend-verification"
+                                "/reset-password"
 
                         ).permitAll()
 

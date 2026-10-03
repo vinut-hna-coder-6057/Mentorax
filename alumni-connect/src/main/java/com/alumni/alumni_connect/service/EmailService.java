@@ -164,22 +164,6 @@ public class EmailService {
                 "Email delivery is temporarily unavailable");
     }
 
-    public void sendEmailVerificationOtp(String to, String otp) {
-        String body =
-                "Hello,\n\n"
-                + "Your OTP for verifying your Mentorax email is:\n\n"
-                + otp
-                + "\n\nThis OTP is valid for 5 minutes.\n\n"
-                + "Do not share this OTP with anyone.\n\n"
-                + "Thank you,\nMentorax Team";
-
-        sendEmail(
-                to,
-                "Verify your Mentorax email",
-                body
-        );
-    }
-
     public void sendOtpEmail(String to, String otp) {
         String body =
                 "Hello,\n\n"

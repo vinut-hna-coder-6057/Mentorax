@@ -204,24 +204,11 @@ class AppRepository {
       );
   Future<void> forgotPassword(String email) =>
       api.post('/forgot-password', data: {'email': email}, decode: (_) {});
-  Future<String> verifyOtp(String email, String otp, String purpose) =>
+  Future<String> verifyOtp(String email, String otp) =>
       api.post(
         '/verify-otp',
         data: {'email': email, 'otp': otp},
         decode: (d) => (d as Map)['resetToken'] as String,
-      );
-  Future<void> verifyEmail(String email, String otp) => api.post(
-        '/verify-email',
-        data: {
-          'email': email,
-          'otp': otp,
-        },
-        decode: (_) {},
-      );
-  Future<void> resendVerification(String email) => api.post(
-        '/resend-verification',
-        data: {'email': email},
-        decode: (_) {},
       );
   Future<void> resetPassword(
           String email, String password, String resetToken) =>

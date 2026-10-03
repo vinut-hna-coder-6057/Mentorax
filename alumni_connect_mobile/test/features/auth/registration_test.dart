@@ -1,5 +1,7 @@
 
 
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -10,8 +12,8 @@ import 'package:alumni_connect_mobile/core/errors/api_exception.dart';
 import 'package:alumni_connect_mobile/core/network/api_client.dart';
 import 'package:alumni_connect_mobile/core/storage/secure_storage_service.dart';
 import 'package:alumni_connect_mobile/features/app_repository.dart';
+import 'package:alumni_connect_mobile/features/presentation.dart';
 import 'package:alumni_connect_mobile/shared/models/models.dart';
-import 'package:alumni_connect_mobile/app/email_verification_config.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -23,34 +25,30 @@ void main() {
       .setMockMethodCallHandler(storageChannel, (call) async => null);
 
   group('Registration API Contract', () {
-    test('signup proceeds to sign in or alumni approval when verification is disabled', () {
+    test('signup proceeds directly to sign in or existing alumni approval', () {
       expect(
-        signupSuccessLocation(
-          role: UserRole.student,
-          email: 'student@example.com',
-          verificationEnabled: false,
-        ),
-        '/login',
+        registrationSuccessLocation(UserRole.student),
+        '/login?registered=1',
       );
       expect(
-        signupSuccessLocation(
-          role: UserRole.alumni,
-          email: 'alumni@example.com',
-          verificationEnabled: false,
-        ),
+        registrationSuccessLocation(UserRole.alumni),
         '/pending-approval',
       );
     });
 
-    test('signup retains the OTP route when verification is enabled', () {
-      expect(
-        signupSuccessLocation(
-          role: UserRole.student,
-          email: 'student@example.com',
-          verificationEnabled: true,
+    testWidgets('login acknowledges signup without showing verification UI',
+        (tester) async {
+      await tester.pumpWidget(
+        const ProviderScope(
+          child: MaterialApp(
+            home: LoginScreen(signupComplete: true),
+          ),
         ),
-        '/email-verification?email=student%40example.com&role=student',
       );
+
+      expect(find.text('Your account was created. Sign in to continue.'),
+          findsOneWidget);
+      expect(find.text('Verify email'), findsNothing);
     });
 
     // ------------------------------------------------------------
