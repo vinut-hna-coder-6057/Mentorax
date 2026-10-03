@@ -22,8 +22,6 @@ ApiException toApiException(Object error, {String? requestPath}) {
     }
     if (status == 403) {
       final forbiddenMessage = switch (message.toLowerCase()) {
-        'email verification required' =>
-          'Please verify your email before signing in.',
         'account pending approval' =>
           'Your account is awaiting administrator approval.',
         'account rejected' =>
@@ -43,7 +41,7 @@ ApiException toApiException(Object error, {String? requestPath}) {
       final conflictMessage = message
               .toLowerCase()
               .contains('email already exists')
-          ? 'An account already uses this email. Sign in or continue email verification.'
+          ? 'An account already uses this email. Sign in with the existing account.'
           : message;
       return ApiException(
         ApiErrorKind.conflict,

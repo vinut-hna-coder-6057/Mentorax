@@ -45,9 +45,10 @@ cd alumni-connect
 ./mvnw spring-boot:run
 ```
 
-Configure the required database, Resend, and JWT settings using local
-environment variables or the local application configuration. Do not commit
-credentials or other secrets.
+Configure the required database and JWT settings using local environment
+variables or the local application configuration. Resend settings are optional
+and are used only for password-reset OTP and event-registration emails. Do not
+commit credentials or other secrets.
 
 ## Email verification status
 
@@ -56,7 +57,9 @@ testing phase. Signup does not send verification email, and any account with
 valid credentials and an approved status can sign in regardless of the legacy
 `email_verified` database column. Alumni continue to require administrator
 approval. Password-reset OTP and other application email notifications remain
-separate and continue to use the configured Resend integration.
+separate. Configure `RESEND_API_KEY` and `RESEND_FROM_EMAIL` if those email
+features need to deliver messages; neither variable is required for signup,
+signin, or backend startup.
 
 This is a temporary product decision, not a production-ready account-security
 policy. Restore and test email ownership verification before relying on

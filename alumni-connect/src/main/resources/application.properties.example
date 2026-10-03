@@ -27,17 +27,10 @@ management.endpoint.health.show-components=always
 # EMAIL CONFIGURATION
 # =====================================
 
-# Email delivery uses the Resend API. Set RESEND_API_KEY and RESEND_FROM_EMAIL.
-# The sender must be verified for the configured Resend account/domain.
-# Temporary testing mode: set EMAIL_VERIFICATION_REQUIRED=true to restore OTP gates.
-app.email-verification.required=${EMAIL_VERIFICATION_REQUIRED:false}
-# Verification resend requests are queued durably for up to four minutes; OTP
-# payloads are encrypted with a purpose-derived key from JWT_SECRET and deleted
-# after delivery/expiry. Keep JWT_SECRET stable while queued messages are pending.
-
-
-
-
+# Optional email delivery for password-reset OTP and event-registration
+# notifications. Signup and signin do not require email configuration.
+# Configure RESEND_API_KEY and RESEND_FROM_EMAIL in the environment if these
+# email features need to deliver messages. The sender must be verified in Resend.
 
 
 # =========================================

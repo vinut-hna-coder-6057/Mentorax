@@ -43,6 +43,26 @@ void main() {
     expect(mapped.message, contains('selected account type'));
   });
 
+  test('duplicate registration recommends signing into the existing account',
+      () {
+    final request = RequestOptions(path: '/signup');
+    final error = DioException(
+      requestOptions: request,
+      type: DioExceptionType.badResponse,
+      response: Response<dynamic>(
+        requestOptions: request,
+        statusCode: 409,
+        data: '{"error":"Email already exists."}',
+      ),
+    );
+
+    final mapped = toApiException(error, requestPath: '/signup');
+
+    expect(mapped.kind, ApiErrorKind.conflict);
+    expect(mapped.message, contains('Sign in with the existing account'));
+    expect(mapped.message, isNot(contains('verification')));
+  });
+
   test('keeps protected-route 401 distinct from login failure', () {
     final request = RequestOptions(path: '/users');
     final error = DioException(
