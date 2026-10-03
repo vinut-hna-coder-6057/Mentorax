@@ -23,6 +23,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.beans.factory.annotation.Value;
 
 @RestController
 @RequestMapping("/alumni")
@@ -34,6 +35,8 @@ public class AlumniController {
     private final OtpService otpService;
     private final EmailOutboxService emailOutboxService;
     private final CurrentUserService currentUserService;
+    @Value("${app.email-verification.required:false}")
+    private boolean emailVerificationRequired = true;
 
     public AlumniController(
             UserRepository repository,
@@ -91,8 +94,10 @@ public class AlumniController {
         profile.setApprovalStatus(saved.getStatus());
         alumniProfileRepository.save(profile);
 
-        String otp = otpService.generateOtp(saved.getEmail(), "EMAIL_VERIFICATION");
-        emailOutboxService.enqueueVerification(saved.getEmail(), otp);
+        if (emailVerificationRequired) {
+            String otp = otpService.generateOtp(saved.getEmail(), "EMAIL_VERIFICATION");
+            emailOutboxService.enqueueVerification(saved.getEmail(), otp);
+        }
         return UserProfileResponse.from(saved);
     }
 

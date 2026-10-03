@@ -45,9 +45,26 @@ cd alumni-connect
 ./mvnw spring-boot:run
 ```
 
-Configure the required database, mail, and JWT settings using local
+Configure the required database, Resend, and JWT settings using local
 environment variables or the local application configuration. Do not commit
 credentials or other secrets.
+
+## Temporary email verification setting
+
+Email OTP verification is temporarily disabled for signup and signin by
+default (`EMAIL_VERIFICATION_REQUIRED=false`). Signup will not enqueue an
+email-verification OTP, and approved accounts may sign in without setting
+`email_verified`; password checks, role checks, account approval/rejection,
+rate limits, and authorization remain enforced. Alumni still require approval.
+
+The Flutter app follows the same temporary default. Restore verification
+before treating the application as production-ready: set backend
+`EMAIL_VERIFICATION_REQUIRED=true` and build Flutter with
+`--dart-define=EMAIL_VERIFICATION_ENABLED=true`. Re-enable and verify OTP
+delivery before relying on email ownership for account security. Existing
+unverified accounts are not modified; while verification is disabled, an
+unverified account can sign in only if its other account-status checks permit
+it.
 
 ## Running the Flutter application
 

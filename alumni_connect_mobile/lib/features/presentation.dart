@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../app/providers.dart';
+import '../app/email_verification_config.dart';
 import '../core/errors/api_exception.dart';
 import '../core/errors/error_handler.dart';
 import '../core/network/realtime_service.dart';
@@ -662,14 +663,16 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         TextButton(
                           onPressed: _busy
                               ? null
-                              : () => c.go(Uri(
-                                    path: '/email-verification',
-                                    queryParameters: {
-                                      'email': _email.text.trim(),
-                                      'role': _role.name,
-                                    },
-                                  ).toString()),
-                          child: const Text('Continue to email verification'),
+                              : () => c.go(emailVerificationEnabled
+                                  ? signupSuccessLocation(
+                                      role: _role,
+                                      email: _email.text.trim(),
+                                      verificationEnabled: true,
+                                    )
+                                  : '/login'),
+                          child: const Text(emailVerificationEnabled
+                              ? 'Continue to email verification'
+                              : 'Continue to sign in'),
                         ),
                       FilledButton(
                           onPressed: _busy
@@ -697,9 +700,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                             _password.text);
                                     if (!c.mounted) return;
 
-                                    c.go(
-                                      '/email-verification?email=${Uri.encodeComponent(email)}&role=${_role.name}',
-                                    );
+                                    c.go(signupSuccessLocation(
+                                      role: _role,
+                                      email: email,
+                                      verificationEnabled:
+                                          emailVerificationEnabled,
+                                    ));
                                   } catch (error) {
                                     if (!c.mounted) return;
                                     final apiError = toApiException(
@@ -721,7 +727,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                                   ApiErrorKind.network ||
                                               apiError.kind ==
                                                   ApiErrorKind.server
-                                          ? "We couldn't confirm signup. Your account may have been created. Continue to email verification or retry using the same details."
+                                          ? emailVerificationEnabled
+                                              ? "We couldn't confirm signup. Your account may have been created. Continue to email verification or retry using the same details."
+                                              : "We couldn't confirm signup. Your account may have been created. Continue to sign in or retry using the same details."
                                           : apiError.message;
                                     });
                                   }
@@ -729,7 +737,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           child: Text(
                             _busy
                                 ? 'Creating account…'
-                                : 'Continue to verification',
+                                : emailVerificationEnabled
+                                    ? 'Continue to verification'
+                                    : 'Create account',
                           ))
                     ]))),
           ),

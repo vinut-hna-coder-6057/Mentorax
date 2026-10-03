@@ -11,6 +11,7 @@ import 'package:alumni_connect_mobile/core/network/api_client.dart';
 import 'package:alumni_connect_mobile/core/storage/secure_storage_service.dart';
 import 'package:alumni_connect_mobile/features/app_repository.dart';
 import 'package:alumni_connect_mobile/shared/models/models.dart';
+import 'package:alumni_connect_mobile/app/email_verification_config.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -22,6 +23,36 @@ void main() {
       .setMockMethodCallHandler(storageChannel, (call) async => null);
 
   group('Registration API Contract', () {
+    test('signup proceeds to sign in or alumni approval when verification is disabled', () {
+      expect(
+        signupSuccessLocation(
+          role: UserRole.student,
+          email: 'student@example.com',
+          verificationEnabled: false,
+        ),
+        '/login',
+      );
+      expect(
+        signupSuccessLocation(
+          role: UserRole.alumni,
+          email: 'alumni@example.com',
+          verificationEnabled: false,
+        ),
+        '/pending-approval',
+      );
+    });
+
+    test('signup retains the OTP route when verification is enabled', () {
+      expect(
+        signupSuccessLocation(
+          role: UserRole.student,
+          email: 'student@example.com',
+          verificationEnabled: true,
+        ),
+        '/email-verification?email=student%40example.com&role=student',
+      );
+    });
+
     // ------------------------------------------------------------
     // TEST 1 — STUDENT REGISTRATION
     // ------------------------------------------------------------

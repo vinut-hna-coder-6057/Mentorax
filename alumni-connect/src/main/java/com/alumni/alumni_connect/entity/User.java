@@ -35,7 +35,8 @@ public class User {
     private String role;
 
     private String status;
-    private boolean emailVerified;
+    @Column(name = "email_verified", nullable = false)
+    private boolean emailVerified = false;
     // COLLEGE INFO
     private String college;
 

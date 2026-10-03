@@ -3,6 +3,7 @@ package com.alumni.alumni_connect.service;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -19,6 +20,8 @@ public class EmailOutboxDispatcher {
     private final EmailOutboxService outboxService;
     private final EmailOutboxCipher cipher;
     private final EmailService emailService;
+    @Value("${app.email-verification.required:false}")
+    private boolean emailVerificationRequired = true;
 
     public EmailOutboxDispatcher(
             EmailOutboxService outboxService,
@@ -35,6 +38,11 @@ public class EmailOutboxDispatcher {
     }
 
     private void deliver(EmailOutboxService.ClaimedMessage message) {
+        if ("EMAIL_VERIFICATION".equals(message.purpose())
+                && !emailVerificationRequired) {
+            outboxService.markDelivered(message.id());
+            return;
+        }
         try {
             String otp = cipher.decrypt(message.encryptedOtp());
             if ("EMAIL_VERIFICATION".equals(message.purpose())) {

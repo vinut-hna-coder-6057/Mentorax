@@ -12,6 +12,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.server.ResponseStatusException;
 
 @Service
@@ -23,6 +24,8 @@ public class SignupTransactionService {
     private final AlumniProfileRepository alumniProfileRepository;
     private final OtpService otpService;
     private final EmailOutboxService emailOutboxService;
+    @Value("${app.email-verification.required:false}")
+    private boolean emailVerificationRequired = true;
 
     public SignupTransactionService(
             UserRepository repository,
@@ -70,10 +73,12 @@ public class SignupTransactionService {
                 throw emailAlreadyExists();
             }
 
-            String retryOtp = otpService.generateOtp(
-                    existing.getEmail(),
-                    "EMAIL_VERIFICATION");
-            emailOutboxService.enqueueVerification(existing.getEmail(), retryOtp);
+            if (emailVerificationRequired) {
+                String retryOtp = otpService.generateOtp(
+                        existing.getEmail(),
+                        "EMAIL_VERIFICATION");
+                emailOutboxService.enqueueVerification(existing.getEmail(), retryOtp);
+            }
             return new SignupResult(existing.getEmail());
         }
 
@@ -98,11 +103,13 @@ public class SignupTransactionService {
             alumniProfileRepository.save(profile);
         }
 
-        String otp = otpService.generateOtp(
-                savedUser.getEmail(),
-                "EMAIL_VERIFICATION"
-        );
-        emailOutboxService.enqueueVerification(savedUser.getEmail(), otp);
+        if (emailVerificationRequired) {
+            String otp = otpService.generateOtp(
+                    savedUser.getEmail(),
+                    "EMAIL_VERIFICATION"
+            );
+            emailOutboxService.enqueueVerification(savedUser.getEmail(), otp);
+        }
 
         return new SignupResult(savedUser.getEmail());
     }

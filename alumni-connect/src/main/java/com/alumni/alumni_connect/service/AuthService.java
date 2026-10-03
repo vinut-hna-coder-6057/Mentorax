@@ -16,6 +16,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.beans.factory.annotation.Value;
 
 import java.util.Optional;
 import java.time.LocalDateTime;
@@ -30,6 +31,8 @@ public class AuthService {
     private final AlumniProfileRepository alumniProfileRepository;
     private final OtpService otpService;
         private final SignupTransactionService signupTransactionService;
+    @Value("${app.email-verification.required:false}")
+    private boolean emailVerificationRequired = true;
     public AuthService(
         UserRepository repository,
         BCryptPasswordEncoder encoder,
@@ -136,7 +139,7 @@ public String signup(User user) {
         }
 
         // Email must be verified before login.
-        if (!existing.isEmailVerified()) {
+        if (emailVerificationRequired && !existing.isEmailVerified()) {
             throw new ResponseStatusException(
                     HttpStatus.FORBIDDEN,
                     "Email verification required"

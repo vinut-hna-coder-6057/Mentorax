@@ -878,6 +878,83 @@ void signupCreatesRoleSpecificProfilesAndAccountStatusIsAuthoritative() throws E
 }
 
 @Test
+@Transactional(propagation = Propagation.NOT_SUPPORTED)
+void signupCannotVerifyAccountWithoutItsValidOtp() throws Exception {
+    String email = "signup-otp-" + UUID.randomUUID() + "@example.test";
+    mockMvc.perform(post("/signup")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(new ObjectMapper().writeValueAsString(java.util.Map.of(
+                            "name", "OTP Student",
+                            "email", email,
+                            "password", "StudentPassword123",
+                            "role", "STUDENT",
+                            "emailVerified", true,
+                            "verified", true))))
+            .andExpect(status().isOk());
+
+    User created = users.findByEmail(email).orElseThrow();
+    assertFalse(created.isEmailVerified());
+    assertEquals("APPROVED", created.getStatus());
+    Otp signupOtp = new TransactionTemplate(transactionManager).execute(status ->
+            otpRepository.findFirstByEmailAndPurposeOrderByIdDesc(
+                    email, "EMAIL_VERIFICATION").orElseThrow());
+    assertFalse(signupOtp.isVerified());
+
+    mockMvc.perform(post("/login")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(new ObjectMapper().writeValueAsString(java.util.Map.of(
+                            "email", email,
+                            "password", "StudentPassword123",
+                            "role", "STUDENT"))))
+            .andExpect(status().isForbidden())
+            .andExpect(jsonPath("$.error").value("Email verification required"));
+
+    ArgumentCaptor<String> otpCaptor = ArgumentCaptor.forClass(String.class);
+    new EmailOutboxDispatcher(emailOutboxService, emailOutboxCipher, emailService)
+            .dispatchNext();
+    verify(emailService).sendEmailVerificationOtp(eq(email), otpCaptor.capture());
+    String deliveredOtp = otpCaptor.getValue();
+
+    mockMvc.perform(post("/verify-email")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(new ObjectMapper().writeValueAsString(java.util.Map.of(
+                            "email", email, "otp", "000000"))))
+            .andExpect(status().isBadRequest());
+    assertFalse(users.findByEmail(email).orElseThrow().isEmailVerified());
+
+    mockMvc.perform(post("/verify-email")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(new ObjectMapper().writeValueAsString(java.util.Map.of(
+                            "email", email, "otp", deliveredOtp))))
+            .andExpect(status().isOk());
+    assertTrue(users.findByEmail(email).orElseThrow().isEmailVerified());
+    assertFalse(otpService.verifyOtp(email, deliveredOtp, "EMAIL_VERIFICATION"));
+
+    mockMvc.perform(post("/login")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(new ObjectMapper().writeValueAsString(java.util.Map.of(
+                            "email", email,
+                            "password", "StudentPassword123",
+                            "role", "STUDENT"))))
+            .andExpect(status().isOk());
+
+    String otherEmail = "other-otp-" + UUID.randomUUID() + "@example.test";
+    users.save(new User(
+            "Other Student", otherEmail,
+            passwordEncoder.encode("StudentPassword123"), "STUDENT", "APPROVED"));
+    assertFalse(otpService.verifyOtp(
+            otherEmail, deliveredOtp, "EMAIL_VERIFICATION"));
+    assertFalse(users.findByEmail(otherEmail).orElseThrow().isEmailVerified());
+
+    mockMvc.perform(post("/resend-verification")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(new ObjectMapper().writeValueAsString(
+                            java.util.Map.of("email", otherEmail))))
+            .andExpect(status().isAccepted());
+    assertFalse(users.findByEmail(otherEmail).orElseThrow().isEmailVerified());
+}
+
+@Test
 void signupTrimsAndNormalizesEmailBeforePersistingAndQueueingOtp() throws Exception {
     String email = "normalized-" + UUID.randomUUID() + "@example.test";
     mockMvc.perform(post("/signup")

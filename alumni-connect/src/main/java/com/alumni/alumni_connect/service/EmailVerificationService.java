@@ -6,6 +6,7 @@ import com.alumni.alumni_connect.repository.UserRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.server.ResponseStatusException;
 
 @Service
@@ -16,6 +17,8 @@ public class EmailVerificationService {
     private final UserRepository userRepository;
     private final OtpService otpService;
     private final EmailOutboxService emailOutboxService;
+    @Value("${app.email-verification.required:false}")
+    private boolean emailVerificationRequired = true;
 
     public EmailVerificationService(
             UserRepository userRepository,
@@ -59,6 +62,9 @@ public class EmailVerificationService {
 
     @Transactional
     public String resendVerification(String email) {
+        if (!emailVerificationRequired) {
+            return "Email verification is temporarily disabled.";
+        }
         User user = userRepository.findByEmailIgnoreCase(email).orElse(null);
         if (user != null && !user.isEmailVerified()) {
             String recipient = user.getEmail();
