@@ -8,8 +8,8 @@ import com.alumni.alumni_connect.entity.User;
 import com.alumni.alumni_connect.repository.AlumniProfileRepository;
 import com.alumni.alumni_connect.repository.StudentProfileRepository;
 import com.alumni.alumni_connect.repository.UserRepository;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
@@ -18,14 +18,14 @@ import org.springframework.web.server.ResponseStatusException;
 public class SignupTransactionService {
 
     private final UserRepository repository;
-    private final BCryptPasswordEncoder encoder;
+    private final PasswordEncoder encoder;
     private final StudentProfileRepository studentProfileRepository;
     private final AlumniProfileRepository alumniProfileRepository;
     private final OtpService otpService;
 
     public SignupTransactionService(
             UserRepository repository,
-            BCryptPasswordEncoder encoder,
+            PasswordEncoder encoder,
             StudentProfileRepository studentProfileRepository,
             AlumniProfileRepository alumniProfileRepository,
             OtpService otpService
@@ -43,13 +43,6 @@ public class SignupTransactionService {
     public SignupResult createAccountAndOtp(SignupRequest request) {
         User user = request.toUser();
 
-        if (repository.findByEmail(user.getEmail()).isPresent()) {
-            throw new ResponseStatusException(
-                    HttpStatus.CONFLICT,
-                    "Email already exists"
-            );
-        }
-
         if (!"STUDENT".equalsIgnoreCase(user.getRole())
                 && !"ALUMNI".equalsIgnoreCase(user.getRole())) {
             throw new IllegalArgumentException(
@@ -63,6 +56,21 @@ public class SignupTransactionService {
             throw new IllegalArgumentException(
                     "Password does not meet requirements"
             );
+        }
+
+        User existing = repository.findByEmail(user.getEmail()).orElse(null);
+        if (existing != null) {
+            if (existing.isEmailVerified()
+                    || existing.getRole() == null
+                    || !existing.getRole().equalsIgnoreCase(user.getRole())
+                    || !encoder.matches(user.getPassword(), existing.getPassword())) {
+                throw emailAlreadyExists();
+            }
+
+            String retryOtp = otpService.generateOtp(
+                    existing.getEmail(),
+                    "EMAIL_VERIFICATION");
+            return new SignupResult(existing.getEmail(), retryOtp);
         }
 
         user.setPassword(encoder.encode(user.getPassword()));
@@ -92,5 +100,11 @@ public class SignupTransactionService {
         );
 
         return new SignupResult(savedUser.getEmail(), otp);
+    }
+
+    private ResponseStatusException emailAlreadyExists() {
+        return new ResponseStatusException(
+                HttpStatus.CONFLICT,
+                "Email already exists. Use the original account details to resume verification.");
     }
 }

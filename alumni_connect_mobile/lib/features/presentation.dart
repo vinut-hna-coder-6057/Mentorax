@@ -1,11 +1,12 @@
 import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../app/providers.dart';
+import '../core/errors/api_exception.dart';
+import '../core/errors/error_handler.dart';
 import '../core/network/realtime_service.dart';
 import '../shared/models/models.dart';
 import '../shared/widgets/ui_components.dart';
@@ -516,6 +517,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       if (!mounted) return;
       if (x == 'WAIT_APPROVAL') {
         context.go('/pending-approval');
+      } else if (x == 'VERIFY_EMAIL') {
+        context.go(Uri(
+          path: '/email-verification',
+          queryParameters: {
+            'email': email,
+            'role': _role.name,
+          },
+        ).toString());
       } else {
         setState(() => _error = x);
       }
@@ -541,6 +550,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   String? _error;
   bool _busy = false;
   bool _showPassword = false;
+  bool _showVerificationRecovery = false;
   final _formKey = GlobalKey<FormState>();
 
   @override
@@ -648,6 +658,19 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         Padding(
                             padding: const EdgeInsets.only(top: 8),
                             child: InlineError(_error!)),
+                      if (_showVerificationRecovery)
+                        TextButton(
+                          onPressed: _busy
+                              ? null
+                              : () => c.go(Uri(
+                                    path: '/email-verification',
+                                    queryParameters: {
+                                      'email': _email.text.trim(),
+                                      'role': _role.name,
+                                    },
+                                  ).toString()),
+                          child: const Text('Continue to email verification'),
+                        ),
                       FilledButton(
                           onPressed: _busy
                               ? null
@@ -658,6 +681,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                   setState(() {
                                     _busy = true;
                                     _error = null;
+                                    _showVerificationRecovery = false;
                                   });
                                   final email = _email.text.trim();
                                   try {
@@ -678,9 +702,27 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                     );
                                   } catch (error) {
                                     if (!c.mounted) return;
+                                    final apiError = toApiException(
+                                      error,
+                                      requestPath: '/signup',
+                                    );
+                                    final canResume = {
+                                      ApiErrorKind.timeout,
+                                      ApiErrorKind.network,
+                                      ApiErrorKind.server,
+                                      ApiErrorKind.conflict,
+                                    }.contains(apiError.kind);
                                     setState(() {
                                       _busy = false;
-                                      _error = userFacingError(error);
+                                      _showVerificationRecovery = canResume;
+                                      _error = apiError.kind ==
+                                                  ApiErrorKind.timeout ||
+                                              apiError.kind ==
+                                                  ApiErrorKind.network ||
+                                              apiError.kind ==
+                                                  ApiErrorKind.server
+                                          ? "We couldn't confirm signup. Your account may have been created. Continue to email verification or retry using the same details."
+                                          : apiError.message;
                                     });
                                   }
                                 },
@@ -998,12 +1040,51 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
   final _otp = TextEditingController();
 
   bool _busy = false;
+  bool _resending = false;
+  int _resendCooldown = 0;
+  Timer? _resendTimer;
   String? _error;
 
   @override
   void dispose() {
+    _resendTimer?.cancel();
     _otp.dispose();
     super.dispose();
+  }
+
+  Future<void> _resend() async {
+    setState(() {
+      _resending = true;
+      _error = null;
+    });
+    try {
+      await ProviderScope.containerOf(context)
+          .read(appRepositoryProvider)
+          .resendVerification(widget.email);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'If this account needs verification, a new code has been sent.',
+          ),
+        ),
+      );
+      setState(() => _resendCooldown = 60);
+      _resendTimer?.cancel();
+      _resendTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+        if (!mounted || _resendCooldown <= 1) {
+          timer.cancel();
+          if (mounted) setState(() => _resendCooldown = 0);
+          return;
+        }
+        setState(() => _resendCooldown -= 1);
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _error = userFacingError(error));
+    } finally {
+      if (mounted) setState(() => _resending = false);
+    }
   }
 
   Future<void> _verify() async {
@@ -1075,7 +1156,8 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
                 ),
                 const SizedBox(height: 10),
                 Text(
-                  'We sent a 6-digit verification code to ${widget.email}.',
+                  'Enter the 6-digit verification code for ${widget.email}. '
+                  'You can request a new code if needed.',
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.bodyMedium,
                 ),
@@ -1089,7 +1171,7 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
                     prefixIcon: Icon(Icons.pin_outlined),
                     counterText: '',
                   ),
-                  onSubmitted: (_) => _busy ? null : _verify(),
+                  onSubmitted: (_) => _busy || _resending ? null : _verify(),
                 ),
                 if (_error != null) ...[
                   const SizedBox(height: 8),
@@ -1099,7 +1181,7 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
                 SizedBox(
                   width: double.infinity,
                   child: FilledButton(
-                    onPressed: _busy ? null : _verify,
+                    onPressed: _busy || _resending ? null : _verify,
                     child: Text(
                       _busy ? 'Verifying…' : 'Verify email',
                     ),
@@ -1107,7 +1189,24 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
                 ),
                 const SizedBox(height: 12),
                 TextButton(
-                  onPressed: _busy ? null : () => context.go('/login'),
+                  onPressed: _busy ||
+                          _resending ||
+                          _resendCooldown > 0 ||
+                          widget.email.isEmpty
+                      ? null
+                      : _resend,
+                  child: Text(
+                    _resending
+                        ? 'Sending…'
+                        : _resendCooldown > 0
+                            ? 'Resend code in ${_resendCooldown}s'
+                            : 'Resend verification code',
+                  ),
+                ),
+                const SizedBox(height: 4),
+                TextButton(
+                  onPressed:
+                      _busy || _resending ? null : () => context.go('/login'),
                   child: const Text('Back to sign in'),
                 ),
               ],
@@ -3498,9 +3597,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (me == null || me.isEmpty) return;
 
     _loadingOlder = true;
-    final oldPixels = _scrollController.hasClients
-        ? _scrollController.position.pixels
-        : 0.0;
+    final oldPixels =
+        _scrollController.hasClients ? _scrollController.position.pixels : 0.0;
     final oldMaxExtent = _scrollController.hasClients
         ? _scrollController.position.maxScrollExtent
         : 0.0;

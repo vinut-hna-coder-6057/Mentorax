@@ -115,12 +115,7 @@ public class OtpService {
 
         // CHECK EXPIRY
 
-        if (
-                otp.getExpiry()
-                        .isBefore(
-                                LocalDateTime.now()
-                        )
-        ) {
+        if (otp.getExpiry() == null || !otp.getExpiry().isAfter(LocalDateTime.now())) {
 
             otp.setConsumedAt(LocalDateTime.now());
             otpRepository.save(otp);
@@ -192,4 +187,3 @@ public class OtpService {
         }
     }
 }
-

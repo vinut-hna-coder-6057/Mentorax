@@ -1,6 +1,7 @@
 package com.alumni.alumni_connect.service;
 
 import java.io.IOException;
+import java.net.SocketTimeoutException;
 import javax.sql.DataSource;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -109,6 +110,20 @@ class EmailServiceTest {
     void connectionFailuresBecomeServiceUnavailableResponses() {
         server.expect(requestTo(API_URL))
                 .andRespond(withException(new IOException("connection details")));
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> emailService.sendOtpEmail("student@example.test", "123456"));
+
+        assertEquals(HttpStatus.SERVICE_UNAVAILABLE, exception.getStatusCode());
+        assertEquals("Email delivery is temporarily unavailable", exception.getReason());
+        server.verify();
+    }
+
+    @Test
+    void providerTimeoutBecomesServiceUnavailableResponse() {
+        server.expect(requestTo(API_URL))
+                .andRespond(withException(new SocketTimeoutException("read timed out")));
 
         ResponseStatusException exception = assertThrows(
                 ResponseStatusException.class,

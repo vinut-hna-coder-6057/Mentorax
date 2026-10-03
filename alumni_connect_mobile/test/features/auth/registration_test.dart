@@ -1,3 +1,5 @@
+
+
 import 'package:dio/dio.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -191,8 +193,8 @@ void main() {
         throwsA(
           isA<ApiException>()
               .having((e) => e.kind, 'kind', ApiErrorKind.conflict)
-              .having(
-                  (e) => e.message, 'message', contains('Email already exists'))
+              .having((e) => e.message, 'message',
+                  contains('An account already uses this email'))
               .having((e) => e.statusCode, 'statusCode', 409),
         ),
       );

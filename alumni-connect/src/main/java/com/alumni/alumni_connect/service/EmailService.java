@@ -1,6 +1,8 @@
 
 package com.alumni.alumni_connect.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -10,6 +12,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
@@ -18,6 +21,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 @Service
 public class EmailService {
@@ -27,6 +31,10 @@ public class EmailService {
 
     private static final String RESEND_API_URL =
             "https://api.resend.com/emails";
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final Pattern EMAIL_PATTERN =
+            Pattern.compile("[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}", Pattern.CASE_INSENSITIVE);
+    private static final Pattern OTP_PATTERN = Pattern.compile("\\b\\d{6}\\b");
 
     private final String apiKey;
     private final String fromEmail;
@@ -88,14 +96,55 @@ public class EmailService {
             log.info("Email accepted by Resend. HTTP status: {}",
                     response.getStatusCode().value());
 
-        } catch (RestClientException e) {
-            log.error("Resend email request failed");
+        } catch (HttpStatusCodeException exception) {
+            JsonNode error = parseProviderError(exception.getResponseBodyAsString());
+            log.error(
+                    "Resend rejected email request: status={}, providerCode={}, providerMessage={}",
+                    exception.getStatusCode().value(),
+                    safeProviderValue(error.path("name").asText(error.path("code").asText())),
+                    safeProviderMessage(error.path("message").asText()));
 
-            throw new ResponseStatusException(
-                    HttpStatus.SERVICE_UNAVAILABLE,
-                    "Email delivery is temporarily unavailable"
-            );
+            throw unavailable();
+        } catch (RestClientException exception) {
+            log.error(
+                    "Resend email request failed: exceptionType={}",
+                    exception.getClass().getSimpleName());
+
+            throw unavailable();
         }
+    }
+
+    private JsonNode parseProviderError(String responseBody) {
+        try {
+            return OBJECT_MAPPER.readTree(responseBody);
+        } catch (Exception exception) {
+            return OBJECT_MAPPER.createObjectNode();
+        }
+    }
+
+    private String safeProviderValue(String value) {
+        String sanitized = value == null ? "" : value.replaceAll("[^A-Za-z0-9_.-]", "");
+        return sanitized.substring(0, Math.min(sanitized.length(), 64));
+    }
+
+    private String safeProviderMessage(String value) {
+        if (value == null || value.isBlank()) {
+            return "unavailable";
+        }
+        String sanitized = value
+                .replace(apiKey == null || apiKey.isEmpty() ? "\u0000" : apiKey, "[redacted]")
+                .replaceAll("(?i)bearer\\s+\\S+", "[redacted]")
+                .replaceAll("[\\r\\n\\t]", " ")
+                .replaceAll("\\s{2,}", " ");
+        sanitized = EMAIL_PATTERN.matcher(sanitized).replaceAll("[redacted-email]");
+        sanitized = OTP_PATTERN.matcher(sanitized).replaceAll("[redacted-code]");
+        return sanitized.substring(0, Math.min(sanitized.length(), 200));
+    }
+
+    private ResponseStatusException unavailable() {
+        return new ResponseStatusException(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                "Email delivery is temporarily unavailable");
     }
 
     public void sendEmailVerificationOtp(String to, String otp) {

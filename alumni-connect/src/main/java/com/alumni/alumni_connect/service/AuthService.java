@@ -15,6 +15,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.dao.DataIntegrityViolationException;
 
 import java.util.Optional;
 import java.time.LocalDateTime;
@@ -53,8 +54,15 @@ public class AuthService {
     // SIGNUP
     // =====================================
 public String signup(SignupRequest request) {
-    SignupTransactionService.SignupResult result =
-            signupTransactionService.createAccountAndOtp(request);
+    SignupTransactionService.SignupResult result;
+    try {
+        result = signupTransactionService.createAccountAndOtp(request);
+    } catch (DataIntegrityViolationException exception) {
+        if (repository.findByEmail(request.email()).isEmpty()) {
+            throw exception;
+        }
+        result = signupTransactionService.createAccountAndOtp(request);
+    }
 
     // The database transaction has committed before this email is sent.
     emailService.sendEmailVerificationOtp(
@@ -95,13 +103,13 @@ public String signup(User user) {
             user.getLocation()));
 }
     public Object login(LoginRequest request) {
-        return login(request.email(), request.password());
+        return login(request.email(), request.password(), request.role());
     }
 
     /** Legacy service entry point retained for existing internal callers; web input uses LoginRequest. */
-    public Object login(User user) { return login(user.getEmail(), user.getPassword()); }
+    public Object login(User user) { return login(user.getEmail(), user.getPassword(), user.getRole()); }
 
-    private Object login(String email, String password) {
+    private Object login(String email, String password, String requestedRole) {
        Optional<User> optionalUser =
         repository.findByEmail(
                 email
@@ -125,6 +133,15 @@ public String signup(User user) {
             throw new ResponseStatusException(
                     HttpStatus.UNAUTHORIZED,
                     "Invalid credentials"
+            );
+        }
+
+        if (requestedRole != null
+                && (existing.getRole() == null
+                || !requestedRole.equalsIgnoreCase(existing.getRole()))) {
+            throw new ResponseStatusException(
+                    HttpStatus.UNAUTHORIZED,
+                    "Invalid email, password, or account type"
             );
         }
 

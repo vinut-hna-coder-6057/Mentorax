@@ -28,6 +28,7 @@ management.endpoint.health.show-components=always
 # =====================================
 
 # Email delivery uses the Resend API. Set RESEND_API_KEY and RESEND_FROM_EMAIL.
+# The sender must be verified for the configured Resend account/domain.
 
 
 
