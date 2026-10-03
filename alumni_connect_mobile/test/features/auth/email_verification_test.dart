@@ -87,8 +87,8 @@ void main() {
     adapter.onPost(
       '/resend-verification',
       (server) => server.reply(
-        200,
-        'If this account needs verification, a code has been sent.',
+        202,
+        'If this account needs verification, a code will be sent shortly.',
       ),
       data: const {'email': 'student@example.com'},
     );
@@ -106,7 +106,7 @@ void main() {
     expect(adapter.history, hasLength(1));
   });
 
-  test('resend provider failure is exposed as an API error', () async {
+  test('resend infrastructure failures are exposed as API errors', () async {
     const storageChannel = MethodChannel(
       'plugins.it_nomads.com/flutter_secure_storage',
     );

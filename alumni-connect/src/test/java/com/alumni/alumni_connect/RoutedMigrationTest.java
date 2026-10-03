@@ -12,12 +12,32 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class RoutedMigrationTest {
     @Test
     void freshChainReceivesHardeningChangesAfterItsCurrentBaseline() throws Exception {
-        verifyChain("classpath:db/fresh", "1", "3");
+        verifyChain("classpath:db/fresh", "1", "10");
     }
 
     @Test
     void normalizedChainReceivesHardeningChangesAfterItsCurrentBaseline() throws Exception {
-        verifyChain("classpath:db/normalized", "2", "4");
+        verifyChain("classpath:db/normalized", "2", "10");
+    }
+
+    @Test
+    void sharedOutboxMigrationCanFollowLegacyV9() throws Exception {
+        String url = "jdbc:h2:mem:legacy_outbox_" + UUID.randomUUID().toString().replace("-", "")
+                + ";MODE=MySQL;DB_CLOSE_DELAY=-1";
+        Flyway flyway = Flyway.configure()
+                .dataSource(url, "sa", "")
+                .locations("classpath:db/shared")
+                .baselineOnMigrate(true)
+                .baselineVersion("9")
+                .load();
+
+        var result = flyway.migrate();
+
+        assertEquals(1, result.migrationsExecuted);
+        assertEquals("10", flyway.info().current().getVersion().getVersion());
+        try (var connection = DriverManager.getConnection(url, "sa", "")) {
+            assertTrue(hasTable(connection, "email_outbox"));
+        }
     }
 
     private static void verifyChain(String location, String baselineVersion, String expectedVersion) throws Exception {
@@ -34,22 +54,30 @@ class RoutedMigrationTest {
 
         Flyway flyway = Flyway.configure()
                 .dataSource(url, "sa", "")
-                .locations(location)
+                .locations(location, "classpath:db/shared")
                 .baselineOnMigrate(true)
                 .baselineVersion(baselineVersion)
                 .load();
         var result = flyway.migrate();
-        assertEquals(2, result.migrationsExecuted);
+        assertEquals(3, result.migrationsExecuted);
         assertEquals(expectedVersion, flyway.info().current().getVersion().getVersion());
 
         try (var connection = DriverManager.getConnection(url, "sa", "")) {
             assertTrue(hasColumn(connection, "otp_verifications", "reset_token_hash"));
             assertTrue(hasColumn(connection, "otp_verifications", "reset_token_expiry"));
+            assertTrue(hasTable(connection, "email_outbox"));
             try (var statement = connection.createStatement();
                  var approval = statement.executeQuery("SELECT approval_status FROM alumni_profiles WHERE user_id = 1")) {
                 assertTrue(approval.next());
                 assertEquals("APPROVED", approval.getString(1));
             }
+        }
+    }
+
+    private static boolean hasTable(java.sql.Connection connection, String table) throws Exception {
+        try (var tables = connection.getMetaData().getTables(
+                connection.getCatalog(), null, table.toUpperCase(java.util.Locale.ROOT), new String[]{"TABLE"})) {
+            return tables.next();
         }
     }
 

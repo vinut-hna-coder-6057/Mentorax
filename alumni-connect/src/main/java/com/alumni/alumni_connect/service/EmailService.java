@@ -51,6 +51,16 @@ public class EmailService {
 
     private void sendEmail(String to, String subject, String body) {
         if (apiKey == null || apiKey.isBlank() || fromEmail == null || fromEmail.isBlank()) {
+            String missingConfiguration =
+                    (apiKey == null || apiKey.isBlank())
+                            && (fromEmail == null || fromEmail.isBlank())
+                            ? "RESEND_API_KEY, RESEND_FROM_EMAIL"
+                            : apiKey == null || apiKey.isBlank()
+                                    ? "RESEND_API_KEY"
+                                    : "RESEND_FROM_EMAIL";
+            log.error(
+                    "Resend email delivery is not configured: missing={}",
+                    missingConfiguration);
             throw new ResponseStatusException(
                     HttpStatus.SERVICE_UNAVAILABLE,
                     "Email delivery is not configured");

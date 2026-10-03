@@ -29,6 +29,9 @@ management.endpoint.health.show-components=always
 
 # Email delivery uses the Resend API. Set RESEND_API_KEY and RESEND_FROM_EMAIL.
 # The sender must be verified for the configured Resend account/domain.
+# Verification resend requests are queued durably for up to four minutes; OTP
+# payloads are encrypted with a purpose-derived key from JWT_SECRET and deleted
+# after delivery/expiry. Keep JWT_SECRET stable while queued messages are pending.
 
 
 

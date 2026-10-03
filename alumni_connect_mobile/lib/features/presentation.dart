@@ -1065,7 +1065,7 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'If this account needs verification, a new code has been sent.',
+            'If this account needs verification, a new code will be sent shortly.',
           ),
         ),
       );

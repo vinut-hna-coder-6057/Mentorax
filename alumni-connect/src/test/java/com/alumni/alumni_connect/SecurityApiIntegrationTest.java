@@ -1,9 +1,14 @@
 package com.alumni.alumni_connect;
 
 import com.alumni.alumni_connect.entity.User;
+import com.alumni.alumni_connect.entity.EmailOutboxMessage;
 import com.alumni.alumni_connect.repository.UserRepository;
+import com.alumni.alumni_connect.repository.EmailOutboxRepository;
 import com.alumni.alumni_connect.security.JwtUtil;
 import com.alumni.alumni_connect.service.EmailService;
+import com.alumni.alumni_connect.service.EmailOutboxCipher;
+import com.alumni.alumni_connect.service.EmailOutboxDispatcher;
+import com.alumni.alumni_connect.service.EmailOutboxService;
 import com.alumni.alumni_connect.service.OtpService;
 import com.alumni.alumni_connect.service.RequestRateLimiter;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -88,6 +93,12 @@ private PlatformTransactionManager transactionManager;
 private RequestRateLimiter rateLimiter;
 @Autowired
 private OtpService otpService;
+@Autowired
+private EmailOutboxRepository emailOutboxRepository;
+@Autowired
+private EmailOutboxService emailOutboxService;
+@Autowired
+private EmailOutboxCipher emailOutboxCipher;
     @BeforeEach
     void setUpUsers() {
         ((java.util.Map<?, ?>) ReflectionTestUtils.getField(rateLimiter, "buckets")).clear();
@@ -1077,30 +1088,67 @@ void emailVerificationFailedAttemptsAreCommittedBeforeBadRequestResponse() throw
 
 @Test
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
-void resendVerificationUsesGenericResponseAndReportsProviderFailure() throws Exception {
+void resendVerificationAlwaysAcceptsGenericallyAndRetriesProviderFailures() throws Exception {
     String genericMessage =
-            "If this account needs verification, a code has been sent.";
+            "If this account needs verification, a code will be sent shortly.";
     String unknownEmail = "unknown-" + UUID.randomUUID() + "@example.test";
     mockMvc.perform(post("/resend-verification")
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(new ObjectMapper().writeValueAsString(
                             java.util.Map.of("email", unknownEmail))))
-            .andExpect(status().isOk())
+            .andExpect(status().isAccepted())
             .andExpect(content().string(genericMessage));
+    assertTrue(emailOutboxRepository.findAll().isEmpty());
+
+    String verifiedEmail = "resend-verified-" + UUID.randomUUID() + "@example.test";
+    User verified = new User(
+            "Verified", verifiedEmail,
+            passwordEncoder.encode("StudentPassword123"), "STUDENT", "APPROVED");
+    verified.setEmailVerified(true);
+    users.save(verified);
+    mockMvc.perform(post("/resend-verification")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(new ObjectMapper().writeValueAsString(
+                            java.util.Map.of("email", verifiedEmail))))
+            .andExpect(status().isAccepted())
+            .andExpect(content().string(genericMessage));
+    assertTrue(emailOutboxRepository.findFirstByRecipientOrderByIdDesc(verifiedEmail).isEmpty());
 
     String validEmail = "resend-valid-" + UUID.randomUUID() + "@example.test";
     users.save(new User(
             "Unverified", validEmail,
             passwordEncoder.encode("StudentPassword123"), "STUDENT", "APPROVED"));
-    ArgumentCaptor<String> otpCaptor = ArgumentCaptor.forClass(String.class);
     mockMvc.perform(post("/resend-verification")
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(new ObjectMapper().writeValueAsString(
                             java.util.Map.of("email", validEmail))))
-            .andExpect(status().isOk())
+            .andExpect(status().isAccepted())
             .andExpect(content().string(genericMessage));
+    mockMvc.perform(post("/resend-verification")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(new ObjectMapper().writeValueAsString(
+                            java.util.Map.of("email", validEmail))))
+            .andExpect(status().isAccepted())
+            .andExpect(content().string(genericMessage));
+    assertEquals(1, emailOutboxRepository.countByRecipient(validEmail));
+    EmailOutboxMessage queued = emailOutboxRepository
+            .findFirstByRecipientOrderByIdDesc(validEmail)
+            .orElseThrow();
+    assertTrue(queued.getEncryptedOtp().matches("[A-Za-z0-9+/]+=*"));
+    assertFalse(queued.getEncryptedOtp().matches("\\d{6}"));
+    verify(emailService, org.mockito.Mockito.never())
+            .sendEmailVerificationOtp(eq(validEmail), anyString());
+
+    ArgumentCaptor<String> otpCaptor = ArgumentCaptor.forClass(String.class);
+    new EmailOutboxDispatcher(emailOutboxService, emailOutboxCipher, emailService)
+            .dispatchNext();
     verify(emailService).sendEmailVerificationOtp(eq(validEmail), otpCaptor.capture());
     assertTrue(otpCaptor.getValue().matches("\\d{6}"));
+    Otp storedOtp = new TransactionTemplate(transactionManager).execute(status ->
+            otpRepository.findFirstByEmailAndPurposeOrderByIdDesc(
+                    validEmail, "EMAIL_VERIFICATION").orElseThrow());
+    assertTrue(passwordEncoder.matches(otpCaptor.getValue(), storedOtp.getCodeHash()));
+    assertTrue(emailOutboxRepository.findFirstByRecipientOrderByIdDesc(validEmail).isEmpty());
 
     String unverifiedEmail = "resend-" + UUID.randomUUID() + "@example.test";
     users.save(new User(
@@ -1115,10 +1163,21 @@ void resendVerificationUsesGenericResponseAndReportsProviderFailure() throws Exc
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(new ObjectMapper().writeValueAsString(
                             java.util.Map.of("email", unverifiedEmail))))
-            .andExpect(status().isServiceUnavailable());
-    assertTrue(new TransactionTemplate(transactionManager).execute(status ->
+            .andExpect(status().isAccepted())
+            .andExpect(content().string(genericMessage));
+    new EmailOutboxDispatcher(emailOutboxService, emailOutboxCipher, emailService)
+            .dispatchNext();
+    EmailOutboxMessage retrying = emailOutboxRepository
+            .findFirstByRecipientOrderByIdDesc(unverifiedEmail)
+            .orElseThrow();
+    assertEquals(EmailOutboxMessage.PENDING, retrying.getStatus());
+    assertEquals(1, retrying.getAttemptCount());
+    emailOutboxRepository.delete(retrying);
+    Boolean verificationOtpPersisted =
+            new TransactionTemplate(transactionManager).execute(status ->
             otpRepository.findFirstByEmailAndPurposeOrderByIdDesc(
-                    unverifiedEmail, "EMAIL_VERIFICATION").isPresent()));
+                    unverifiedEmail, "EMAIL_VERIFICATION").isPresent());
+    assertTrue(Boolean.TRUE.equals(verificationOtpPersisted));
 }
 
 @Test

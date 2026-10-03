@@ -8,6 +8,7 @@ import jakarta.validation.Valid;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.server.ResponseStatusException;
 
 @RestController
@@ -37,11 +38,12 @@ public class EmailVerificationController {
     }
 
     @PostMapping("/resend-verification")
-    public String resendVerification(
+    public ResponseEntity<String> resendVerification(
             @Valid @RequestBody ForgotPasswordRequest request,
             HttpServletRequest http
     ) {
         rateLimiter.check("otp", http.getRemoteAddr(), request.getEmail());
-        return emailVerificationService.resendVerification(request.getEmail());
+        return ResponseEntity.accepted()
+                .body(emailVerificationService.resendVerification(request.getEmail()));
     }
 }

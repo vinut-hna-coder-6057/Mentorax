@@ -15,16 +15,16 @@ public class EmailVerificationService {
 
     private final UserRepository userRepository;
     private final OtpService otpService;
-    private final EmailService emailService;
+    private final EmailOutboxService emailOutboxService;
 
     public EmailVerificationService(
             UserRepository userRepository,
             OtpService otpService,
-            EmailService emailService
+            EmailOutboxService emailOutboxService
     ) {
         this.userRepository = userRepository;
         this.otpService = otpService;
-        this.emailService = emailService;
+        this.emailOutboxService = emailOutboxService;
     }
 
     @Transactional
@@ -57,12 +57,13 @@ public class EmailVerificationService {
         return new VerificationResult(true, "Email verified successfully");
     }
 
+    @Transactional
     public String resendVerification(String email) {
         User user = userRepository.findByEmail(email).orElse(null);
         if (user != null && !user.isEmailVerified()) {
             String otp = otpService.generateOtp(email, "EMAIL_VERIFICATION");
-            emailService.sendEmailVerificationOtp(email, otp);
+            emailOutboxService.enqueueVerification(email, otp);
         }
-        return "If this account needs verification, a code has been sent.";
+        return "If this account needs verification, a code will be sent shortly.";
     }
 }
