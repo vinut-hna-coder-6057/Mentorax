@@ -77,7 +77,7 @@ class ApiClient {
     try {
       return decode(_decodeBody((await request()).data));
     } catch (error) {
-      final apiError = toApiException(error);
+      final apiError = toApiException(error, requestPath: path);
 
       const publicAuthPaths = {
         '/login',

@@ -2,6 +2,7 @@ package com.alumni.alumni_connect.dto;
 
 import jakarta.validation.constraints.*;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.alumni.alumni_connect.util.EmailAddress;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record SignupRequest(@NotBlank @Size(max = 120) String name, @NotBlank @Email @Size(max = 255) String email,
@@ -11,6 +12,10 @@ public record SignupRequest(@NotBlank @Size(max = 120) String name, @NotBlank @E
         @Size(max = 255) String skills, @Size(max = 150) String company, @Size(max = 150) String jobRole,
         @Size(max = 255) String linkedin, @Size(max = 255) String github, @Size(max = 255) String profileImage,
         @Size(max = 255) String interests, @Size(max = 150) String location) {
+    public SignupRequest {
+        email = EmailAddress.normalize(email);
+    }
+
     public com.alumni.alumni_connect.entity.User toUser() {
         var u = new com.alumni.alumni_connect.entity.User();
         u.setName(name); u.setEmail(email); u.setPassword(password); u.setRole(role.toUpperCase());

@@ -11,6 +11,7 @@ import com.alumni.alumni_connect.service.*;
 
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
+import com.alumni.alumni_connect.util.EmailAddress;
 
 public class ForgotPasswordRequest {
 
@@ -37,6 +38,6 @@ public class ForgotPasswordRequest {
 
     ) {
 
-        this.email = email;
+        this.email = EmailAddress.normalize(email);
     }
 }

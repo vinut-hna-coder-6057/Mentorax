@@ -12,6 +12,7 @@ import com.alumni.alumni_connect.service.*;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
+import com.alumni.alumni_connect.util.EmailAddress;
 
 public class ResetPasswordRequest {
 
@@ -46,7 +47,7 @@ public class ResetPasswordRequest {
 
     ) {
 
-        this.email = email;
+        this.email = EmailAddress.normalize(email);
     }
 
     // =====================================

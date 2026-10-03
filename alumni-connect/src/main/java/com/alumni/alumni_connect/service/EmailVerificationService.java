@@ -10,48 +10,61 @@ import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class EmailVerificationService {
+    public record VerificationResult(boolean successful, String message) {}
+
 
     private final UserRepository userRepository;
     private final OtpService otpService;
+    private final EmailOutboxService emailOutboxService;
 
     public EmailVerificationService(
             UserRepository userRepository,
-            OtpService otpService
+            OtpService otpService,
+            EmailOutboxService emailOutboxService
     ) {
         this.userRepository = userRepository;
         this.otpService = otpService;
+        this.emailOutboxService = emailOutboxService;
     }
 
     @Transactional
-    public String verifyEmail(VerifyOtpRequest request) {
+    public VerificationResult verifyEmail(VerifyOtpRequest request) {
 
         User user = userRepository
-                .findByEmail(request.getEmail())
+                .findByEmailIgnoreCase(request.getEmail())
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND,
                         "User not found"
                 ));
 
         if (user.isEmailVerified()) {
-            return "Email already verified";
+            return new VerificationResult(true, "Email already verified");
         }
 
         boolean valid = otpService.verifyOtp(
-                request.getEmail(),
+                user.getEmail(),
                 request.getOtp(),
                 "EMAIL_VERIFICATION"
         );
 
         if (!valid) {
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    "Invalid or expired OTP"
-            );
+            return new VerificationResult(false, "Invalid or expired OTP");
         }
 
         user.setEmailVerified(true);
         userRepository.save(user);
 
-        return "Email verified successfully";
+        return new VerificationResult(true, "Email verified successfully");
+    }
+
+    @Transactional
+    public String resendVerification(String email) {
+        User user = userRepository.findByEmailIgnoreCase(email).orElse(null);
+        if (user != null && !user.isEmailVerified()) {
+            String recipient = user.getEmail();
+            String otp = otpService.generateOtp(recipient, "EMAIL_VERIFICATION");
+            emailOutboxService.enqueueVerification(recipient, otp);
+        }
+        return "If this account needs verification, a code will be sent shortly.";
     }
 }

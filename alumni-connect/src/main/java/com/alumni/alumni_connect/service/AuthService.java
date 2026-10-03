@@ -15,6 +15,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.dao.DataIntegrityViolationException;
 
 import java.util.Optional;
 import java.time.LocalDateTime;
@@ -28,141 +29,79 @@ public class AuthService {
     private final StudentProfileRepository studentProfileRepository;
     private final AlumniProfileRepository alumniProfileRepository;
     private final OtpService otpService;
-    private final EmailService emailService;
-
+        private final SignupTransactionService signupTransactionService;
     public AuthService(
-            UserRepository repository,
-            BCryptPasswordEncoder encoder,
-            JwtUtil jwtUtil,
-            StudentProfileRepository studentProfileRepository,
-            AlumniProfileRepository alumniProfileRepository,
-            OtpService otpService,
-            EmailService emailService
-    ) {
-        this.repository = repository;
-        this.encoder = encoder;
-        this.jwtUtil = jwtUtil;
-        this.studentProfileRepository = studentProfileRepository;
-        this.alumniProfileRepository = alumniProfileRepository;
-        this.otpService = otpService;
-        this.emailService = emailService;
-    }
-
+        UserRepository repository,
+        BCryptPasswordEncoder encoder,
+        JwtUtil jwtUtil,
+        StudentProfileRepository studentProfileRepository,
+        AlumniProfileRepository alumniProfileRepository,
+        OtpService otpService,
+        SignupTransactionService signupTransactionService
+) {
+    this.repository = repository;
+    this.encoder = encoder;
+    this.jwtUtil = jwtUtil;
+    this.studentProfileRepository = studentProfileRepository;
+    this.alumniProfileRepository = alumniProfileRepository;
+    this.otpService = otpService;
+    this.signupTransactionService = signupTransactionService;
+}
     // =====================================
     // SIGNUP
     // =====================================
-
-    @Transactional
-    public String signup(SignupRequest request) {
-        return signup(request.toUser());
+public String signup(SignupRequest request) {
+    try {
+        signupTransactionService.createAccountAndOtp(request);
+    } catch (DataIntegrityViolationException exception) {
+        if (repository.findByEmailIgnoreCase(request.email()).isEmpty()) {
+            throw exception;
+        }
+        signupTransactionService.createAccountAndOtp(request);
     }
 
-    /** Legacy service entry point retained for existing internal callers; web input uses SignupRequest. */
-    public String signup(User user) {
+    return "Signup successful";
+}
 
-        Optional<User> existing =
-                repository.findByEmail(user.getEmail());
-
-        if (existing.isPresent()) {
-            throw new ResponseStatusException(
-                    HttpStatus.CONFLICT,
-                    "Email already exists"
-            );
-        }
-
-        // Only STUDENT and ALUMNI can self-register.
-        if (!"STUDENT".equalsIgnoreCase(user.getRole())
-                && !"ALUMNI".equalsIgnoreCase(user.getRole())) {
-
-            throw new IllegalArgumentException(
-                    "Only STUDENT and ALUMNI self-registration is allowed"
-            );
-        }
-
-        // Validate password before encoding.
-        if (user.getPassword() == null
-                || user.getPassword().length() < 8
-                || user.getPassword().length() > 128) {
-
-            throw new IllegalArgumentException(
-                    "Password does not meet requirements"
-            );
-        }
-
-        // Password must never be stored in plaintext.
-        user.setPassword(
-                encoder.encode(user.getPassword())
+/** Legacy entry point retained for existing internal callers. */
+public String signup(User user) {
+    if (user == null || (!"STUDENT".equalsIgnoreCase(user.getRole())
+            && !"ALUMNI".equalsIgnoreCase(user.getRole()))) {
+        throw new IllegalArgumentException(
+                "Only STUDENT and ALUMNI self-registration is allowed"
         );
-
-        // New accounts must verify their email first.
-        user.setEmailVerified(false);
-
-        /*
-         * STUDENT:
-         * Email verification is the required verification step.
-         *
-         * ALUMNI:
-         * Email verification happens first, followed by
-         * administrator approval.
-         */
-        if ("ALUMNI".equalsIgnoreCase(user.getRole())) {
-            user.setStatus("PENDING");
-        } else {
-            user.setStatus("APPROVED");
-        }
-
-        // Save the user first so profiles can reference it.
-        User savedUser = repository.save(user);
-
-        // Create role-specific profile.
-        if ("STUDENT".equalsIgnoreCase(savedUser.getRole())) {
-
-            StudentProfile profile =
-                    new StudentProfile(savedUser);
-
-            profile.copyLegacyFields(savedUser);
-
-            studentProfileRepository.save(profile);
-
-        } else {
-
-            AlumniProfile profile =
-                    new AlumniProfile(savedUser);
-
-            profile.copyLegacyFields(savedUser);
-
-            alumniProfileRepository.save(profile);
-        }
-
-        // Generate an email-verification OTP.
-        String otp = otpService.generateOtp(
-                savedUser.getEmail(),
-                "EMAIL_VERIFICATION"
-        );
-
-        // Send OTP to the registered email address.
-        emailService.sendEmailVerificationOtp(
-                savedUser.getEmail(),
-                otp
-        );
-
-        return "Signup successful";
     }
 
-    // =====================================
-    // LOGIN
-    // =====================================
-
+    return signup(new SignupRequest(
+            user.getName(),
+            user.getEmail(),
+            user.getPassword(),
+            user.getRole(),
+            user.getCollege(),
+            user.getBranch(),
+            user.getPassoutYear(),
+            user.getRollno(),
+            user.getSection(),
+            user.getBio(),
+            user.getSkills(),
+            user.getCompany(),
+            user.getJobRole(),
+            user.getLinkedin(),
+            user.getGithub(),
+            user.getProfileImage(),
+            user.getInterests(),
+            user.getLocation()));
+}
     public Object login(LoginRequest request) {
-        return login(request.email(), request.password());
+        return login(request.email(), request.password(), request.role());
     }
 
     /** Legacy service entry point retained for existing internal callers; web input uses LoginRequest. */
-    public Object login(User user) { return login(user.getEmail(), user.getPassword()); }
+    public Object login(User user) { return login(user.getEmail(), user.getPassword(), user.getRole()); }
 
-    private Object login(String email, String password) {
+    private Object login(String email, String password, String requestedRole) {
        Optional<User> optionalUser =
-        repository.findByEmail(
+        repository.findByEmailIgnoreCase(
                 email
         );
 
@@ -184,6 +123,15 @@ public class AuthService {
             throw new ResponseStatusException(
                     HttpStatus.UNAUTHORIZED,
                     "Invalid credentials"
+            );
+        }
+
+        if (requestedRole != null
+                && (existing.getRole() == null
+                || !requestedRole.equalsIgnoreCase(existing.getRole()))) {
+            throw new ResponseStatusException(
+                    HttpStatus.UNAUTHORIZED,
+                    "Invalid email, password, or account type"
             );
         }
 

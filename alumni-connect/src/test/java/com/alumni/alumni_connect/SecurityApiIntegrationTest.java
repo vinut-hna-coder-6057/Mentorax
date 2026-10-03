@@ -1,9 +1,16 @@
 package com.alumni.alumni_connect;
 
 import com.alumni.alumni_connect.entity.User;
+import com.alumni.alumni_connect.entity.EmailOutboxMessage;
 import com.alumni.alumni_connect.repository.UserRepository;
+import com.alumni.alumni_connect.repository.EmailOutboxRepository;
 import com.alumni.alumni_connect.security.JwtUtil;
 import com.alumni.alumni_connect.service.EmailService;
+import com.alumni.alumni_connect.service.EmailOutboxCipher;
+import com.alumni.alumni_connect.service.EmailOutboxDispatcher;
+import com.alumni.alumni_connect.service.EmailOutboxService;
+import com.alumni.alumni_connect.service.OtpService;
+import com.alumni.alumni_connect.service.RequestRateLimiter;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.alumni.alumni_connect.entity.Message;
 import org.junit.jupiter.api.BeforeEach;
@@ -18,6 +25,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.test.util.ReflectionTestUtils;
 import com.alumni.alumni_connect.entity.Notification;
 import com.alumni.alumni_connect.entity.Otp;
 import com.alumni.alumni_connect.repository.ConversationRepository;
@@ -38,16 +46,18 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import org.mockito.ArgumentCaptor;
 import org.springframework.boot.test.mock.mockito.MockBean;
-import org.springframework.mail.javamail.JavaMailSender;
-import org.springframework.mail.SimpleMailMessage;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
-import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.doAnswer;
-import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.ArgumentMatchers.any;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.web.server.ResponseStatusException;
+import org.springframework.http.HttpStatus;
 @SpringBootTest
 @AutoConfigureMockMvc
 @Transactional
@@ -63,12 +73,10 @@ private MessageRepository messageRepository;
 
 @Autowired
 private ConversationRepository conversationRepository;
-@Autowired
+@MockBean
 private EmailService emailService;
     private User student;
     private User admin;
-@MockBean
-private JavaMailSender mailSender;
 @Autowired
 private PasswordEncoder passwordEncoder;
 @Autowired
@@ -81,8 +89,20 @@ private StudentProfileRepository studentProfileRepository;
 private EventRepository eventRepository;
 @Autowired
 private PlatformTransactionManager transactionManager;
+@Autowired
+private RequestRateLimiter rateLimiter;
+@Autowired
+private OtpService otpService;
+@Autowired
+private EmailOutboxRepository emailOutboxRepository;
+@Autowired
+private EmailOutboxService emailOutboxService;
+@Autowired
+private EmailOutboxCipher emailOutboxCipher;
     @BeforeEach
     void setUpUsers() {
+        emailOutboxRepository.deleteAllInBatch();
+        ((java.util.Map<?, ?>) ReflectionTestUtils.getField(rateLimiter, "buckets")).clear();
         String suffix = UUID.randomUUID().toString();
         student = users.save(new User("Security Student", "security-student-" + suffix + "@example.test",
                 "not-used", "STUDENT", "APPROVED"));
@@ -151,7 +171,6 @@ void duplicateEventRegistrationIsHandledGracefully() throws Exception {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.message")
                     .value("Registered successfully"));
-
     // Second registration
     mockMvc.perform(
             post("/events/register")
@@ -163,6 +182,12 @@ void duplicateEventRegistrationIsHandledGracefully() throws Exception {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.message")
                     .value("Already registered"));
+    verify(emailService, times(1)).sendEventRegistrationEmail(
+            eq(student.getEmail()),
+            eq("Duplicate Registration Test"),
+            nullable(String.class),
+            eq("College Campus"),
+            nullable(String.class));
 }
 @Test
 void alumniEndpointWithoutAuthenticationReturns401() throws Exception {
@@ -447,30 +472,24 @@ void completePasswordResetFlowSucceeds() throws Exception {
     final String[] capturedOtp = new String[1];
 
     doAnswer(invocation -> {
-        SimpleMailMessage message = invocation.getArgument(0);
-        String body = message.getText();
-
-        // OTP is between these two markers
-        String marker = "Your OTP for Alumni Connect is:\n\n";
-        int start = body.indexOf(marker) + marker.length();
-        int end = body.indexOf("\n\n", start);
-
-        capturedOtp[0] = body.substring(start, end).trim();
-
+        capturedOtp[0] = invocation.getArgument(1);
         return null;
-    }).when(mailSender).send(any(SimpleMailMessage.class));
+    }).when(emailService).sendOtpEmail(anyString(), anyString());
 
     // 1. Request password reset
     mockMvc.perform(post("/forgot-password")
             .contentType(MediaType.APPLICATION_JSON)
             .content("""
                 {
-                  "email": "%s"
+                  "email": "  %s  "
                 }
-                """.formatted(email)))
+                """.formatted(email.toUpperCase(java.util.Locale.ROOT))))
             .andExpect(status().isOk());
 
-    // Make sure an OTP was actually generated and sent
+    new EmailOutboxDispatcher(emailOutboxService, emailOutboxCipher, emailService)
+            .dispatchNext();
+
+    // Make sure an OTP was generated and sent to the requested address.
     org.junit.jupiter.api.Assertions.assertNotNull(capturedOtp[0]);
     org.junit.jupiter.api.Assertions.assertTrue(
             capturedOtp[0].matches("\\d{6}")
@@ -668,7 +687,7 @@ void forgotPasswordForExistingUserReturnsGenericResponse() throws Exception {
                 }
                 """))
             .andExpect(status().isOk())
-            .andExpect(content().string("If an account exists, an OTP has been sent"));
+            .andExpect(content().string("If an account exists, a code will be sent shortly"));
 }
 @Test
 void eventCreatorCanUpdateOwnEvent() throws Exception {
@@ -800,7 +819,7 @@ void forgotPasswordForUnknownUserReturnsGenericResponse() throws Exception {
                 }
                 """))
             .andExpect(status().isOk())
-            .andExpect(content().string("If an account exists, an OTP has been sent"));
+            .andExpect(content().string("If an account exists, a code will be sent shortly"));
 }
 
 @Test
@@ -856,6 +875,26 @@ void signupCreatesRoleSpecificProfilesAndAccountStatusIsAuthoritative() throws E
     assertEquals("PENDING", createdAlumni.getStatus());
     assertEquals("PENDING", alumniProfileRepository.findById(createdAlumni.getId())
             .orElseThrow().getApprovalStatus());
+}
+
+@Test
+void signupTrimsAndNormalizesEmailBeforePersistingAndQueueingOtp() throws Exception {
+    String email = "normalized-" + UUID.randomUUID() + "@example.test";
+    mockMvc.perform(post("/signup")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(new ObjectMapper().writeValueAsString(java.util.Map.of(
+                            "name", "Normalized Student",
+                            "email", "  " + email.toUpperCase(java.util.Locale.ROOT) + "  ",
+                            "password", "StudentPassword123",
+                            "role", "STUDENT"))))
+            .andExpect(status().isOk());
+
+    User created = users.findByEmail(email).orElseThrow();
+    assertEquals(email, created.getEmail());
+    EmailOutboxMessage queued = emailOutboxRepository
+            .findFirstByRecipientOrderByIdDesc(email)
+            .orElseThrow();
+    assertEquals("EMAIL_VERIFICATION", queued.getPurpose());
 }
 
 @Test
@@ -930,6 +969,379 @@ void adminCreatedAlumniGetsProfileAndEmailVerificationFlow() throws Exception {
             .orElseThrow().getApprovalStatus());
     assertTrue(otpRepository.findFirstByEmailAndPurposeOrderByIdDesc(
             email, "EMAIL_VERIFICATION").isPresent());
+    ArgumentCaptor<String> otpCaptor = ArgumentCaptor.forClass(String.class);
+    new EmailOutboxDispatcher(emailOutboxService, emailOutboxCipher, emailService)
+            .dispatchNext();
+    verify(emailService).sendEmailVerificationOtp(org.mockito.ArgumentMatchers.eq(email), otpCaptor.capture());
+    assertTrue(otpCaptor.getValue().matches("\\d{6}"));
+    mockMvc.perform(post("/verify-email")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(new ObjectMapper().writeValueAsString(java.util.Map.of(
+                            "email", email,
+                            "otp", otpCaptor.getValue()))))
+            .andExpect(status().isOk());
+    assertTrue(users.findByEmail(email).orElseThrow().isEmailVerified());
+}
+
+@Test
+@Transactional(propagation = Propagation.NOT_SUPPORTED)
+void signupCanResumeAfterEmailFailureWithoutChangingExistingCredentials() throws Exception {
+    String email = "retry-signup-" + UUID.randomUUID() + "@example.test";
+    String payload = new ObjectMapper().writeValueAsString(java.util.Map.of(
+            "name", "Retry Student",
+            "email", email,
+            "password", "OriginalPassword123",
+            "role", "STUDENT"));
+    java.util.concurrent.atomic.AtomicInteger deliveries = new java.util.concurrent.atomic.AtomicInteger();
+    doAnswer(invocation -> {
+        if (deliveries.getAndIncrement() == 0) {
+            throw new ResponseStatusException(
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                    "Email delivery is temporarily unavailable");
+        }
+        return null;
+    }).when(emailService).sendEmailVerificationOtp(anyString(), anyString());
+
+    mockMvc.perform(post("/signup")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(payload))
+            .andExpect(status().isOk())
+            .andExpect(content().string("Signup successful"));
+    User created = users.findByEmail(email).orElseThrow();
+    String originalHash = created.getPassword();
+    assertFalse(created.isEmailVerified());
+    assertTrue(studentProfileRepository.existsById(created.getId()));
+    new EmailOutboxDispatcher(emailOutboxService, emailOutboxCipher, emailService)
+            .dispatchNext();
+    EmailOutboxMessage deferred = emailOutboxRepository
+            .findFirstByRecipientOrderByIdDesc(email)
+            .orElseThrow();
+    assertEquals(EmailOutboxMessage.PENDING, deferred.getStatus());
+    assertEquals(1, deferred.getAttemptCount());
+
+    mockMvc.perform(post("/signup")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(payload))
+            .andExpect(status().isOk())
+            .andExpect(content().string("Signup successful"));
+    assertEquals(originalHash, users.findByEmail(email).orElseThrow().getPassword());
+    assertFalse(users.findByEmail(email).orElseThrow().isEmailVerified());
+    assertTrue(studentProfileRepository.existsById(created.getId()));
+    assertEquals(1, emailOutboxRepository.countByRecipient(email));
+    new EmailOutboxDispatcher(emailOutboxService, emailOutboxCipher, emailService)
+            .dispatchNext();
+    verify(emailService, times(2))
+            .sendEmailVerificationOtp(eq(email), anyString());
+    assertTrue(emailOutboxRepository.findFirstByRecipientOrderByIdDesc(email).isEmpty());
+}
+
+@Test
+void duplicateSignupCannotReplacePasswordOrRole() throws Exception {
+    String email = "existing-signup-" + UUID.randomUUID() + "@example.test";
+    String originalPassword = passwordEncoder.encode("OriginalPassword123");
+    User existing = users.save(new User(
+            "Existing Student", email, originalPassword, "STUDENT", "APPROVED"));
+
+    mockMvc.perform(post("/signup")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(new ObjectMapper().writeValueAsString(java.util.Map.of(
+                            "name", "Attacker",
+                            "email", email,
+                            "password", "AttackerPassword123",
+                            "role", "ALUMNI"))))
+            .andExpect(status().isConflict());
+
+    User unchanged = users.findById(existing.getId()).orElseThrow();
+    assertEquals("Existing Student", unchanged.getName());
+    assertEquals("STUDENT", unchanged.getRole());
+    assertEquals(originalPassword, unchanged.getPassword());
+    assertFalse(unchanged.isEmailVerified());
+    verify(emailService, org.mockito.Mockito.never())
+            .sendEmailVerificationOtp(anyString(), anyString());
+}
+
+@Test
+@Transactional(propagation = Propagation.NOT_SUPPORTED)
+void emailVerificationFailedAttemptsAreCommittedBeforeBadRequestResponse() throws Exception {
+    String email = "otp-attempts-" + UUID.randomUUID() + "@example.test";
+    User unverified = users.save(new User(
+            "Unverified Student",
+            email,
+            passwordEncoder.encode("StudentPassword123"),
+            "STUDENT",
+            "APPROVED"));
+    Otp otp = new Otp();
+    otp.setEmail(email);
+    otp.setUser(unverified);
+    otp.setPurpose("EMAIL_VERIFICATION");
+    otp.setCodeHash(passwordEncoder.encode("123456"));
+    otp.setExpiry(java.time.LocalDateTime.now().plusMinutes(5));
+    otp.setAttemptCount(0);
+    otpRepository.saveAndFlush(otp);
+
+    for (int attempt = 1; attempt <= 5; attempt++) {
+        mockMvc.perform(post("/verify-email")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(new ObjectMapper().writeValueAsString(java.util.Map.of(
+                                "email", email,
+                                "otp", "654321"))))
+                .andExpect(status().isBadRequest());
+    }
+
+    Otp stored = new TransactionTemplate(transactionManager).execute(status ->
+            otpRepository.findFirstByEmailAndPurposeOrderByIdDesc(
+                    email, "EMAIL_VERIFICATION").orElseThrow());
+    assertEquals(5, stored.getAttemptCount());
+    assertFalse(otpService.verifyOtp(email, "654321", "EMAIL_VERIFICATION"));
+    Otp lockedOut = new TransactionTemplate(transactionManager).execute(status ->
+            otpRepository.findFirstByEmailAndPurposeOrderByIdDesc(
+                    email, "EMAIL_VERIFICATION").orElseThrow());
+    assertEquals(5, lockedOut.getAttemptCount());
+    assertFalse(users.findByEmail(email).orElseThrow().isEmailVerified());
+
+    String expiredEmail = "expired-otp-" + UUID.randomUUID() + "@example.test";
+    User expiredUser = users.save(new User(
+            "Expired OTP Student", expiredEmail,
+            passwordEncoder.encode("StudentPassword123"), "STUDENT", "APPROVED"));
+    Otp expired = new Otp();
+    expired.setEmail(expiredEmail);
+    expired.setUser(expiredUser);
+    expired.setPurpose("EMAIL_VERIFICATION");
+    expired.setCodeHash(passwordEncoder.encode("123456"));
+    expired.setExpiry(java.time.LocalDateTime.now().minusSeconds(1));
+    expired.setAttemptCount(0);
+    otpRepository.saveAndFlush(expired);
+    mockMvc.perform(post("/verify-email")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(new ObjectMapper().writeValueAsString(java.util.Map.of(
+                            "email", expiredEmail,
+                            "otp", "123456"))))
+            .andExpect(status().isBadRequest());
+    Otp expiredStored = new TransactionTemplate(transactionManager).execute(status ->
+            otpRepository.findFirstByEmailAndPurposeOrderByIdDesc(
+                    expiredEmail, "EMAIL_VERIFICATION").orElseThrow());
+    assertNotNull(expiredStored.getConsumedAt());
+    assertFalse(users.findByEmail(expiredEmail).orElseThrow().isEmailVerified());
+}
+
+@Test
+@Transactional(propagation = Propagation.NOT_SUPPORTED)
+void resendVerificationAlwaysAcceptsGenericallyAndRetriesProviderFailures() throws Exception {
+    String genericMessage =
+            "If this account needs verification, a code will be sent shortly.";
+    String unknownEmail = "unknown-" + UUID.randomUUID() + "@example.test";
+    mockMvc.perform(post("/resend-verification")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(new ObjectMapper().writeValueAsString(
+                            java.util.Map.of("email", unknownEmail))))
+            .andExpect(status().isAccepted())
+            .andExpect(content().string(genericMessage));
+    assertTrue(emailOutboxRepository.findAll().isEmpty());
+
+    String verifiedEmail = "resend-verified-" + UUID.randomUUID() + "@example.test";
+    User verified = new User(
+            "Verified", verifiedEmail,
+            passwordEncoder.encode("StudentPassword123"), "STUDENT", "APPROVED");
+    verified.setEmailVerified(true);
+    users.save(verified);
+    mockMvc.perform(post("/resend-verification")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(new ObjectMapper().writeValueAsString(
+                            java.util.Map.of("email", verifiedEmail))))
+            .andExpect(status().isAccepted())
+            .andExpect(content().string(genericMessage));
+    assertTrue(emailOutboxRepository.findFirstByRecipientOrderByIdDesc(verifiedEmail).isEmpty());
+
+    String validEmail = "resend-valid-" + UUID.randomUUID() + "@example.test";
+    users.save(new User(
+            "Unverified", validEmail,
+            passwordEncoder.encode("StudentPassword123"), "STUDENT", "APPROVED"));
+    mockMvc.perform(post("/resend-verification")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(new ObjectMapper().writeValueAsString(
+                            java.util.Map.of("email", validEmail))))
+            .andExpect(status().isAccepted())
+            .andExpect(content().string(genericMessage));
+    mockMvc.perform(post("/resend-verification")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(new ObjectMapper().writeValueAsString(
+                            java.util.Map.of("email", validEmail))))
+            .andExpect(status().isAccepted())
+            .andExpect(content().string(genericMessage));
+    assertEquals(1, emailOutboxRepository.countByRecipient(validEmail));
+    EmailOutboxMessage queued = emailOutboxRepository
+            .findFirstByRecipientOrderByIdDesc(validEmail)
+            .orElseThrow();
+    assertTrue(queued.getEncryptedOtp().matches("[A-Za-z0-9+/]+=*"));
+    assertFalse(queued.getEncryptedOtp().matches("\\d{6}"));
+    verify(emailService, org.mockito.Mockito.never())
+            .sendEmailVerificationOtp(eq(validEmail), anyString());
+
+    ArgumentCaptor<String> otpCaptor = ArgumentCaptor.forClass(String.class);
+    new EmailOutboxDispatcher(emailOutboxService, emailOutboxCipher, emailService)
+            .dispatchNext();
+    verify(emailService).sendEmailVerificationOtp(eq(validEmail), otpCaptor.capture());
+    assertTrue(otpCaptor.getValue().matches("\\d{6}"));
+    Otp storedOtp = new TransactionTemplate(transactionManager).execute(status ->
+            otpRepository.findFirstByEmailAndPurposeOrderByIdDesc(
+                    validEmail, "EMAIL_VERIFICATION").orElseThrow());
+    assertTrue(passwordEncoder.matches(otpCaptor.getValue(), storedOtp.getCodeHash()));
+    assertTrue(emailOutboxRepository.findFirstByRecipientOrderByIdDesc(validEmail).isEmpty());
+
+    String unverifiedEmail = "resend-" + UUID.randomUUID() + "@example.test";
+    users.save(new User(
+            "Unverified", unverifiedEmail,
+            passwordEncoder.encode("StudentPassword123"), "STUDENT", "APPROVED"));
+    doThrow(new ResponseStatusException(
+            HttpStatus.SERVICE_UNAVAILABLE,
+            "Email delivery is temporarily unavailable"))
+            .when(emailService).sendEmailVerificationOtp(eq(unverifiedEmail), anyString());
+
+    mockMvc.perform(post("/resend-verification")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(new ObjectMapper().writeValueAsString(
+                            java.util.Map.of("email", unverifiedEmail))))
+            .andExpect(status().isAccepted())
+            .andExpect(content().string(genericMessage));
+    new EmailOutboxDispatcher(emailOutboxService, emailOutboxCipher, emailService)
+            .dispatchNext();
+    EmailOutboxMessage retrying = emailOutboxRepository
+            .findFirstByRecipientOrderByIdDesc(unverifiedEmail)
+            .orElseThrow();
+    assertEquals(EmailOutboxMessage.PENDING, retrying.getStatus());
+    assertEquals(1, retrying.getAttemptCount());
+    emailOutboxRepository.delete(retrying);
+    Boolean verificationOtpPersisted =
+            new TransactionTemplate(transactionManager).execute(status ->
+            otpRepository.findFirstByEmailAndPurposeOrderByIdDesc(
+                    unverifiedEmail, "EMAIL_VERIFICATION").isPresent());
+    assertTrue(Boolean.TRUE.equals(verificationOtpPersisted));
+}
+
+@Test
+void signinRequiresTheSelectedStoredRoleAndVerifiedAccount() throws Exception {
+    String email = "role-login-" + UUID.randomUUID() + "@example.test";
+    User verified = new User(
+            "Role Student",
+            email,
+            passwordEncoder.encode("StudentPassword123"),
+            "STUDENT",
+            "APPROVED");
+    verified.setEmailVerified(true);
+    users.save(verified);
+
+    mockMvc.perform(post("/login")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(new ObjectMapper().writeValueAsString(java.util.Map.of(
+                            "email", email,
+                            "password", "StudentPassword123",
+                            "role", "STUDENT"))))
+            .andExpect(status().isOk())
+            .andExpect(content().string(org.hamcrest.Matchers.not(
+                    org.hamcrest.Matchers.emptyString())));
+
+    mockMvc.perform(post("/login")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(new ObjectMapper().writeValueAsString(java.util.Map.of(
+                            "email", email,
+                            "password", "StudentPassword123",
+                            "role", "ALUMNI"))))
+            .andExpect(status().isUnauthorized())
+            .andExpect(jsonPath("$.error")
+                    .value("Invalid email, password, or account type"));
+
+    mockMvc.perform(post("/login")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(new ObjectMapper().writeValueAsString(java.util.Map.of(
+                            "email", email,
+                            "password", "WrongPassword123",
+                            "role", "STUDENT"))))
+            .andExpect(status().isUnauthorized())
+            .andExpect(jsonPath("$.error").value("Invalid credentials"));
+
+    User pendingVerification = new User(
+            "Pending Student",
+            "pending-verification-" + UUID.randomUUID() + "@example.test",
+            passwordEncoder.encode("StudentPassword123"),
+            "STUDENT",
+            "APPROVED");
+    users.save(pendingVerification);
+    mockMvc.perform(post("/login")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(new ObjectMapper().writeValueAsString(java.util.Map.of(
+                            "email", pendingVerification.getEmail(),
+                            "password", "StudentPassword123",
+                            "role", "STUDENT"))))
+            .andExpect(status().isForbidden())
+            .andExpect(jsonPath("$.error").value("Email verification required"));
+
+    User pending = new User(
+            "Pending Alumni",
+            "pending-approval-" + UUID.randomUUID() + "@example.test",
+            passwordEncoder.encode("StudentPassword123"),
+            "ALUMNI",
+            "PENDING");
+    pending.setEmailVerified(true);
+    users.save(pending);
+    mockMvc.perform(post("/login")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(new ObjectMapper().writeValueAsString(java.util.Map.of(
+                            "email", pending.getEmail(),
+                            "password", "StudentPassword123",
+                            "role", "ALUMNI"))))
+            .andExpect(status().isForbidden())
+            .andExpect(jsonPath("$.error").value("Account pending approval"));
+
+    User rejected = new User(
+            "Rejected Alumni",
+            "rejected-" + UUID.randomUUID() + "@example.test",
+            passwordEncoder.encode("StudentPassword123"),
+            "ALUMNI",
+            "REJECTED");
+    rejected.setEmailVerified(true);
+    users.save(rejected);
+    mockMvc.perform(post("/login")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(new ObjectMapper().writeValueAsString(java.util.Map.of(
+                            "email", rejected.getEmail(),
+                            "password", "StudentPassword123",
+                            "role", "ALUMNI"))))
+            .andExpect(status().isForbidden())
+            .andExpect(jsonPath("$.error").value("Account rejected"));
+}
+
+@Test
+@Transactional(propagation = Propagation.NOT_SUPPORTED)
+void concurrentSignupRetriesCreateOnlyOneAccount() throws Exception {
+    String email = "concurrent-signup-" + UUID.randomUUID() + "@example.test";
+    String payload = new ObjectMapper().writeValueAsString(java.util.Map.of(
+            "name", "Concurrent Student",
+            "email", email,
+            "password", "ConcurrentPassword123",
+            "role", "STUDENT"));
+    java.util.concurrent.ExecutorService executor =
+            java.util.concurrent.Executors.newFixedThreadPool(2);
+    try {
+        java.util.List<java.util.concurrent.Future<Integer>> responses =
+                executor.invokeAll(java.util.List.of(
+                        () -> mockMvc.perform(post("/signup")
+                                        .contentType(MediaType.APPLICATION_JSON)
+                                        .content(payload))
+                                .andReturn().getResponse().getStatus(),
+                        () -> mockMvc.perform(post("/signup")
+                                        .contentType(MediaType.APPLICATION_JSON)
+                                        .content(payload))
+                                .andReturn().getResponse().getStatus()));
+        assertEquals(200, responses.get(0).get());
+        assertEquals(200, responses.get(1).get());
+        assertEquals(1, users.findAll().stream()
+                .filter(user -> email.equals(user.getEmail()))
+                .count());
+        assertTrue(studentProfileRepository.existsById(
+                users.findByEmail(email).orElseThrow().getId()));
+    } finally {
+        executor.shutdownNow();
+    }
 }
 
 @Test
@@ -1068,17 +1480,18 @@ void resetAuthorizationIsAccountBoundSingleUseAndChangesPasswordOnlyOnce() throw
 }
 
 private String requestResetAuthorization(String email, boolean tryWrongOtpFirst) throws Exception {
+    ArgumentCaptor<String> otpCaptor = ArgumentCaptor.forClass(String.class);
     mockMvc.perform(post("/forgot-password")
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(new ObjectMapper().writeValueAsString(java.util.Map.of("email", email))))
             .andExpect(status().isOk())
-            .andExpect(content().string("If an account exists, an OTP has been sent"));
+            .andExpect(content().string("If an account exists, a code will be sent shortly"));
 
-    ArgumentCaptor<SimpleMailMessage> mail = ArgumentCaptor.forClass(SimpleMailMessage.class);
-    verify(mailSender).send(mail.capture());
-    Matcher matcher = Pattern.compile("\\b\\d{6}\\b").matcher(mail.getValue().getText());
-    assertTrue(matcher.find());
-    String otp = matcher.group();
+    new EmailOutboxDispatcher(emailOutboxService, emailOutboxCipher, emailService)
+            .dispatchNext();
+    verify(emailService).sendOtpEmail(org.mockito.ArgumentMatchers.eq(email), otpCaptor.capture());
+    String otp = otpCaptor.getValue();
+    assertTrue(otp.matches("\\d{6}"));
 
     if (tryWrongOtpFirst) {
         String wrongOtp = (otp.charAt(0) == '0' ? "1" : "0") + otp.substring(1);

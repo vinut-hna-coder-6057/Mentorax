@@ -29,6 +29,8 @@ public interface UserRepository
             String email
     );
 
+    Optional<User> findByEmailIgnoreCase(String email);
+
     // =========================================
     // FIND BY EMAIL + ROLE
     // =========================================

@@ -113,7 +113,9 @@ public class SecurityConfig {
 
                                 "/reset-password",
                                 
-                                "/verify-email"
+                                "/verify-email",
+
+                                "/resend-verification"
 
                         ).permitAll()
 

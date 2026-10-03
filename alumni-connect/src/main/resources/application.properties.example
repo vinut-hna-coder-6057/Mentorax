@@ -22,23 +22,21 @@ management.endpoint.health.probes.enabled=true
 management.endpoint.health.group.readiness.include=readinessState,db
 management.endpoint.health.show-details=never
 management.endpoint.health.show-components=always
-management.health.mail.enabled=false
 
 # =====================================
 # EMAIL CONFIGURATION
 # =====================================
 
-spring.mail.host=smtp.gmail.com
+# Email delivery uses the Resend API. Set RESEND_API_KEY and RESEND_FROM_EMAIL.
+# The sender must be verified for the configured Resend account/domain.
+# Verification resend requests are queued durably for up to four minutes; OTP
+# payloads are encrypted with a purpose-derived key from JWT_SECRET and deleted
+# after delivery/expiry. Keep JWT_SECRET stable while queued messages are pending.
 
-spring.mail.port=587
 
-spring.mail.username=${MAIL_USERNAME}
 
-spring.mail.password=${MAIL_PASSWORD}
 
-spring.mail.properties.mail.smtp.auth=true
 
-spring.mail.properties.mail.smtp.starttls.enable=true
 
 # =========================================
 # SECURITY

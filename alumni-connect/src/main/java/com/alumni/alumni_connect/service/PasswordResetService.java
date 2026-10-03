@@ -28,7 +28,7 @@ public class PasswordResetService {
 
     private final OtpService otpService;
 
-    private final EmailService emailService;
+    private final EmailOutboxService emailOutboxService;
 
     private final PasswordEncoder passwordEncoder;
 
@@ -44,7 +44,7 @@ public class PasswordResetService {
 
             OtpService otpService,
 
-            EmailService emailService,
+            EmailOutboxService emailOutboxService,
 
             PasswordEncoder passwordEncoder,
 
@@ -58,8 +58,7 @@ public class PasswordResetService {
         this.otpService =
                 otpService;
 
-        this.emailService =
-                emailService;
+        this.emailOutboxService = emailOutboxService;
 
         this.passwordEncoder =
                 passwordEncoder;
@@ -72,6 +71,7 @@ public class PasswordResetService {
     // SEND OTP
     // =====================================
 
+    @Transactional
     public String forgotPassword(
 
             ForgotPasswordRequest request
@@ -81,28 +81,23 @@ public class PasswordResetService {
         // CHECK USER
 
         User user =
-                userRepository.findByEmail(
+                userRepository.findByEmailIgnoreCase(
                         request.getEmail()
                 ).orElse(null);
 
         if (user == null) {
-            return "If an account exists, an OTP has been sent";
+            return "If an account exists, a code will be sent shortly";
         }
 
         // GENERATE OTP
-        String otp =
-        otpService.generateOtp(
-                request.getEmail(),
+        String recipient = user.getEmail();
+        String otp = otpService.generateOtp(
+                recipient,
                 "PASSWORD_RESET"
         );
-        // SEND OTP EMAIL
+        emailOutboxService.enqueueOtp(recipient, "PASSWORD_RESET", otp);
 
-        emailService.sendOtpEmail(
-                request.getEmail(),
-                otp
-        );
-
-        return "If an account exists, an OTP has been sent";
+        return "If an account exists, a code will be sent shortly";
     }
 
     // =====================================
@@ -131,7 +126,7 @@ public class PasswordResetService {
     }
 
         User user =
-                userRepository.findByEmail(
+                userRepository.findByEmailIgnoreCase(
                         request.getEmail()
                 ).orElse(null);
 
@@ -167,4 +162,3 @@ public class PasswordResetService {
         return "Password reset successful";
     }
 }
-

@@ -12,6 +12,7 @@ import com.alumni.alumni_connect.service.*;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
+import com.alumni.alumni_connect.util.EmailAddress;
 
 public class VerifyOtpRequest {
 
@@ -42,7 +43,7 @@ public class VerifyOtpRequest {
 
     ) {
 
-        this.email = email;
+        this.email = EmailAddress.normalize(email);
     }
 
     // =====================================

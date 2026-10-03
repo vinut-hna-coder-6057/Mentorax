@@ -19,6 +19,7 @@ import com.alumni.alumni_connect.security.JwtUtil;
 import com.alumni.alumni_connect.service.AuthService;
 import com.alumni.alumni_connect.service.ConnectionService;
 import com.alumni.alumni_connect.service.EmailService;
+import com.alumni.alumni_connect.service.EmailOutboxService;
 import com.alumni.alumni_connect.service.EventService;
 import com.alumni.alumni_connect.service.NotificationService;
 import com.alumni.alumni_connect.service.OtpService;
@@ -35,7 +36,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.web.server.ResponseStatusException;
-
+import com.alumni.alumni_connect.service.SignupTransactionService;
 import java.lang.reflect.Field;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -105,22 +106,52 @@ class ProductionHardeningTest {
         User request = user("new@example.com", "ADMIN", 9L);
         request.setPassword("long-enough-password");
 
-        AuthService service = new AuthService(
+AuthService authService = new AuthService(
+        users,
+        encoder,
+        jwtUtil,
+        students,
+        alumniProfiles,
+        otpService,
+        mock(SignupTransactionService.class)
+);
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> authService.signup(request)
+        );
+
+        verify(users, never()).save(any());
+    }
+
+    @Test
+    void legacyStudentSignupDelegatesToCanonicalSignupFlow() {
+        SignupTransactionService signupTransactions = mock(SignupTransactionService.class);
+        when(signupTransactions.createAccountAndOtp(any()))
+                .thenReturn(new SignupTransactionService.SignupResult(
+                        "student@example.com"));
+        AuthService authService = new AuthService(
                 users,
                 encoder,
                 jwtUtil,
                 students,
                 alumniProfiles,
                 otpService,
-                email
-        );
+                signupTransactions);
+        User request = user("student@example.com", "STUDENT", null);
+        request.setPassword("StudentPassword123");
+        request.setCollege("Mentorax University");
+        request.setBranch("Computer Science");
 
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> service.signup(request)
-        );
+        assertEquals("Signup successful", authService.signup(request));
 
-        verify(users, never()).save(any());
+        ArgumentCaptor<com.alumni.alumni_connect.dto.SignupRequest> captor =
+                ArgumentCaptor.forClass(com.alumni.alumni_connect.dto.SignupRequest.class);
+        verify(signupTransactions).createAccountAndOtp(captor.capture());
+        assertEquals("student@example.com", captor.getValue().email());
+        assertEquals("STUDENT", captor.getValue().role());
+        assertEquals("Mentorax University", captor.getValue().college());
+        assertEquals("Computer Science", captor.getValue().branch());
+        verify(email, never()).sendEmailVerificationOtp(anyString(), anyString());
     }
 
     @Test
@@ -141,19 +172,19 @@ class ProductionHardeningTest {
         ForgotPasswordRequest request = new ForgotPasswordRequest();
         request.setEmail("unknown@example.com");
 
-        when(users.findByEmail(request.getEmail()))
+        when(users.findByEmailIgnoreCase(request.getEmail()))
                 .thenReturn(Optional.empty());
 
         PasswordResetService service = new PasswordResetService(
                 users,
                 mock(OtpService.class),
-                email,
+                mock(EmailOutboxService.class),
                 new BCryptPasswordEncoder(),
                 otps
         );
 
         assertEquals(
-                "If an account exists, an OTP has been sent",
+                "If an account exists, a code will be sent shortly",
                 service.forgotPassword(request)
         );
 

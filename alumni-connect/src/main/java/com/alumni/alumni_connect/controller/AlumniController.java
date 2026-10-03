@@ -32,7 +32,7 @@ public class AlumniController {
     private final PasswordEncoder passwordEncoder;
     private final AlumniProfileRepository alumniProfileRepository;
     private final OtpService otpService;
-    private final EmailService emailService;
+    private final EmailOutboxService emailOutboxService;
     private final CurrentUserService currentUserService;
 
     public AlumniController(
@@ -40,14 +40,14 @@ public class AlumniController {
             PasswordEncoder passwordEncoder,
             AlumniProfileRepository alumniProfileRepository,
             OtpService otpService,
-            EmailService emailService,
+            EmailOutboxService emailOutboxService,
             CurrentUserService currentUserService
     ) {
         this.repository = repository;
         this.passwordEncoder = passwordEncoder;
         this.alumniProfileRepository = alumniProfileRepository;
         this.otpService = otpService;
-        this.emailService = emailService;
+        this.emailOutboxService = emailOutboxService;
         this.currentUserService = currentUserService;
     }
 
@@ -92,7 +92,7 @@ public class AlumniController {
         alumniProfileRepository.save(profile);
 
         String otp = otpService.generateOtp(saved.getEmail(), "EMAIL_VERIFICATION");
-        emailService.sendEmailVerificationOtp(saved.getEmail(), otp);
+        emailOutboxService.enqueueVerification(saved.getEmail(), otp);
         return UserProfileResponse.from(saved);
     }
 
