@@ -29,130 +29,71 @@ public class AuthService {
     private final AlumniProfileRepository alumniProfileRepository;
     private final OtpService otpService;
     private final EmailService emailService;
-
+        private final SignupTransactionService signupTransactionService;
     public AuthService(
-            UserRepository repository,
-            BCryptPasswordEncoder encoder,
-            JwtUtil jwtUtil,
-            StudentProfileRepository studentProfileRepository,
-            AlumniProfileRepository alumniProfileRepository,
-            OtpService otpService,
-            EmailService emailService
-    ) {
-        this.repository = repository;
-        this.encoder = encoder;
-        this.jwtUtil = jwtUtil;
-        this.studentProfileRepository = studentProfileRepository;
-        this.alumniProfileRepository = alumniProfileRepository;
-        this.otpService = otpService;
-        this.emailService = emailService;
-    }
-
+        UserRepository repository,
+        BCryptPasswordEncoder encoder,
+        JwtUtil jwtUtil,
+        StudentProfileRepository studentProfileRepository,
+        AlumniProfileRepository alumniProfileRepository,
+        OtpService otpService,
+        EmailService emailService,
+        SignupTransactionService signupTransactionService
+) {
+    this.repository = repository;
+    this.encoder = encoder;
+    this.jwtUtil = jwtUtil;
+    this.studentProfileRepository = studentProfileRepository;
+    this.alumniProfileRepository = alumniProfileRepository;
+    this.otpService = otpService;
+    this.emailService = emailService;
+    this.signupTransactionService = signupTransactionService;
+}
     // =====================================
     // SIGNUP
     // =====================================
+public String signup(SignupRequest request) {
+    SignupTransactionService.SignupResult result =
+            signupTransactionService.createAccountAndOtp(request);
 
-    @Transactional
-    public String signup(SignupRequest request) {
-        return signup(request.toUser());
+    // The database transaction has committed before this email is sent.
+    emailService.sendEmailVerificationOtp(
+            result.email(),
+            result.otp()
+    );
+
+    return "Signup successful";
+}
+
+/** Legacy entry point retained for existing internal callers. */
+public String signup(User user) {
+    if (user == null || (!"STUDENT".equalsIgnoreCase(user.getRole())
+            && !"ALUMNI".equalsIgnoreCase(user.getRole()))) {
+        throw new IllegalArgumentException(
+                "Only STUDENT and ALUMNI self-registration is allowed"
+        );
     }
 
-    /** Legacy service entry point retained for existing internal callers; web input uses SignupRequest. */
-    public String signup(User user) {
-
-        Optional<User> existing =
-                repository.findByEmail(user.getEmail());
-
-        if (existing.isPresent()) {
-            throw new ResponseStatusException(
-                    HttpStatus.CONFLICT,
-                    "Email already exists"
-            );
-        }
-
-        // Only STUDENT and ALUMNI can self-register.
-        if (!"STUDENT".equalsIgnoreCase(user.getRole())
-                && !"ALUMNI".equalsIgnoreCase(user.getRole())) {
-
-            throw new IllegalArgumentException(
-                    "Only STUDENT and ALUMNI self-registration is allowed"
-            );
-        }
-
-        // Validate password before encoding.
-        if (user.getPassword() == null
-                || user.getPassword().length() < 8
-                || user.getPassword().length() > 128) {
-
-            throw new IllegalArgumentException(
-                    "Password does not meet requirements"
-            );
-        }
-
-        // Password must never be stored in plaintext.
-        user.setPassword(
-                encoder.encode(user.getPassword())
-        );
-
-        // New accounts must verify their email first.
-        user.setEmailVerified(false);
-
-        /*
-         * STUDENT:
-         * Email verification is the required verification step.
-         *
-         * ALUMNI:
-         * Email verification happens first, followed by
-         * administrator approval.
-         */
-        if ("ALUMNI".equalsIgnoreCase(user.getRole())) {
-            user.setStatus("PENDING");
-        } else {
-            user.setStatus("APPROVED");
-        }
-
-        // Save the user first so profiles can reference it.
-        User savedUser = repository.save(user);
-
-        // Create role-specific profile.
-        if ("STUDENT".equalsIgnoreCase(savedUser.getRole())) {
-
-            StudentProfile profile =
-                    new StudentProfile(savedUser);
-
-            profile.copyLegacyFields(savedUser);
-
-            studentProfileRepository.save(profile);
-
-        } else {
-
-            AlumniProfile profile =
-                    new AlumniProfile(savedUser);
-
-            profile.copyLegacyFields(savedUser);
-
-            alumniProfileRepository.save(profile);
-        }
-
-        // Generate an email-verification OTP.
-        String otp = otpService.generateOtp(
-                savedUser.getEmail(),
-                "EMAIL_VERIFICATION"
-        );
-
-        // Send OTP to the registered email address.
-        emailService.sendEmailVerificationOtp(
-                savedUser.getEmail(),
-                otp
-        );
-
-        return "Signup successful";
-    }
-
-    // =====================================
-    // LOGIN
-    // =====================================
-
+    return signup(new SignupRequest(
+            user.getName(),
+            user.getEmail(),
+            user.getPassword(),
+            user.getRole(),
+            user.getCollege(),
+            user.getBranch(),
+            user.getPassoutYear(),
+            user.getRollno(),
+            user.getSection(),
+            user.getBio(),
+            user.getSkills(),
+            user.getCompany(),
+            user.getJobRole(),
+            user.getLinkedin(),
+            user.getGithub(),
+            user.getProfileImage(),
+            user.getInterests(),
+            user.getLocation()));
+}
     public Object login(LoginRequest request) {
         return login(request.email(), request.password());
     }

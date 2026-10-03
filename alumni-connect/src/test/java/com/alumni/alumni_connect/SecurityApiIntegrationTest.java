@@ -4,6 +4,7 @@ import com.alumni.alumni_connect.entity.User;
 import com.alumni.alumni_connect.repository.UserRepository;
 import com.alumni.alumni_connect.security.JwtUtil;
 import com.alumni.alumni_connect.service.EmailService;
+import com.alumni.alumni_connect.service.RequestRateLimiter;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.alumni.alumni_connect.entity.Message;
 import org.junit.jupiter.api.BeforeEach;
@@ -18,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.test.util.ReflectionTestUtils;
 import com.alumni.alumni_connect.entity.Notification;
 import com.alumni.alumni_connect.entity.Otp;
 import com.alumni.alumni_connect.repository.ConversationRepository;
@@ -38,15 +40,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import org.mockito.ArgumentCaptor;
 import org.springframework.boot.test.mock.mockito.MockBean;
-import org.springframework.mail.javamail.JavaMailSender;
-import org.springframework.mail.SimpleMailMessage;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
-import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.doAnswer;
-import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.times;
 import org.springframework.security.crypto.password.PasswordEncoder;
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -63,12 +63,10 @@ private MessageRepository messageRepository;
 
 @Autowired
 private ConversationRepository conversationRepository;
-@Autowired
+@MockBean
 private EmailService emailService;
     private User student;
     private User admin;
-@MockBean
-private JavaMailSender mailSender;
 @Autowired
 private PasswordEncoder passwordEncoder;
 @Autowired
@@ -81,8 +79,11 @@ private StudentProfileRepository studentProfileRepository;
 private EventRepository eventRepository;
 @Autowired
 private PlatformTransactionManager transactionManager;
+@Autowired
+private RequestRateLimiter rateLimiter;
     @BeforeEach
     void setUpUsers() {
+        ((java.util.Map<?, ?>) ReflectionTestUtils.getField(rateLimiter, "buckets")).clear();
         String suffix = UUID.randomUUID().toString();
         student = users.save(new User("Security Student", "security-student-" + suffix + "@example.test",
                 "not-used", "STUDENT", "APPROVED"));
@@ -151,7 +152,6 @@ void duplicateEventRegistrationIsHandledGracefully() throws Exception {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.message")
                     .value("Registered successfully"));
-
     // Second registration
     mockMvc.perform(
             post("/events/register")
@@ -163,6 +163,12 @@ void duplicateEventRegistrationIsHandledGracefully() throws Exception {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.message")
                     .value("Already registered"));
+    verify(emailService, times(1)).sendEventRegistrationEmail(
+            eq(student.getEmail()),
+            eq("Duplicate Registration Test"),
+            nullable(String.class),
+            eq("College Campus"),
+            nullable(String.class));
 }
 @Test
 void alumniEndpointWithoutAuthenticationReturns401() throws Exception {
@@ -447,18 +453,9 @@ void completePasswordResetFlowSucceeds() throws Exception {
     final String[] capturedOtp = new String[1];
 
     doAnswer(invocation -> {
-        SimpleMailMessage message = invocation.getArgument(0);
-        String body = message.getText();
-
-        // OTP is between these two markers
-        String marker = "Your OTP for Alumni Connect is:\n\n";
-        int start = body.indexOf(marker) + marker.length();
-        int end = body.indexOf("\n\n", start);
-
-        capturedOtp[0] = body.substring(start, end).trim();
-
+        capturedOtp[0] = invocation.getArgument(1);
         return null;
-    }).when(mailSender).send(any(SimpleMailMessage.class));
+    }).when(emailService).sendOtpEmail(anyString(), anyString());
 
     // 1. Request password reset
     mockMvc.perform(post("/forgot-password")
@@ -915,6 +912,7 @@ void adminApprovalSynchronizesAuthoritativeUserAndAlumniProfileStatus() throws E
 @Test
 void adminCreatedAlumniGetsProfileAndEmailVerificationFlow() throws Exception {
     String email = "admin-created-alumni-" + UUID.randomUUID() + "@example.test";
+    ArgumentCaptor<String> otpCaptor = ArgumentCaptor.forClass(String.class);
     mockMvc.perform(post("/alumni")
                     .header("Authorization", bearer(admin.getEmail(), "ADMIN"))
                     .contentType(MediaType.APPLICATION_JSON)
@@ -930,6 +928,15 @@ void adminCreatedAlumniGetsProfileAndEmailVerificationFlow() throws Exception {
             .orElseThrow().getApprovalStatus());
     assertTrue(otpRepository.findFirstByEmailAndPurposeOrderByIdDesc(
             email, "EMAIL_VERIFICATION").isPresent());
+    verify(emailService).sendEmailVerificationOtp(org.mockito.ArgumentMatchers.eq(email), otpCaptor.capture());
+    assertTrue(otpCaptor.getValue().matches("\\d{6}"));
+    mockMvc.perform(post("/verify-email")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(new ObjectMapper().writeValueAsString(java.util.Map.of(
+                            "email", email,
+                            "otp", otpCaptor.getValue()))))
+            .andExpect(status().isOk());
+    assertTrue(users.findByEmail(email).orElseThrow().isEmailVerified());
 }
 
 @Test
@@ -1068,17 +1075,16 @@ void resetAuthorizationIsAccountBoundSingleUseAndChangesPasswordOnlyOnce() throw
 }
 
 private String requestResetAuthorization(String email, boolean tryWrongOtpFirst) throws Exception {
+    ArgumentCaptor<String> otpCaptor = ArgumentCaptor.forClass(String.class);
     mockMvc.perform(post("/forgot-password")
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(new ObjectMapper().writeValueAsString(java.util.Map.of("email", email))))
             .andExpect(status().isOk())
             .andExpect(content().string("If an account exists, an OTP has been sent"));
 
-    ArgumentCaptor<SimpleMailMessage> mail = ArgumentCaptor.forClass(SimpleMailMessage.class);
-    verify(mailSender).send(mail.capture());
-    Matcher matcher = Pattern.compile("\\b\\d{6}\\b").matcher(mail.getValue().getText());
-    assertTrue(matcher.find());
-    String otp = matcher.group();
+    verify(emailService).sendOtpEmail(org.mockito.ArgumentMatchers.eq(email), otpCaptor.capture());
+    String otp = otpCaptor.getValue();
+    assertTrue(otp.matches("\\d{6}"));
 
     if (tryWrongOtpFirst) {
         String wrongOtp = (otp.charAt(0) == '0' ? "1" : "0") + otp.substring(1);

@@ -1,282 +1,151 @@
+
 package com.alumni.alumni_connect.service;
 
-import com.alumni.alumni_connect.config.*;
-import com.alumni.alumni_connect.controller.*;
-import com.alumni.alumni_connect.dto.*;
-import com.alumni.alumni_connect.entity.*;
-import com.alumni.alumni_connect.exception.*;
-import com.alumni.alumni_connect.repository.*;
-import com.alumni.alumni_connect.security.*;
-import com.alumni.alumni_connect.service.*;
-
-import org.springframework.beans.factory.annotation.Autowired;
-
-import org.springframework.mail.SimpleMailMessage;
-
-import org.springframework.mail.javamail.JavaMailSender;
-
-import org.springframework.stereotype.Service;
-import org.springframework.http.HttpStatus;
-import org.springframework.web.server.ResponseStatusException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.RestTemplate;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+
+import java.util.List;
+import java.util.Map;
 
 @Service
-
 public class EmailService {
 
-    private static final Logger log = LoggerFactory.getLogger(EmailService.class);
+    private static final Logger log =
+            LoggerFactory.getLogger(EmailService.class);
 
-    // =====================================
-    // MAIL SENDER
-    // =====================================
+    private static final String RESEND_API_URL =
+            "https://api.resend.com/emails";
 
-    @Autowired
+    private final String apiKey;
+    private final String fromEmail;
+    private final RestTemplate restTemplate;
 
-    private JavaMailSender mailSender;
-
-    // =====================================
-    // EVENT REGISTRATION EMAIL
-    // =====================================
-
-    public void sendEventRegistrationEmail(
-
-            String to,
-
-            String eventTitle,
-
-            String eventDate,
-
-            String location,
-
-            String eventLink
-
-    ) {
-
-        try {
-
-            SimpleMailMessage message =
-
-                    new SimpleMailMessage();
-
-            // =====================================
-            // RECEIVER
-            // =====================================
-
-            message.setTo(to);
-
-            // =====================================
-            // SUBJECT
-            // =====================================
-
-            message.setSubject(
-
-                    "ðŸŽ‰ Event Registration Successful"
-            );
-
-            // =====================================
-            // EMAIL BODY
-            // =====================================
-
-            message.setText(
-
-                    "Hello,\n\n"
-
-                            +
-
-                            "You have successfully registered for the event.\n\n"
-
-                            +
-
-                            "====================================\n"
-
-                            +
-
-                            "ðŸ“Œ Event Details\n"
-
-                            +
-
-                            "====================================\n\n"
-
-                            +
-
-                            "ðŸŽ¯ Event: "
-                            + eventTitle + "\n\n"
-
-                            +
-
-                            "ðŸ“… Date: "
-                            + eventDate + "\n\n"
-
-                            +
-
-                            "ðŸ“ Location: "
-                            + location + "\n\n"
-
-                            +
-
-                            "ðŸ”— Meeting Link:\n"
-                            + eventLink + "\n\n"
-
-                            +
-
-                            "====================================\n\n"
-
-                            +
-
-                            "We look forward to seeing you there.\n\n"
-
-                            +
-
-                            "Thank you for using Alumni Connect ðŸš€"
-            );
-
-            // =====================================
-            // SEND EMAIL
-            // =====================================
-
-            mailSender.send(message);
-
-
-        }
-
-        catch (Exception e) {
-            log.error("Event-registration email delivery failed ({})", e.getClass().getSimpleName());
-            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
-                    "Email delivery is temporarily unavailable");
-        }
+    public EmailService(
+        @Value("${RESEND_API_KEY:}") String apiKey,
+        @Value("${RESEND_FROM_EMAIL:}") String fromEmail,
+        RestTemplate restTemplate) {
+        this.apiKey = apiKey;
+        this.fromEmail = fromEmail;
+        this.restTemplate = restTemplate;
     }
-    // =====================================
-// OTP EMAIL
-// =====================================
 
-    public void sendOtpEmail(
-
-            String to,
-
-            String otp
-
-    ) {
-
-        try {
-
-            SimpleMailMessage message =
-
-                    new SimpleMailMessage();
-
-            // =====================================
-            // RECEIVER
-            // =====================================
-
-            message.setTo(to);
-
-            // =====================================
-            // SUBJECT
-            // =====================================
-
-            message.setSubject(
-
-                    "OTP Verification"
-            );
-
-            // =====================================
-            // EMAIL BODY
-            // =====================================
-
-            message.setText(
-
-                    "Hello,\n\n"
-
-                            +
-
-                            "Your OTP for Alumni Connect is:\n\n"
-
-                            +
-
-                            otp
-
-                            +
-
-                            "\n\n"
-
-                            +
-
-                            "This OTP is valid for 5 minutes.\n\n"
-
-                            +
-
-                            "Do not share this OTP with anyone.\n\n"
-
-                            +
-
-                            "Thank you,\n"
-
-                            +
-
-                            "Alumni Connect Team"
-            );
-
-            // =====================================
-            // SEND EMAIL
-            // =====================================
-
-            mailSender.send(message);
-
+    private void sendEmail(String to, String subject, String body) {
+        if (apiKey == null || apiKey.isBlank() || fromEmail == null || fromEmail.isBlank()) {
+            throw new ResponseStatusException(
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                    "Email delivery is not configured");
         }
 
-        catch (Exception e) {
-            log.error("Password-reset email delivery failed ({})", e.getClass().getSimpleName());
-            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
-                    "Email delivery is temporarily unavailable");
+        if (TransactionSynchronizationManager.isActualTransactionActive()
+                && TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    sendEmailNow(to, subject, body);
+                }
+            });
+            return;
         }
+
+        sendEmailNow(to, subject, body);
     }
-public void sendEmailVerificationOtp(String to, String otp) {
 
-    try {
+    private void sendEmailNow(String to, String subject, String body) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(apiKey);
+        headers.setContentType(MediaType.APPLICATION_JSON);
 
-        SimpleMailMessage message = new SimpleMailMessage();
-
-        // RECEIVER
-        message.setTo(to);
-
-        // SUBJECT
-        message.setSubject("Verify your Alumni Connect email");
-
-        // EMAIL BODY
-        message.setText(
-                "Hello,\n\n"
-                        + "Your OTP for verifying your Alumni Connect email is:\n\n"
-                        + otp
-                        + "\n\n"
-                        + "This OTP is valid for 5 minutes.\n\n"
-                        + "Do not share this OTP with anyone.\n\n"
-                        + "Thank you,\n"
-                        + "Alumni Connect Team"
+        Map<String, Object> payload = Map.of(
+                "from", fromEmail,
+                "to", List.of(to),
+                "subject", subject,
+                "text", body
         );
 
-        // SEND EMAIL
-        mailSender.send(message);
-} catch (Exception e) {
-    Throwable rootCause = e;
+        HttpEntity<Map<String, Object>> request =
+                new HttpEntity<>(payload, headers);
 
-    while (rootCause.getCause() != null
-            && rootCause.getCause() != rootCause) {
-        rootCause = rootCause.getCause();
+        try {
+            ResponseEntity<String> response =
+                    restTemplate.postForEntity(
+                            RESEND_API_URL,
+                            request,
+                            String.class
+                    );
+
+            log.info("Email accepted by Resend. HTTP status: {}",
+                    response.getStatusCode().value());
+
+        } catch (RestClientException e) {
+            log.error("Resend email request failed");
+
+            throw new ResponseStatusException(
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                    "Email delivery is temporarily unavailable"
+            );
+        }
     }
 
-    log.error(
-            "Email verification failed. exceptionType={}, rootCauseType={}, rootCauseMessage={}",
-            e.getClass().getSimpleName(),
-            rootCause.getClass().getSimpleName(),
-            rootCause.getMessage()
-    );
+    public void sendEmailVerificationOtp(String to, String otp) {
+        String body =
+                "Hello,\n\n"
+                + "Your OTP for verifying your Mentorax email is:\n\n"
+                + otp
+                + "\n\nThis OTP is valid for 5 minutes.\n\n"
+                + "Do not share this OTP with anyone.\n\n"
+                + "Thank you,\nMentorax Team";
 
-    throw new ResponseStatusException(
-            HttpStatus.SERVICE_UNAVAILABLE,
-            "Email delivery is temporarily unavailable"
-    );
-}
-}
-}
+        sendEmail(
+                to,
+                "Verify your Mentorax email",
+                body
+        );
+    }
 
+    public void sendOtpEmail(String to, String otp) {
+        String body =
+                "Hello,\n\n"
+                + "Your password-reset OTP is:\n\n"
+                + otp
+                + "\n\nThis OTP is valid for 5 minutes.\n\n"
+                + "Do not share this OTP with anyone.\n\n"
+                + "Thank you,\nMentorax Team";
 
+        sendEmail(to, "Password Reset OTP", body);
+    }
+
+    public void sendEventRegistrationEmail(
+            String to,
+            String eventTitle,
+            String eventDate,
+            String location,
+            String eventLink) {
+
+        String body =
+                "Hello,\n\n"
+                + "You have successfully registered for the event.\n\n"
+                + "Event: " + eventTitle + "\n"
+                + "Date: " + eventDate + "\n"
+                + "Location: " + location + "\n"
+                + "Meeting Link: " + eventLink + "\n\n"
+                + "Thank you for using Mentorax!";
+
+        sendEmail(
+                to,
+                "Event Registration Successful",
+                body
+        );
+    }
+}
