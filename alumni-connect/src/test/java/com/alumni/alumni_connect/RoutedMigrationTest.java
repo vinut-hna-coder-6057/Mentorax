@@ -12,12 +12,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class RoutedMigrationTest {
     @Test
     void freshChainReceivesHardeningChangesAfterItsCurrentBaseline() throws Exception {
-        verifyChain("classpath:db/fresh", "1", "10");
+        verifyChain("classpath:db/fresh", "1", "11");
     }
 
     @Test
     void normalizedChainReceivesHardeningChangesAfterItsCurrentBaseline() throws Exception {
-        verifyChain("classpath:db/normalized", "2", "10");
+        verifyChain("classpath:db/normalized", "2", "11");
     }
 
     @Test
@@ -33,10 +33,11 @@ class RoutedMigrationTest {
 
         var result = flyway.migrate();
 
-        assertEquals(1, result.migrationsExecuted);
-        assertEquals("10", flyway.info().current().getVersion().getVersion());
+        assertEquals(2, result.migrationsExecuted);
+        assertEquals("11", flyway.info().current().getVersion().getVersion());
         try (var connection = DriverManager.getConnection(url, "sa", "")) {
             assertTrue(hasTable(connection, "email_outbox"));
+            assertTrue(hasColumn(connection, "email_outbox", "purpose"));
         }
     }
 
@@ -59,13 +60,14 @@ class RoutedMigrationTest {
                 .baselineVersion(baselineVersion)
                 .load();
         var result = flyway.migrate();
-        assertEquals(3, result.migrationsExecuted);
+        assertEquals(4, result.migrationsExecuted);
         assertEquals(expectedVersion, flyway.info().current().getVersion().getVersion());
 
         try (var connection = DriverManager.getConnection(url, "sa", "")) {
             assertTrue(hasColumn(connection, "otp_verifications", "reset_token_hash"));
             assertTrue(hasColumn(connection, "otp_verifications", "reset_token_expiry"));
             assertTrue(hasTable(connection, "email_outbox"));
+            assertTrue(hasColumn(connection, "email_outbox", "purpose"));
             try (var statement = connection.createStatement();
                  var approval = statement.executeQuery("SELECT approval_status FROM alumni_profiles WHERE user_id = 1")) {
                 assertTrue(approval.next());

@@ -22,22 +22,25 @@ public class SignupTransactionService {
     private final StudentProfileRepository studentProfileRepository;
     private final AlumniProfileRepository alumniProfileRepository;
     private final OtpService otpService;
+    private final EmailOutboxService emailOutboxService;
 
     public SignupTransactionService(
             UserRepository repository,
             PasswordEncoder encoder,
             StudentProfileRepository studentProfileRepository,
             AlumniProfileRepository alumniProfileRepository,
-            OtpService otpService
+            OtpService otpService,
+            EmailOutboxService emailOutboxService
     ) {
         this.repository = repository;
         this.encoder = encoder;
         this.studentProfileRepository = studentProfileRepository;
         this.alumniProfileRepository = alumniProfileRepository;
         this.otpService = otpService;
+        this.emailOutboxService = emailOutboxService;
     }
 
-    public record SignupResult(String email, String otp) {}
+    public record SignupResult(String email) {}
 
     @Transactional
     public SignupResult createAccountAndOtp(SignupRequest request) {
@@ -58,7 +61,7 @@ public class SignupTransactionService {
             );
         }
 
-        User existing = repository.findByEmail(user.getEmail()).orElse(null);
+        User existing = repository.findByEmailIgnoreCase(user.getEmail()).orElse(null);
         if (existing != null) {
             if (existing.isEmailVerified()
                     || existing.getRole() == null
@@ -70,7 +73,8 @@ public class SignupTransactionService {
             String retryOtp = otpService.generateOtp(
                     existing.getEmail(),
                     "EMAIL_VERIFICATION");
-            return new SignupResult(existing.getEmail(), retryOtp);
+            emailOutboxService.enqueueVerification(existing.getEmail(), retryOtp);
+            return new SignupResult(existing.getEmail());
         }
 
         user.setPassword(encoder.encode(user.getPassword()));
@@ -98,8 +102,9 @@ public class SignupTransactionService {
                 savedUser.getEmail(),
                 "EMAIL_VERIFICATION"
         );
+        emailOutboxService.enqueueVerification(savedUser.getEmail(), otp);
 
-        return new SignupResult(savedUser.getEmail(), otp);
+        return new SignupResult(savedUser.getEmail());
     }
 
     private ResponseStatusException emailAlreadyExists() {

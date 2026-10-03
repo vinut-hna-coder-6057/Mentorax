@@ -22,6 +22,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
+import com.alumni.alumni_connect.util.EmailAddress;
 
 @Service
 public class EmailService {
@@ -66,18 +67,23 @@ public class EmailService {
                     "Email delivery is not configured");
         }
 
+        String recipient = EmailAddress.normalize(to);
+        if (recipient == null || recipient.isBlank()) {
+            throw new IllegalArgumentException("Email recipient is required");
+        }
+
         if (TransactionSynchronizationManager.isActualTransactionActive()
                 && TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCommit() {
-                    sendEmailNow(to, subject, body);
+                    sendEmailNow(recipient, subject, body);
                 }
             });
             return;
         }
 
-        sendEmailNow(to, subject, body);
+        sendEmailNow(recipient, subject, body);
     }
 
     private void sendEmailNow(String to, String subject, String body) {
@@ -117,8 +123,9 @@ public class EmailService {
             throw unavailable();
         } catch (RestClientException exception) {
             log.error(
-                    "Resend email request failed: exceptionType={}",
-                    exception.getClass().getSimpleName());
+                    "Resend email request failed: exceptionType={}, detail={}",
+                    exception.getClass().getSimpleName(),
+                    safeProviderMessage(exception.getMessage()));
 
             throw unavailable();
         }

@@ -37,10 +37,16 @@ public class EmailOutboxDispatcher {
     private void deliver(EmailOutboxService.ClaimedMessage message) {
         try {
             String otp = cipher.decrypt(message.encryptedOtp());
-            emailService.sendEmailVerificationOtp(message.recipient(), otp);
+            if ("EMAIL_VERIFICATION".equals(message.purpose())) {
+                emailService.sendEmailVerificationOtp(message.recipient(), otp);
+            } else if ("PASSWORD_RESET".equals(message.purpose())) {
+                emailService.sendOtpEmail(message.recipient(), otp);
+            } else {
+                throw new IllegalStateException("Unsupported email outbox message purpose");
+            }
         } catch (RuntimeException exception) {
             log.warn(
-                    "Queued verification email delivery deferred: outboxId={}, exceptionType={}",
+                    "Queued OTP delivery deferred: outboxId={}, exceptionType={}",
                     message.id(),
                     exception.getClass().getSimpleName());
             outboxService.retryOrExpire(message, LocalDateTime.now());

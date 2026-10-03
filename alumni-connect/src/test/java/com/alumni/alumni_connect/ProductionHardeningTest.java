@@ -19,6 +19,7 @@ import com.alumni.alumni_connect.security.JwtUtil;
 import com.alumni.alumni_connect.service.AuthService;
 import com.alumni.alumni_connect.service.ConnectionService;
 import com.alumni.alumni_connect.service.EmailService;
+import com.alumni.alumni_connect.service.EmailOutboxService;
 import com.alumni.alumni_connect.service.EventService;
 import com.alumni.alumni_connect.service.NotificationService;
 import com.alumni.alumni_connect.service.OtpService;
@@ -112,7 +113,6 @@ AuthService authService = new AuthService(
         students,
         alumniProfiles,
         otpService,
-        email,
         mock(SignupTransactionService.class)
 );
         assertThrows(
@@ -128,7 +128,7 @@ AuthService authService = new AuthService(
         SignupTransactionService signupTransactions = mock(SignupTransactionService.class);
         when(signupTransactions.createAccountAndOtp(any()))
                 .thenReturn(new SignupTransactionService.SignupResult(
-                        "student@example.com", "123456"));
+                        "student@example.com"));
         AuthService authService = new AuthService(
                 users,
                 encoder,
@@ -136,7 +136,6 @@ AuthService authService = new AuthService(
                 students,
                 alumniProfiles,
                 otpService,
-                email,
                 signupTransactions);
         User request = user("student@example.com", "STUDENT", null);
         request.setPassword("StudentPassword123");
@@ -152,7 +151,7 @@ AuthService authService = new AuthService(
         assertEquals("STUDENT", captor.getValue().role());
         assertEquals("Mentorax University", captor.getValue().college());
         assertEquals("Computer Science", captor.getValue().branch());
-        verify(email).sendEmailVerificationOtp("student@example.com", "123456");
+        verify(email, never()).sendEmailVerificationOtp(anyString(), anyString());
     }
 
     @Test
@@ -173,19 +172,19 @@ AuthService authService = new AuthService(
         ForgotPasswordRequest request = new ForgotPasswordRequest();
         request.setEmail("unknown@example.com");
 
-        when(users.findByEmail(request.getEmail()))
+        when(users.findByEmailIgnoreCase(request.getEmail()))
                 .thenReturn(Optional.empty());
 
         PasswordResetService service = new PasswordResetService(
                 users,
                 mock(OtpService.class),
-                email,
+                mock(EmailOutboxService.class),
                 new BCryptPasswordEncoder(),
                 otps
         );
 
         assertEquals(
-                "If an account exists, an OTP has been sent",
+                "If an account exists, a code will be sent shortly",
                 service.forgotPassword(request)
         );
 

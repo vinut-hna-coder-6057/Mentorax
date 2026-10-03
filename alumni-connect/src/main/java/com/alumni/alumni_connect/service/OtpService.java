@@ -20,6 +20,7 @@ import java.util.Base64;
 import java.util.Optional;
 import java.time.Duration;
 import com.alumni.alumni_connect.dto.ResetAuthorizationResponse;
+import com.alumni.alumni_connect.util.EmailAddress;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
@@ -49,6 +50,7 @@ public class OtpService {
 
     @Transactional
     public String generateOtp(String email, String purpose) {
+        email = EmailAddress.normalize(email);
 
         SecureRandom random = new SecureRandom();
 
@@ -96,6 +98,7 @@ public class OtpService {
             String otpValue,
             String purpose
     ) {
+        email = EmailAddress.normalize(email);
 
         Otp otp =
                 otpRepository
@@ -146,6 +149,7 @@ public class OtpService {
     public Optional<ResetAuthorizationResponse> verifyPasswordResetOtp(
             String email,
             String otpValue) {
+        email = EmailAddress.normalize(email);
         Otp otp = otpRepository.findFirstByEmailAndPurposeOrderByIdDesc(email, "PASSWORD_RESET")
                 .orElse(null);
         if (otp == null || otp.isVerified() || otp.getConsumedAt() != null

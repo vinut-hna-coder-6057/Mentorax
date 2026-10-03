@@ -71,6 +71,29 @@ class EmailServiceTest {
     }
 
     @Test
+    void verificationAndPasswordOtpEmailsUseEachRequestedRecipient() {
+        expectRequest("Verify your Mentorax email")
+                .andExpect(jsonPath("$.to[0]").value("first@example.test"))
+                .andRespond(withSuccess("{\"id\":\"email-id-1\"}", APPLICATION_JSON));
+        expectRequest("Verify your Mentorax email")
+                .andExpect(jsonPath("$.to[0]").value("second@example.test"))
+                .andRespond(withSuccess("{\"id\":\"email-id-2\"}", APPLICATION_JSON));
+        expectRequest("Password Reset OTP")
+                .andExpect(jsonPath("$.to[0]").value("first@example.test"))
+                .andRespond(withSuccess("{\"id\":\"email-id-3\"}", APPLICATION_JSON));
+        expectRequest("Password Reset OTP")
+                .andExpect(jsonPath("$.to[0]").value("second@example.test"))
+                .andRespond(withSuccess("{\"id\":\"email-id-4\"}", APPLICATION_JSON));
+
+        emailService.sendEmailVerificationOtp(" first@example.test ", "123456");
+        emailService.sendEmailVerificationOtp("SECOND@example.test", "654321");
+        emailService.sendOtpEmail("first@example.test", "123456");
+        emailService.sendOtpEmail("second@example.test", "654321");
+
+        server.verify();
+    }
+
+    @Test
     void sendsEventRegistrationDetailsThroughResend() {
         expectRequest("Event Registration Successful")
                 .andExpect(jsonPath("$.to[0]").value("student@example.test"))

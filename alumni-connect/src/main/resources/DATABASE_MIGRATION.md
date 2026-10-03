@@ -65,7 +65,7 @@ Configure the Railway backend service root directory as `alumni-connect`. Build 
 
 - `DB_URL`, `DB_USERNAME`, and `DB_PASSWORD`
 - `JWT_SECRET` (at least 32 UTF-8 bytes)
-- `MAIL_USERNAME` and `MAIL_PASSWORD`
+- `RESEND_API_KEY` and `RESEND_FROM_EMAIL` (use a sender/domain verified in Resend; verify the account is allowed to send to the intended recipients. Resend test-mode accounts may restrict recipients to an authorized address.)
 - `CORS_ALLOWED_ORIGIN_PATTERNS` and `WEBSOCKET_ALLOWED_ORIGINS` (comma-separated trusted origins; avoid broad wildcards in production)
 
 The public readiness endpoint is `/actuator/health/readiness`. It reports readiness only while the application is accepting traffic and the configured database is available. Only the health actuator endpoint is exposed, and health details are not included in responses.

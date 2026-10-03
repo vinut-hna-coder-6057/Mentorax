@@ -29,7 +29,6 @@ public class AuthService {
     private final StudentProfileRepository studentProfileRepository;
     private final AlumniProfileRepository alumniProfileRepository;
     private final OtpService otpService;
-    private final EmailService emailService;
         private final SignupTransactionService signupTransactionService;
     public AuthService(
         UserRepository repository,
@@ -38,7 +37,6 @@ public class AuthService {
         StudentProfileRepository studentProfileRepository,
         AlumniProfileRepository alumniProfileRepository,
         OtpService otpService,
-        EmailService emailService,
         SignupTransactionService signupTransactionService
 ) {
     this.repository = repository;
@@ -47,28 +45,20 @@ public class AuthService {
     this.studentProfileRepository = studentProfileRepository;
     this.alumniProfileRepository = alumniProfileRepository;
     this.otpService = otpService;
-    this.emailService = emailService;
     this.signupTransactionService = signupTransactionService;
 }
     // =====================================
     // SIGNUP
     // =====================================
 public String signup(SignupRequest request) {
-    SignupTransactionService.SignupResult result;
     try {
-        result = signupTransactionService.createAccountAndOtp(request);
+        signupTransactionService.createAccountAndOtp(request);
     } catch (DataIntegrityViolationException exception) {
-        if (repository.findByEmail(request.email()).isEmpty()) {
+        if (repository.findByEmailIgnoreCase(request.email()).isEmpty()) {
             throw exception;
         }
-        result = signupTransactionService.createAccountAndOtp(request);
+        signupTransactionService.createAccountAndOtp(request);
     }
-
-    // The database transaction has committed before this email is sent.
-    emailService.sendEmailVerificationOtp(
-            result.email(),
-            result.otp()
-    );
 
     return "Signup successful";
 }
@@ -111,7 +101,7 @@ public String signup(User user) {
 
     private Object login(String email, String password, String requestedRole) {
        Optional<User> optionalUser =
-        repository.findByEmail(
+        repository.findByEmailIgnoreCase(
                 email
         );
 

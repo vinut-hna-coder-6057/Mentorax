@@ -29,6 +29,8 @@ public interface EmailOutboxRepository extends JpaRepository<EmailOutboxMessage,
 
     void deleteByRecipient(String recipient);
 
+    void deleteByRecipientAndPurpose(String recipient, String purpose);
+
     long countByRecipient(String recipient);
 
     Optional<EmailOutboxMessage> findFirstByRecipientOrderByIdDesc(String recipient);

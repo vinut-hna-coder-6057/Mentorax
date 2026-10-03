@@ -966,7 +966,7 @@ class _OtpScreenState extends State<OtpScreen> {
                   ),
                   const SizedBox(height: 8),
                   const Text(
-                    'Enter the password reset code sent to your email.',
+                    'If an account exists, a password reset code will be sent shortly. Enter it here when it arrives.',
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 20),

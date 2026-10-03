@@ -31,7 +31,7 @@ public class EmailVerificationService {
     public VerificationResult verifyEmail(VerifyOtpRequest request) {
 
         User user = userRepository
-                .findByEmail(request.getEmail())
+                .findByEmailIgnoreCase(request.getEmail())
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND,
                         "User not found"
@@ -42,7 +42,7 @@ public class EmailVerificationService {
         }
 
         boolean valid = otpService.verifyOtp(
-                request.getEmail(),
+                user.getEmail(),
                 request.getOtp(),
                 "EMAIL_VERIFICATION"
         );
@@ -59,10 +59,11 @@ public class EmailVerificationService {
 
     @Transactional
     public String resendVerification(String email) {
-        User user = userRepository.findByEmail(email).orElse(null);
+        User user = userRepository.findByEmailIgnoreCase(email).orElse(null);
         if (user != null && !user.isEmailVerified()) {
-            String otp = otpService.generateOtp(email, "EMAIL_VERIFICATION");
-            emailOutboxService.enqueueVerification(email, otp);
+            String recipient = user.getEmail();
+            String otp = otpService.generateOtp(recipient, "EMAIL_VERIFICATION");
+            emailOutboxService.enqueueVerification(recipient, otp);
         }
         return "If this account needs verification, a code will be sent shortly.";
     }

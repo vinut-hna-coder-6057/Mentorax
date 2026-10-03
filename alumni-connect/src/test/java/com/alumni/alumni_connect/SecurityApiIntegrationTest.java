@@ -101,6 +101,7 @@ private EmailOutboxService emailOutboxService;
 private EmailOutboxCipher emailOutboxCipher;
     @BeforeEach
     void setUpUsers() {
+        emailOutboxRepository.deleteAllInBatch();
         ((java.util.Map<?, ?>) ReflectionTestUtils.getField(rateLimiter, "buckets")).clear();
         String suffix = UUID.randomUUID().toString();
         student = users.save(new User("Security Student", "security-student-" + suffix + "@example.test",
@@ -480,12 +481,15 @@ void completePasswordResetFlowSucceeds() throws Exception {
             .contentType(MediaType.APPLICATION_JSON)
             .content("""
                 {
-                  "email": "%s"
+                  "email": "  %s  "
                 }
-                """.formatted(email)))
+                """.formatted(email.toUpperCase(java.util.Locale.ROOT))))
             .andExpect(status().isOk());
 
-    // Make sure an OTP was actually generated and sent
+    new EmailOutboxDispatcher(emailOutboxService, emailOutboxCipher, emailService)
+            .dispatchNext();
+
+    // Make sure an OTP was generated and sent to the requested address.
     org.junit.jupiter.api.Assertions.assertNotNull(capturedOtp[0]);
     org.junit.jupiter.api.Assertions.assertTrue(
             capturedOtp[0].matches("\\d{6}")
@@ -683,7 +687,7 @@ void forgotPasswordForExistingUserReturnsGenericResponse() throws Exception {
                 }
                 """))
             .andExpect(status().isOk())
-            .andExpect(content().string("If an account exists, an OTP has been sent"));
+            .andExpect(content().string("If an account exists, a code will be sent shortly"));
 }
 @Test
 void eventCreatorCanUpdateOwnEvent() throws Exception {
@@ -815,7 +819,7 @@ void forgotPasswordForUnknownUserReturnsGenericResponse() throws Exception {
                 }
                 """))
             .andExpect(status().isOk())
-            .andExpect(content().string("If an account exists, an OTP has been sent"));
+            .andExpect(content().string("If an account exists, a code will be sent shortly"));
 }
 
 @Test
@@ -871,6 +875,26 @@ void signupCreatesRoleSpecificProfilesAndAccountStatusIsAuthoritative() throws E
     assertEquals("PENDING", createdAlumni.getStatus());
     assertEquals("PENDING", alumniProfileRepository.findById(createdAlumni.getId())
             .orElseThrow().getApprovalStatus());
+}
+
+@Test
+void signupTrimsAndNormalizesEmailBeforePersistingAndQueueingOtp() throws Exception {
+    String email = "normalized-" + UUID.randomUUID() + "@example.test";
+    mockMvc.perform(post("/signup")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(new ObjectMapper().writeValueAsString(java.util.Map.of(
+                            "name", "Normalized Student",
+                            "email", "  " + email.toUpperCase(java.util.Locale.ROOT) + "  ",
+                            "password", "StudentPassword123",
+                            "role", "STUDENT"))))
+            .andExpect(status().isOk());
+
+    User created = users.findByEmail(email).orElseThrow();
+    assertEquals(email, created.getEmail());
+    EmailOutboxMessage queued = emailOutboxRepository
+            .findFirstByRecipientOrderByIdDesc(email)
+            .orElseThrow();
+    assertEquals("EMAIL_VERIFICATION", queued.getPurpose());
 }
 
 @Test
@@ -930,7 +954,6 @@ void adminApprovalSynchronizesAuthoritativeUserAndAlumniProfileStatus() throws E
 @Test
 void adminCreatedAlumniGetsProfileAndEmailVerificationFlow() throws Exception {
     String email = "admin-created-alumni-" + UUID.randomUUID() + "@example.test";
-    ArgumentCaptor<String> otpCaptor = ArgumentCaptor.forClass(String.class);
     mockMvc.perform(post("/alumni")
                     .header("Authorization", bearer(admin.getEmail(), "ADMIN"))
                     .contentType(MediaType.APPLICATION_JSON)
@@ -946,6 +969,9 @@ void adminCreatedAlumniGetsProfileAndEmailVerificationFlow() throws Exception {
             .orElseThrow().getApprovalStatus());
     assertTrue(otpRepository.findFirstByEmailAndPurposeOrderByIdDesc(
             email, "EMAIL_VERIFICATION").isPresent());
+    ArgumentCaptor<String> otpCaptor = ArgumentCaptor.forClass(String.class);
+    new EmailOutboxDispatcher(emailOutboxService, emailOutboxCipher, emailService)
+            .dispatchNext();
     verify(emailService).sendEmailVerificationOtp(org.mockito.ArgumentMatchers.eq(email), otpCaptor.capture());
     assertTrue(otpCaptor.getValue().matches("\\d{6}"));
     mockMvc.perform(post("/verify-email")
@@ -979,11 +1005,19 @@ void signupCanResumeAfterEmailFailureWithoutChangingExistingCredentials() throws
     mockMvc.perform(post("/signup")
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(payload))
-            .andExpect(status().isServiceUnavailable());
+            .andExpect(status().isOk())
+            .andExpect(content().string("Signup successful"));
     User created = users.findByEmail(email).orElseThrow();
     String originalHash = created.getPassword();
     assertFalse(created.isEmailVerified());
     assertTrue(studentProfileRepository.existsById(created.getId()));
+    new EmailOutboxDispatcher(emailOutboxService, emailOutboxCipher, emailService)
+            .dispatchNext();
+    EmailOutboxMessage deferred = emailOutboxRepository
+            .findFirstByRecipientOrderByIdDesc(email)
+            .orElseThrow();
+    assertEquals(EmailOutboxMessage.PENDING, deferred.getStatus());
+    assertEquals(1, deferred.getAttemptCount());
 
     mockMvc.perform(post("/signup")
                     .contentType(MediaType.APPLICATION_JSON)
@@ -993,8 +1027,12 @@ void signupCanResumeAfterEmailFailureWithoutChangingExistingCredentials() throws
     assertEquals(originalHash, users.findByEmail(email).orElseThrow().getPassword());
     assertFalse(users.findByEmail(email).orElseThrow().isEmailVerified());
     assertTrue(studentProfileRepository.existsById(created.getId()));
+    assertEquals(1, emailOutboxRepository.countByRecipient(email));
+    new EmailOutboxDispatcher(emailOutboxService, emailOutboxCipher, emailService)
+            .dispatchNext();
     verify(emailService, times(2))
             .sendEmailVerificationOtp(eq(email), anyString());
+    assertTrue(emailOutboxRepository.findFirstByRecipientOrderByIdDesc(email).isEmpty());
 }
 
 @Test
@@ -1447,8 +1485,10 @@ private String requestResetAuthorization(String email, boolean tryWrongOtpFirst)
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(new ObjectMapper().writeValueAsString(java.util.Map.of("email", email))))
             .andExpect(status().isOk())
-            .andExpect(content().string("If an account exists, an OTP has been sent"));
+            .andExpect(content().string("If an account exists, a code will be sent shortly"));
 
+    new EmailOutboxDispatcher(emailOutboxService, emailOutboxCipher, emailService)
+            .dispatchNext();
     verify(emailService).sendOtpEmail(org.mockito.ArgumentMatchers.eq(email), otpCaptor.capture());
     String otp = otpCaptor.getValue();
     assertTrue(otp.matches("\\d{6}"));

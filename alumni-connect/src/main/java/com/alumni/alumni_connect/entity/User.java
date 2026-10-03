@@ -12,6 +12,7 @@ import com.alumni.alumni_connect.service.*;
 import jakarta.persistence.*;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.alumni.alumni_connect.util.EmailAddress;
 
 @Entity
 @Table(name = "users")
@@ -116,7 +117,7 @@ public void setEmailVerified(boolean emailVerified) {
     }
 
     public void setEmail(String email) {
-        this.email = email;
+        this.email = EmailAddress.normalize(email);
     }
 
     // PASSWORD

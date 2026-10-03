@@ -33,6 +33,9 @@ public class EmailOutboxMessage {
     @Column(name = "encrypted_otp", nullable = false, length = 512)
     private String encryptedOtp;
 
+    @Column(nullable = false, length = 32)
+    private String purpose;
+
     @Column(nullable = false, length = 16)
     private String status;
 
@@ -56,10 +59,12 @@ public class EmailOutboxMessage {
     public EmailOutboxMessage(
             String recipient,
             String encryptedOtp,
+            String purpose,
             LocalDateTime now,
             LocalDateTime expiresAt) {
         this.recipient = recipient;
         this.encryptedOtp = encryptedOtp;
+        this.purpose = purpose;
         this.status = PENDING;
         this.createdAt = now;
         this.nextAttemptAt = now;
@@ -76,6 +81,10 @@ public class EmailOutboxMessage {
 
     public String getEncryptedOtp() {
         return encryptedOtp;
+    }
+
+    public String getPurpose() {
+        return purpose;
     }
 
     public int getAttemptCount() {

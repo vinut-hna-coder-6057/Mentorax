@@ -20,6 +20,7 @@ public class EmailOutboxService {
             Long id,
             String recipient,
             String encryptedOtp,
+            String purpose,
             int attemptCount,
             LocalDateTime expiresAt) {}
 
@@ -35,11 +36,21 @@ public class EmailOutboxService {
 
     @Transactional
     public void enqueueVerification(String email, String otp) {
+        enqueueOtp(email, "EMAIL_VERIFICATION", otp);
+    }
+
+    @Transactional
+    public void enqueueOtp(String email, String purpose, String otp) {
+        if (!"EMAIL_VERIFICATION".equals(purpose)
+                && !"PASSWORD_RESET".equals(purpose)) {
+            throw new IllegalArgumentException("Unsupported email OTP purpose");
+        }
         LocalDateTime now = LocalDateTime.now();
-        repository.deleteByRecipient(email);
+        repository.deleteByRecipientAndPurpose(email, purpose);
         repository.save(new EmailOutboxMessage(
                 email,
                 cipher.encrypt(otp),
+                purpose,
                 now,
                 now.plus(MESSAGE_TTL)));
     }
@@ -56,6 +67,7 @@ public class EmailOutboxService {
                             message.getId(),
                             message.getRecipient(),
                             message.getEncryptedOtp(),
+                            message.getPurpose(),
                             message.getAttemptCount(),
                             message.getExpiresAt());
                 });
