@@ -6,16 +6,20 @@ import org.springframework.boot.autoconfigure.flyway.FlywayMigrationStrategy;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
-
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
-
-/** Routes database histories to immutable historical migrations or a matching baseline. */
 @Configuration
+@ConditionalOnProperty(
+    name = "spring.flyway.enabled",
+    havingValue = "true",
+    matchIfMissing = true
+)
+/** Routes database histories to immutable historical migrations or a matching baseline. */
 public class FlywayMigrationConfiguration {
     private static final String LEGACY = "classpath:db/migration,classpath:db/shared";
     private static final String FRESH = "classpath:db/fresh,classpath:db/shared";
