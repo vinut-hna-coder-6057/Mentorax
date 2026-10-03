@@ -256,18 +256,25 @@ public void sendEmailVerificationOtp(String to, String otp) {
 
         // SEND EMAIL
         mailSender.send(message);
+} catch (Exception e) {
+    Throwable rootCause = e;
 
-    } catch (Exception e) {
+    while (rootCause.getCause() != null
+            && rootCause.getCause() != rootCause) {
+        rootCause = rootCause.getCause();
+    }
 
-        log.error(
-                "Email verification delivery failed ({})",
-                e.getClass().getSimpleName()
-        );
+    log.error(
+            "Email verification failed. exceptionType={}, rootCauseType={}, rootCauseMessage={}",
+            e.getClass().getSimpleName(),
+            rootCause.getClass().getSimpleName(),
+            rootCause.getMessage()
+    );
 
-        throw new ResponseStatusException(
-                HttpStatus.SERVICE_UNAVAILABLE,
-                "Email delivery is temporarily unavailable"
-        );
+    throw new ResponseStatusException(
+            HttpStatus.SERVICE_UNAVAILABLE,
+            "Email delivery is temporarily unavailable"
+    );
 }
 }
 }
