@@ -1,6 +1,8 @@
 package com.alumni.alumni_connect;
 
 import org.junit.jupiter.api.Test;
+import org.flywaydb.core.Flyway;
+import org.flywaydb.core.api.MigrationVersion;
 import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
@@ -43,13 +45,31 @@ class FreshMySqlMigrationTest {
             }
             try (var connection = DriverManager.getConnection(url, username, password);
                  var statement = connection.createStatement();
-                 var migrations = statement.executeQuery("SELECT COUNT(*) FROM flyway_schema_history WHERE version IN ('2', '3') AND success = 1")) {
-                assertTrue(migrations.next() && migrations.getInt(1) == 2,
-                        "Fresh schema did not apply the fresh-chain hardening migrations");
+                 var migrations = statement.executeQuery("SELECT version, checksum, success FROM flyway_schema_history WHERE version IN ('1', '2', '3') ORDER BY version")) {
+                var checksums = new java.util.HashMap<String, Integer>();
+                while (migrations.next()) {
+                    assertTrue(migrations.getBoolean("success"), "Fresh migration did not succeed: " + migrations.getString("version"));
+                    checksums.put(migrations.getString("version"), migrations.getInt("checksum"));
+                }
+                assertTrue(checksums.equals(java.util.Map.of(
+                                "1", 744378093,
+                                "2", -1002466783,
+                                "3", 1514469376)),
+                        "Fresh migration checksums differ from the recorded production chain: " + checksums);
                 assertTrue(hasColumn(connection, "otp_verifications", "reset_token_hash"),
                         "Fresh schema is missing the reset-token hash column");
                 assertTrue(hasColumn(connection, "otp_verifications", "reset_token_expiry"),
                         "Fresh schema is missing the reset-token expiry column");
+                assertTrue(hasImportedKey(connection, "student_profiles", "user_id", "users"));
+                assertTrue(hasImportedKey(connection, "alumni_profiles", "user_id", "users"));
+                assertTrue(hasImportedKey(connection, "otp_verifications", "user_id", "users"));
+                assertTrue(hasImportedKey(connection, "messages", "conversation_id", "conversations"));
+                assertTrue(hasImportedKey(connection, "messages", "sender_id", "users"));
+                assertTrue(hasImportedKey(connection, "notifications", "recipient_id", "users"));
+                assertTrue(hasImportedKey(connection, "notifications", "actor_id", "users"));
+                assertTrue(hasUniqueIndex(connection, "otp_verifications", "reset_token_hash"));
+                assertTrue(hasUniqueIndex(connection, "conversations", "direct_user_low_id"));
+                assertTrue(hasUniqueIndex(connection, "conversations", "direct_user_high_id"));
             }
         }
     }
@@ -63,9 +83,27 @@ class FreshMySqlMigrationTest {
                 "Set disposable MySQL recovery URL, username, and password to enable this integration test.");
 
         try (var connection = DriverManager.getConnection(url, username, password);
-             var statement = connection.createStatement();
-             var rows = statement.executeQuery("SELECT COUNT(*) FROM flyway_schema_history WHERE version = '2' AND success = 0 AND description = 'migrate legacy schema'")) {
-            assertTrue(rows.next() && rows.getInt(1) == 1, "Recovery test requires the known failed legacy V2 history row");
+             var tables = connection.getMetaData().getTables(connection.getCatalog(), null, "%", new String[]{"TABLE"})) {
+            List<String> existing = new ArrayList<>();
+            while (tables.next()) existing.add(tables.getString("TABLE_NAME"));
+            assertTrue(existing.isEmpty(), "Refusing to prepare the recovery fixture in a non-empty database: " + existing);
+        }
+
+        Flyway.configure()
+                .dataSource(url, username, password)
+                .locations("classpath:db/normalized")
+                .target(MigrationVersion.fromVersion("1"))
+                .load()
+                .migrate();
+
+        try (var connection = DriverManager.getConnection(url, username, password);
+             var statement = connection.createStatement()) {
+            statement.executeUpdate("""
+                    INSERT INTO flyway_schema_history
+                        (installed_rank, version, description, type, script, checksum, installed_by, execution_time, success)
+                    VALUES (2, '2', 'migrate legacy schema', 'SQL', 'V2__migrate_legacy_schema.sql',
+                            -1728185645, CURRENT_USER(), 0, FALSE)
+                    """);
         }
 
         try (ConfigurableApplicationContext ignored = startApplication(url, username, password);
@@ -82,6 +120,27 @@ class FreshMySqlMigrationTest {
     private static boolean hasColumn(java.sql.Connection connection, String table, String column) throws Exception {
         try (var columns = connection.getMetaData().getColumns(connection.getCatalog(), null, table, column)) {
             return columns.next();
+        }
+    }
+
+    private static boolean hasImportedKey(java.sql.Connection connection, String table, String column, String targetTable)
+            throws Exception {
+        try (var keys = connection.getMetaData().getImportedKeys(connection.getCatalog(), null, table)) {
+            while (keys.next()) {
+                if (column.equalsIgnoreCase(keys.getString("FKCOLUMN_NAME"))
+                        && targetTable.equalsIgnoreCase(keys.getString("PKTABLE_NAME"))) return true;
+            }
+            return false;
+        }
+    }
+
+    private static boolean hasUniqueIndex(java.sql.Connection connection, String table, String column) throws Exception {
+        try (var indexes = connection.getMetaData().getIndexInfo(connection.getCatalog(), null, table, true, false)) {
+            while (indexes.next()) {
+                if (!indexes.getBoolean("NON_UNIQUE")
+                        && column.equalsIgnoreCase(indexes.getString("COLUMN_NAME"))) return true;
+            }
+            return false;
         }
     }
 
