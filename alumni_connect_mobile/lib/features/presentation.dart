@@ -1597,7 +1597,7 @@ class _DirectoryScreenState extends ConsumerState<DirectoryScreen> {
       padding: const EdgeInsets.only(bottom: AppSpacing.lg),
       gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
         maxCrossAxisExtent: 480,
-        mainAxisExtent: 124,
+        childAspectRatio: 2.7,
         crossAxisSpacing: AppSpacing.md,
         mainAxisSpacing: AppSpacing.md,
       ),
@@ -1621,6 +1621,7 @@ class _DirectoryScreenState extends ConsumerState<DirectoryScreen> {
           if (u.passoutYear?.isNotEmpty == true) 'Class of ${u.passoutYear}',
           if (u.location?.isNotEmpty == true) u.location!,
         ];
+        final text = details.isEmpty ? u.email : details.join(' · ');
 
         return AppCard(
           child: InkWell(
@@ -1629,6 +1630,7 @@ class _DirectoryScreenState extends ConsumerState<DirectoryScreen> {
             child: Padding(
               padding: const EdgeInsets.all(AppSpacing.md),
               child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   UserAvatar(
                     name: u.name,
@@ -1637,6 +1639,7 @@ class _DirectoryScreenState extends ConsumerState<DirectoryScreen> {
                   const SizedBox(width: AppSpacing.md),
                   Expanded(
                     child: Column(
+                      mainAxisSize: MainAxisSize.min,
                       mainAxisAlignment: MainAxisAlignment.center,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -1648,15 +1651,22 @@ class _DirectoryScreenState extends ConsumerState<DirectoryScreen> {
                         ),
                         const SizedBox(height: AppSpacing.xs),
                         Text(
-                          details.isEmpty ? u.email : details.join(' · '),
+                          text,
                           maxLines: 2,
+                          softWrap: true,
                           overflow: TextOverflow.ellipsis,
                         ),
                       ],
                     ),
                   ),
-                  const SizedBox(width: AppSpacing.xs),
-                  const Icon(Icons.chevron_right),
+                  Padding(
+                    padding: const EdgeInsets.only(left: AppSpacing.xs),
+                    child: Icon(
+                      Icons.chevron_right,
+                      size: 20,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
                 ],
               ),
             ),
