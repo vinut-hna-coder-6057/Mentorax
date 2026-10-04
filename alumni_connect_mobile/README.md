@@ -39,7 +39,7 @@ and keystore file are missing; they never fall back to the debug key.
 Supply the real production API base URL at build time:
 
 ```sh
-flutter build apk --release --dart-define=API_BASE_URL=https://your-api-host
+flutter build apk --release --dart-define=API_BASE_URL=https://mentorax-production.up.railway.app
 ```
 
 Profile/release API configuration requires this HTTPS URL; the app rejects a
@@ -51,10 +51,12 @@ application ID is still Flutter's placeholder and must be replaced with the
 organization's chosen unique ID before publishing; it is intentionally not
 guessed here.
 
+Realtime messaging uses the same `API_BASE_URL` with the SockJS `/chat`
+endpoint. The STOMP client converts HTTPS to secure WebSocket (`wss://`) and
+sends the JWT in its STOMP `CONNECT` headers. SockJS transport setup is
+unauthenticated at the HTTP layer; the backend validates the JWT before
+accepting the STOMP connection.
+
 Implemented contract paths are derived directly from the backend controllers:
 `/login`, `/signup`, `/users`, `/connections`, `/events`, `/notifications`,
 `/conversations`, `/messages/conversation`, and admin alumni approval.
-
-Known backend gap: `WebSocketConfig` declares the SockJS endpoint and inbound
-`/app/chat` mapping but not the subscription destinations for delivered chat or
-notifications. Live subscriptions are therefore deliberately not fabricated.

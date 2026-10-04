@@ -1943,134 +1943,160 @@ Future<void> _deleteEvent(BuildContext c, WidgetRef r, int id) async {
 
 Future<void> _eventEditor(
     BuildContext context, WidgetRef ref, EventItem? existing) async {
-  final title = TextEditingController(text: existing?.title);
-  final description = TextEditingController(text: existing?.description);
-  final date = TextEditingController(text: existing?.eventDate);
-  final location = TextEditingController(text: existing?.location);
-  final category = TextEditingController(text: existing?.category);
-  final link = TextEditingController(text: existing?.meetingLink);
-  final formKey = GlobalKey<FormState>();
-  var saving = false;
-  final result = await showDialog<bool>(
+  final repository = ref.read(appRepositoryProvider);
+  final result = await showDialog<EventItem>(
     context: context,
-    builder: (dialogContext) => StatefulBuilder(
-      builder: (dialogContext, setDialogState) => AlertDialog(
-        title: Text(existing == null ? 'Create event' : 'Edit event'),
-        content: SingleChildScrollView(
-          child: Form(
-            key: formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextFormField(
-                  controller: title,
-                  decoration: const InputDecoration(labelText: 'Title'),
-                  validator: (value) =>
-                      value == null || value.trim().isEmpty ? 'Required' : null,
-                ),
-                TextFormField(
-                  controller: description,
-                  decoration: const InputDecoration(labelText: 'Description'),
-                ),
-                TextFormField(
-                  controller: date,
-                  decoration: const InputDecoration(labelText: 'Date and time'),
-                ),
-                TextFormField(
-                  controller: location,
-                  decoration: const InputDecoration(labelText: 'Location'),
-                ),
-                TextFormField(
-                  controller: category,
-                  decoration: const InputDecoration(labelText: 'Category'),
-                ),
-                TextFormField(
-                  controller: link,
-                  decoration: const InputDecoration(labelText: 'Meeting link'),
-                ),
-              ],
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed:
-                saving ? null : () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: saving
-                ? null
-                : () async {
-                    if (!(formKey.currentState?.validate() ?? false)) return;
-                    final event = EventItem(
-                      id: existing?.id ?? 0,
-                      title: title.text.trim(),
-                      description: description.text.trim(),
-                      eventDate: date.text.trim(),
-                      location: location.text.trim(),
-                      category: category.text.trim(),
-                      meetingLink: link.text.trim(),
-                    );
-                    setDialogState(() => saving = true);
-                    try {
-                      if (existing == null) {
-                        await ref
-                            .read(appRepositoryProvider)
-                            .createEvent(event);
-                      } else {
-                        await ref
-                            .read(appRepositoryProvider)
-                            .updateEvent(event);
-                      }
-                      if (dialogContext.mounted) {
-                        Navigator.pop(dialogContext, true);
-                      }
-                    } catch (error) {
-                      if (dialogContext.mounted) {
-                        setDialogState(() => saving = false);
-                        ScaffoldMessenger.of(dialogContext).showSnackBar(
-                          SnackBar(
-                            content: Text(userFacingError(error)),
-                          ),
-                        );
-                      }
-                    }
-                  },
-            child: saving
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : Text(existing == null ? 'Create' : 'Save'),
-          ),
-        ],
+    builder: (_) => _EventEditorDialog(
+      existing: existing,
+      onSave: (event) => existing == null
+          ? repository.createEvent(event)
+          : repository.updateEvent(event),
+    ),
+  );
+  if (result == null || !context.mounted) return;
+
+  ref.invalidate(eventsProvider);
+  ref.invalidate(adminEventsProvider);
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Text(
+        existing == null ? 'Event created' : 'Event updated',
       ),
     ),
   );
-  for (final controller in [
-    title,
-    description,
-    date,
-    location,
-    category,
-    link
-  ]) {
-    controller.dispose();
+}
+
+class _EventEditorDialog extends StatefulWidget {
+  const _EventEditorDialog({
+    required this.existing,
+    required this.onSave,
+  });
+
+  final EventItem? existing;
+  final Future<EventItem> Function(EventItem event) onSave;
+
+  @override
+  State<_EventEditorDialog> createState() => _EventEditorDialogState();
+}
+
+class _EventEditorDialogState extends State<_EventEditorDialog> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _title;
+  late final TextEditingController _description;
+  late final TextEditingController _date;
+  late final TextEditingController _location;
+  late final TextEditingController _category;
+  late final TextEditingController _link;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final existing = widget.existing;
+    _title = TextEditingController(text: existing?.title);
+    _description = TextEditingController(text: existing?.description);
+    _date = TextEditingController(text: existing?.eventDate);
+    _location = TextEditingController(text: existing?.location);
+    _category = TextEditingController(text: existing?.category);
+    _link = TextEditingController(text: existing?.meetingLink);
   }
-  if (result == true) {
-    ref.invalidate(eventsProvider);
-    ref.invalidate(adminEventsProvider);
-    if (context.mounted) {
+
+  @override
+  void dispose() {
+    _title.dispose();
+    _description.dispose();
+    _date.dispose();
+    _location.dispose();
+    _category.dispose();
+    _link.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (_saving || !(_formKey.currentState?.validate() ?? false)) return;
+
+    final existing = widget.existing;
+    final event = EventItem(
+      id: existing?.id ?? 0,
+      title: _title.text.trim(),
+      description: _description.text.trim(),
+      eventDate: _date.text.trim(),
+      location: _location.text.trim(),
+      category: _category.text.trim(),
+      meetingLink: _link.text.trim(),
+    );
+
+    setState(() => _saving = true);
+    try {
+      final saved = await widget.onSave(event);
+      if (mounted) Navigator.of(context).pop(saved);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _saving = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            existing == null ? 'Event created' : 'Event updated',
-          ),
-        ),
+        SnackBar(content: Text(userFacingError(error))),
       );
     }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final existing = widget.existing;
+    return AlertDialog(
+      title: Text(existing == null ? 'Create event' : 'Edit event'),
+      content: SingleChildScrollView(
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                controller: _title,
+                decoration: const InputDecoration(labelText: 'Title'),
+                validator: (value) =>
+                    value == null || value.trim().isEmpty ? 'Required' : null,
+              ),
+              TextFormField(
+                controller: _description,
+                decoration: const InputDecoration(labelText: 'Description'),
+              ),
+              TextFormField(
+                controller: _date,
+                decoration: const InputDecoration(labelText: 'Date and time'),
+              ),
+              TextFormField(
+                controller: _location,
+                decoration: const InputDecoration(labelText: 'Location'),
+              ),
+              TextFormField(
+                controller: _category,
+                decoration: const InputDecoration(labelText: 'Category'),
+              ),
+              TextFormField(
+                controller: _link,
+                decoration: const InputDecoration(labelText: 'Meeting link'),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _saving ? null : () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _saving ? null : _submit,
+          child: _saving
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : Text(existing == null ? 'Create' : 'Save'),
+        ),
+      ],
+    );
   }
 }
 
@@ -3367,7 +3393,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   final _messages = <ChatMessage>[];
   StreamSubscription<ChatMessage>? _sub;
   StreamSubscription<RealtimeState>? _realtimeSub;
-  StreamSubscription<String>? _realtimeErrorSub;
+  StreamSubscription<RealtimeFailure>? _realtimeErrorSub;
   RealtimeState _realtimeState = RealtimeState.disconnected;
   bool _loading = true;
   bool _loadingOlder = false;
@@ -3399,12 +3425,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         }
       });
     });
-    _realtimeErrorSub = realtime.errors.listen((_) {
+    _realtimeErrorSub = realtime.errors.listen((failure) {
       if (!mounted || _pendingContent == null) return;
       setState(() {
         _pendingContent = null;
         _sending = false;
-        _sendError = 'Message could not be sent. Your draft was kept.';
+        _sendError = switch (failure) {
+          RealtimeFailure.authentication =>
+            'Your messaging session was rejected. Sign in again to continue.',
+          RealtimeFailure.connection =>
+            'Message connection failed. Your draft was kept.',
+          RealtimeFailure.subscription =>
+            'Unable to subscribe to messages. Your draft was kept.',
+          RealtimeFailure.send =>
+            'Message could not be sent. Your draft was kept.',
+        };
       });
     });
     if (!_isInbox) {
@@ -3652,6 +3687,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final statusBackground = switch (_realtimeState) {
       RealtimeState.connected => scheme.tertiaryContainer,
       RealtimeState.disconnected => scheme.errorContainer,
+      RealtimeState.authenticationRejected ||
+      RealtimeState.subscriptionFailed =>
+        scheme.errorContainer,
       RealtimeState.connecting ||
       RealtimeState.reconnecting =>
         scheme.secondaryContainer,
@@ -3659,6 +3697,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final statusForeground = switch (_realtimeState) {
       RealtimeState.connected => scheme.onTertiaryContainer,
       RealtimeState.disconnected => scheme.onErrorContainer,
+      RealtimeState.authenticationRejected ||
+      RealtimeState.subscriptionFailed =>
+        scheme.onErrorContainer,
       RealtimeState.connecting ||
       RealtimeState.reconnecting =>
         scheme.onSecondaryContainer,
@@ -3668,6 +3709,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       RealtimeState.connecting => 'Connecting to messages…',
       RealtimeState.reconnecting => 'Reconnecting to messages…',
       RealtimeState.disconnected => 'Disconnected',
+      RealtimeState.authenticationRejected =>
+        'Messaging authentication failed. Sign in again.',
+      RealtimeState.subscriptionFailed => 'Unable to subscribe to messages.',
     };
     return Scaffold(
       appBar: AppBar(

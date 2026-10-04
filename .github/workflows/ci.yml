@@ -118,7 +118,9 @@ jobs:
         run: flutter pub get
 
       - name: Build debug APK
-        run: flutter build apk --debug
+        run: >-
+          flutter build apk --debug
+          --dart-define=API_BASE_URL=https://mentorax-production.up.railway.app
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

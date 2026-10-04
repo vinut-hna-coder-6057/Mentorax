@@ -19,7 +19,7 @@ import 'package:alumni_connect_mobile/shared/models/models.dart';
 class _TestRealtimeService extends RealtimeService {
   final _messageController = StreamController<ChatMessage>.broadcast();
   final _stateController = StreamController<RealtimeState>.broadcast();
-  final _errorController = StreamController<String>.broadcast();
+  final _errorController = StreamController<RealtimeFailure>.broadcast();
   final sentMessages = <ChatMessage>[];
 
   @override
@@ -27,7 +27,7 @@ class _TestRealtimeService extends RealtimeService {
   @override
   Stream<RealtimeState> get states => _stateController.stream;
   @override
-  Stream<String> get errors => _errorController.stream;
+  Stream<RealtimeFailure> get errors => _errorController.stream;
   @override
   RealtimeState get current => RealtimeState.connected;
 
@@ -38,7 +38,7 @@ class _TestRealtimeService extends RealtimeService {
   }
 
   void confirm(ChatMessage message) => _messageController.add(message);
-  void reject(String message) => _errorController.add(message);
+  void reject(RealtimeFailure failure) => _errorController.add(failure);
 
   @override
   Future<void> dispose() async {
@@ -164,7 +164,7 @@ void main() {
     await tester.enterText(input, 'Keep this one after rejection');
     await tester.tap(find.byTooltip('Send message'));
     await tester.pump();
-    realtime.reject('message rejected by server');
+    realtime.reject(RealtimeFailure.send);
     await tester.pumpAndSettle();
 
     expect(tester.widget<TextField>(input).controller!.text,

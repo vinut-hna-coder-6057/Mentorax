@@ -44,6 +44,16 @@ class MessagingApiIntegrationTest {
     private User bob;
     private User charlie;
 
+    @Test
+    void sockJsTransportHandshakeIsPublicButDoesNotReplaceStompAuthentication()
+            throws Exception {
+        mockMvc.perform(get("/chat/info")
+                        .header("Origin", "http://localhost"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(
+                        MediaType.APPLICATION_JSON));
+    }
+
     @BeforeEach
     void setUpUsers() {
 

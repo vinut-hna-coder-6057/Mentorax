@@ -113,6 +113,11 @@ public class SecurityConfig {
 
                         ).permitAll()
 
+                        // SockJS performs unauthenticated HTTP transport setup
+                        // before sending the JWT in the STOMP CONNECT frame.
+                        // The STOMP channel interceptor authenticates CONNECT.
+                        .requestMatchers("/chat/**").permitAll()
+
                         .requestMatchers(
     HttpMethod.GET,
     "/alumni",
