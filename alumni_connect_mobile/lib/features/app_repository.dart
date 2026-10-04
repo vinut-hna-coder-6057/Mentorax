@@ -109,7 +109,7 @@ class AppRepository {
               ConnectionItem.fromJson(Map<String, dynamic>.from(d as Map)));
   Future<ConnectionItem> respondConnection(int id, String status) =>
       api.put('/connections/$id',
-          query: {'status': status},
+          query: {'status': status.trim().toUpperCase()},
           decode: (d) =>
               ConnectionItem.fromJson(Map<String, dynamic>.from(d as Map)));
 

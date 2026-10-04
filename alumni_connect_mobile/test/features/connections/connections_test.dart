@@ -218,6 +218,44 @@ void main() {
       expect(result.status, 'ACCEPTED');
     });
 
+    test('respondConnection normalizes status casing before sending request',
+        () async {
+      final dio = Dio(
+        BaseOptions(
+          baseUrl: 'https://api.example.test',
+          responseType: ResponseType.plain,
+        ),
+      );
+      final adapter = DioAdapter(dio: dio);
+      RequestOptions? sentRequest;
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            sentRequest = options;
+            handler.next(options);
+          },
+        ),
+      );
+
+      adapter.onPut(
+        '/connections/101',
+        (server) => server.reply(200, sampleConnectionAccepted),
+        queryParameters: {'status': 'ACCEPTED'},
+      );
+
+      final repository = AppRepository(
+        ApiClient(
+          SecureStorageService(const FlutterSecureStorage()),
+          dio: dio,
+        ),
+      );
+
+      final result = await repository.respondConnection(101, ' accepted ');
+
+      expect(sentRequest!.queryParameters, {'status': 'ACCEPTED'});
+      expect(result.status, 'ACCEPTED');
+    });
+
     // ------------------------------------------------------------
     // TEST 4 — REJECT CONNECTION REQUEST
     // ------------------------------------------------------------

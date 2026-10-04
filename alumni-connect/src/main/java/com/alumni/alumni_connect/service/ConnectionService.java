@@ -65,13 +65,20 @@ public class ConnectionService {
         Connection connection = repository.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Connection not found"));
         User caller = currentUser.requireUser();
-        if (!caller.getId().equals(connection.getReceiver().getId())) {
+
+        if (connection.getReceiver() == null || !caller.getId().equals(connection.getReceiver().getId())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only the recipient can respond");
         }
-        if (!"PENDING".equals(connection.getStatus()) || !("ACCEPTED".equals(status) || "REJECTED".equals(status) || "BLOCKED".equals(status))) {
+
+        String normalizedStatus = status == null ? null : status.trim().toUpperCase();
+        if (!"PENDING".equalsIgnoreCase(connection.getStatus()) || normalizedStatus == null
+                || !("ACCEPTED".equals(normalizedStatus)
+                || "REJECTED".equals(normalizedStatus)
+                || "BLOCKED".equals(normalizedStatus))) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid connection transition");
         }
-        connection.setStatus(status);
+
+        connection.setStatus(normalizedStatus);
         connection.setRespondedAt(LocalDateTime.now());
         return repository.save(connection);
     }

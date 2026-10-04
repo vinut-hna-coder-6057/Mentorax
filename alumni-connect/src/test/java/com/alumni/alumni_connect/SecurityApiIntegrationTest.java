@@ -1487,6 +1487,33 @@ void receiverCanRejectConnectionRequest() throws Exception {
             .andExpect(status().isOk());
 }
 @Test
+void connectionStatusTransitionsAreCaseInsensitiveAndProtectedAfterProcessing() throws Exception {
+    String response = mockMvc.perform(
+            post("/connections/{receiverId}", admin.getId())
+                    .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+
+    long connectionId = new ObjectMapper()
+            .readTree(response)
+            .get("id")
+            .asLong();
+
+    mockMvc.perform(put("/connections/{id}", connectionId)
+                    .header("Authorization", bearer(admin.getEmail(), "ADMIN"))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"status\":\"accepted\"}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.status").value("ACCEPTED"));
+
+    mockMvc.perform(put("/connections/{id}", connectionId)
+                    .header("Authorization", bearer(admin.getEmail(), "ADMIN"))
+                    .param("status", "rejected"))
+            .andExpect(status().isBadRequest());
+}
+@Test
 void adminCanApproveEvent() throws Exception {
     String response = mockMvc.perform(
             post("/events")

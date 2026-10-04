@@ -11,6 +11,7 @@ import com.alumni.alumni_connect.service.*;
 
 import org.springframework.web.bind.annotation.*;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/connections")
@@ -19,6 +20,12 @@ public class ConnectionController {
     public ConnectionController(ConnectionService service) { this.service = service; }
     @GetMapping @org.springframework.transaction.annotation.Transactional(readOnly = true) public List<ConnectionResponse> mine(@RequestParam(defaultValue="0") int page,@RequestParam(defaultValue="50") int size) { return service.mine(page,size).stream().map(ConnectionResponse::from).toList(); }
     @PostMapping("/{receiverId}") public ConnectionResponse request(@PathVariable Long receiverId) { return ConnectionResponse.from(service.request(receiverId)); }
-    @PutMapping("/{id}") public ConnectionResponse respond(@PathVariable Long id, @RequestParam String status) { return ConnectionResponse.from(service.respond(id, status)); }
+    @PutMapping("/{id}")
+    public ConnectionResponse respond(@PathVariable Long id,
+                                     @RequestParam(required = false) String status,
+                                     @RequestBody(required = false) Map<String, Object> body) {
+        String resolvedStatus = status != null ? status : body != null ? String.valueOf(body.getOrDefault("status", "")) : null;
+        return ConnectionResponse.from(service.respond(id, resolvedStatus));
+    }
 }
 

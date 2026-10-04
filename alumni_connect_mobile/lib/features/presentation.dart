@@ -2463,7 +2463,11 @@ class _ConnectionsScreenState extends ConsumerState<ConnectionsScreen> {
       await ref
           .read(appRepositoryProvider)
           .respondConnection(connection.id, status);
-      ref.invalidate(connectionsProvider);
+      final refreshedConnections = await ref.refresh(connectionsProvider.future);
+      if (!mounted) return;
+      if (refreshedConnections.isEmpty) {
+        return;
+      }
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -2757,13 +2761,16 @@ class _UserScreenState extends ConsumerState<UserScreen> {
     setState(() => _connectionActionInProgress = true);
     try {
       await action();
+      if (!mounted) return;
+      final refreshedConnections = await ref.refresh(connectionsProvider.future);
       if (!context.mounted) return;
-      ref.invalidate(connectionsProvider);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(successMessage)),
-      );
+      if (refreshedConnections.isNotEmpty || successMessage.isNotEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(successMessage)),
+        );
+      }
     } catch (error) {
-      if (context.mounted) {
+      if (mounted && context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(userFacingError(error))),
         );
