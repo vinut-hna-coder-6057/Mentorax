@@ -43,8 +43,16 @@ public EventDTO createEvent(
     // =====================================
 
     @GetMapping("/events")
-    public List<EventDTO> getApprovedEvents(@RequestParam(defaultValue="0") int page, @RequestParam(defaultValue="50") int size) {
-        return eventService.getApprovedEvents(page,size).stream().map(EventDTO::from).toList();
+    public List<EventDTO> getApprovedEvents(
+            @RequestParam(defaultValue="0") int page,
+            @RequestParam(defaultValue="50") int size,
+            Authentication authentication
+    ) {
+        return eventService.getVisibleEvents(
+                page,
+                size,
+                authentication == null ? null : authentication.getName()
+        ).stream().map(EventDTO::from).toList();
     }
 
     // =====================================

@@ -76,6 +76,7 @@ private ConversationRepository conversationRepository;
 @MockBean
 private EmailService emailService;
     private User student;
+    private User alumni;
     private User admin;
 @Autowired
 private PasswordEncoder passwordEncoder;
@@ -106,6 +107,8 @@ private EmailOutboxCipher emailOutboxCipher;
         String suffix = UUID.randomUUID().toString();
         student = users.save(new User("Security Student", "security-student-" + suffix + "@example.test",
                 "not-used", "STUDENT", "APPROVED"));
+        alumni = users.save(new User("Security Alumni", "security-alumni-" + suffix + "@example.test",
+                "not-used", "ALUMNI", "APPROVED"));
         admin = users.save(new User("Security Admin", "security-admin-" + suffix + "@example.test",
                 "not-used", "ADMIN", "APPROVED"));
     }
@@ -118,6 +121,7 @@ private EmailOutboxCipher emailOutboxCipher;
                 .andExpect(content().json("{\"error\":\"Authentication required\"}"));
     }
     @Test
+@Transactional(propagation = Propagation.NOT_SUPPORTED)
 void userCanMarkOwnNotificationAsRead() throws Exception {
     Notification notification = new Notification();
     notification.setRecipient(student);
@@ -134,7 +138,9 @@ void userCanMarkOwnNotificationAsRead() throws Exception {
                             bearer(student.getEmail(), "STUDENT")
                     )
     )
-   .andExpect(status().isOk());
+            .andExpect(status().isOk());
+
+    assertTrue(notificationRepository.findById(notification.getId()).orElseThrow().isRead());
 }
 @Test
 void duplicateEventRegistrationIsHandledGracefully() throws Exception {
@@ -237,7 +243,7 @@ void eventCreatorCanViewAttendees() throws Exception {
 
     String eventResponse = mockMvc.perform(
             post("/events")
-                    .header("Authorization", bearer(student.getEmail(), "STUDENT"))
+                    .header("Authorization", bearer(alumni.getEmail(), "ALUMNI"))
                     .contentType(MediaType.APPLICATION_JSON)
                     .content("""
                             {
@@ -260,7 +266,7 @@ void eventCreatorCanViewAttendees() throws Exception {
             get("/events/attendees/{eventId}", eventId)
                     .header(
                             "Authorization",
-                            bearer(student.getEmail(), "STUDENT")
+                            bearer(alumni.getEmail(), "ALUMNI")
                     ))
             .andExpect(status().isOk());
 }
@@ -459,6 +465,208 @@ void cancellingUnregisteredEventReturnsNotRegistered() throws Exception {
             .andExpect(jsonPath("$.message")
                     .value("Not registered"));
 }
+
+@Test
+void pendingAndRejectedEventsCannotAcceptRegistrations() throws Exception {
+    String eventResponse = mockMvc.perform(post("/events")
+                    .header("Authorization", bearer(alumni.getEmail(), "ALUMNI"))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"title\":\"Pending event\"}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.status").value("PENDING"))
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+    long eventId = new ObjectMapper().readTree(eventResponse).get("id").asLong();
+
+    mockMvc.perform(post("/events/register")
+                    .param("eventId", String.valueOf(eventId))
+                    .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+            .andExpect(status().isConflict());
+
+    mockMvc.perform(put("/events/reject/{id}", eventId)
+                    .header("Authorization", bearer(admin.getEmail(), "ADMIN")))
+            .andExpect(status().isOk());
+
+    mockMvc.perform(post("/events/register")
+                    .param("eventId", String.valueOf(eventId))
+                    .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+            .andExpect(status().isConflict());
+
+    assertEquals(0, eventRepository.findById(eventId).orElseThrow().getAttendeeCount());
+}
+
+@Test
+void eventApprovalAndRejectionOnlyTransitionPendingEvents() throws Exception {
+    String eventResponse = mockMvc.perform(post("/events")
+                    .header("Authorization", bearer(alumni.getEmail(), "ALUMNI"))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"title\":\"Pending approval\"}"))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+    long eventId = new ObjectMapper().readTree(eventResponse).get("id").asLong();
+
+    mockMvc.perform(put("/events/approve/{id}", eventId)
+                    .header("Authorization", bearer(admin.getEmail(), "ADMIN")))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.status").value("APPROVED"));
+    mockMvc.perform(put("/events/approve/{id}", eventId)
+                    .header("Authorization", bearer(admin.getEmail(), "ADMIN")))
+            .andExpect(status().isConflict());
+    mockMvc.perform(put("/events/reject/{id}", eventId)
+                    .header("Authorization", bearer(admin.getEmail(), "ADMIN")))
+            .andExpect(status().isConflict());
+
+    String secondResponse = mockMvc.perform(post("/events")
+                    .header("Authorization", bearer(alumni.getEmail(), "ALUMNI"))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"title\":\"Pending rejection\"}"))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+    long rejectedEventId = new ObjectMapper().readTree(secondResponse).get("id").asLong();
+    mockMvc.perform(put("/events/reject/{id}", rejectedEventId)
+                    .header("Authorization", bearer(admin.getEmail(), "ADMIN")))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.status").value("REJECTED"));
+    mockMvc.perform(put("/events/reject/{id}", rejectedEventId)
+                    .header("Authorization", bearer(admin.getEmail(), "ADMIN")))
+            .andExpect(status().isConflict());
+    mockMvc.perform(put("/events/approve/{id}", rejectedEventId)
+                    .header("Authorization", bearer(admin.getEmail(), "ADMIN")))
+            .andExpect(status().isConflict());
+}
+
+@Test
+void alumniCanSeeOwnPendingEventAndAdminCanSeeItInManagementList() throws Exception {
+    String eventResponse = mockMvc.perform(post("/events")
+                    .header("Authorization", bearer(alumni.getEmail(), "ALUMNI"))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"title\":\"My pending event\"}"))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+    long eventId = new ObjectMapper().readTree(eventResponse).get("id").asLong();
+
+    mockMvc.perform(get("/events")
+                    .header("Authorization", bearer(alumni.getEmail(), "ALUMNI")))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$[?(@.id == " + eventId + ")].status")
+                    .value(org.hamcrest.Matchers.contains("PENDING")));
+    mockMvc.perform(get("/events")
+                    .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$[?(@.id == " + eventId + ")]")
+                    .value(org.hamcrest.Matchers.hasSize(0)));
+    mockMvc.perform(get("/events/all")
+                    .header("Authorization", bearer(admin.getEmail(), "ADMIN")))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$[?(@.id == " + eventId + ")].status")
+                    .value(org.hamcrest.Matchers.contains("PENDING")));
+}
+
+@Test
+void anonymousUsersCanSeeApprovedEventsWithoutSeeingPendingEvents() throws Exception {
+    String pendingResponse = mockMvc.perform(post("/events")
+                    .header("Authorization", bearer(alumni.getEmail(), "ALUMNI"))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"title\":\"Private pending event\"}"))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+    long pendingEventId = new ObjectMapper().readTree(pendingResponse).get("id").asLong();
+
+    String approvedResponse = mockMvc.perform(post("/events")
+                    .header("Authorization", bearer(admin.getEmail(), "ADMIN"))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"title\":\"Public approved event\"}"))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+    long approvedEventId = new ObjectMapper().readTree(approvedResponse).get("id").asLong();
+
+    mockMvc.perform(get("/events"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$[?(@.id == " + pendingEventId + ")]")
+                    .value(org.hamcrest.Matchers.hasSize(0)))
+            .andExpect(jsonPath("$[?(@.id == " + approvedEventId + ")].status")
+                    .value(org.hamcrest.Matchers.contains("APPROVED")));
+}
+
+@Test
+void eventCreationRejectsBlankRequiredTitle() throws Exception {
+    mockMvc.perform(post("/events")
+                    .header("Authorization", bearer(alumni.getEmail(), "ALUMNI"))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"title\":\"  \"}"))
+            .andExpect(status().isBadRequest());
+}
+
+@Test
+void alumniCanRegisterAndRegistrationStatusTracksCancellation() throws Exception {
+    String eventResponse = mockMvc.perform(post("/events")
+                    .header("Authorization", bearer(admin.getEmail(), "ADMIN"))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"title\":\"Approved event\"}"))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+    long eventId = new ObjectMapper().readTree(eventResponse).get("id").asLong();
+
+    mockMvc.perform(post("/events/register")
+                    .param("eventId", String.valueOf(eventId))
+                    .header("Authorization", bearer(alumni.getEmail(), "ALUMNI")))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.message").value("Registered successfully"));
+    mockMvc.perform(get("/events/{eventId}/registration-status", eventId)
+                    .header("Authorization", bearer(alumni.getEmail(), "ALUMNI")))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.registered").value(true));
+    assertEquals(1, eventRepository.findById(eventId).orElseThrow().getAttendeeCount());
+
+    mockMvc.perform(delete("/events/register")
+                    .param("eventId", String.valueOf(eventId))
+                    .header("Authorization", bearer(alumni.getEmail(), "ALUMNI")))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.message").value("Registration cancelled"));
+    mockMvc.perform(get("/events/{eventId}/registration-status", eventId)
+                    .header("Authorization", bearer(alumni.getEmail(), "ALUMNI")))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.registered").value(false));
+    assertEquals(0, eventRepository.findById(eventId).orElseThrow().getAttendeeCount());
+}
+
+@Test
+void eventWithRegistrationsCannotBeDeletedOrLoseRegistrationData() throws Exception {
+    String eventResponse = mockMvc.perform(post("/events")
+                    .header("Authorization", bearer(admin.getEmail(), "ADMIN"))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"title\":\"Registered event\"}"))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+    long eventId = new ObjectMapper().readTree(eventResponse).get("id").asLong();
+    mockMvc.perform(post("/events/register")
+                    .param("eventId", String.valueOf(eventId))
+                    .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+            .andExpect(status().isOk());
+
+    mockMvc.perform(delete("/events/{id}", eventId)
+                    .header("Authorization", bearer(admin.getEmail(), "ADMIN")))
+            .andExpect(status().isConflict());
+
+    assertTrue(eventRepository.existsById(eventId));
+    assertTrue(eventRepository.findById(eventId).orElseThrow().getAttendeeCount() == 1);
+}
+
 @Test
 void completePasswordResetFlowSucceeds() throws Exception {
     String email = student.getEmail();
@@ -624,6 +832,25 @@ void authenticatedUserCanGetOwnProfile() throws Exception {
         .andExpect(jsonPath("$.email").value(student.getEmail()))
         .andExpect(jsonPath("$.password").doesNotExist());
 }
+
+@Test
+void nonAdminCannotLookUpUnapprovedProfileByIdOrEmail() throws Exception {
+    alumni.setStatus("PENDING");
+    users.save(alumni);
+
+    mockMvc.perform(get("/users/{id}", alumni.getId())
+                    .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+            .andExpect(status().isNotFound());
+    mockMvc.perform(get("/users/email/{email}", alumni.getEmail())
+                    .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+            .andExpect(status().isNotFound());
+
+    mockMvc.perform(get("/users/{id}", alumni.getId())
+                    .header("Authorization", bearer(admin.getEmail(), "ADMIN")))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.status").value("PENDING"));
+}
+
 @Test
 void unauthenticatedUserCannotGetProfile() throws Exception {
     mockMvc.perform(get("/users/{id}", student.getId()))
@@ -636,10 +863,24 @@ void userCanUpdateOwnProfile() throws Exception {
             .contentType(MediaType.APPLICATION_JSON)
             .content("""
                 {
-                    "fullName": "Updated Student"
+                    "name": "Updated Student"
                 }
                 """))
         .andExpect(status().isOk());
+    assertEquals("Updated Student", users.findById(student.getId()).orElseThrow().getName());
+}
+
+@Test
+void profileUpdateRejectsBlankNameWithoutChangingExistingName() throws Exception {
+    mockMvc.perform(put("/users/{id}", student.getId())
+                    .header("Authorization", bearer(student.getEmail(), "STUDENT"))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("""
+                            {"name":"   "}
+                            """))
+            .andExpect(status().isBadRequest());
+
+    assertEquals("Security Student", users.findById(student.getId()).orElseThrow().getName());
 }
 @Test
 void userCannotUpdateAnotherUsersProfile() throws Exception {
@@ -648,7 +889,7 @@ void userCannotUpdateAnotherUsersProfile() throws Exception {
             .contentType(MediaType.APPLICATION_JSON)
             .content("""
                 {
-                    "fullName": "Unauthorized Update"
+                    "name": "Unauthorized Update"
                 }
                 """))
         .andExpect(status().isForbidden());
@@ -660,10 +901,11 @@ void adminCanUpdateAnotherUsersProfile() throws Exception {
             .contentType(MediaType.APPLICATION_JSON)
             .content("""
                 {
-                    "fullName": "Admin Updated Student"
+                    "name": "Admin Updated Student"
                 }
                 """))
-     .andExpect(status().isOk());
+     .andExpect(status().isOk())
+     .andExpect(jsonPath("$.name").value("Admin Updated Student"));
 }
 @Test
 void duplicateConnectionRequestIsRejected() throws Exception {
@@ -692,7 +934,7 @@ void forgotPasswordForExistingUserReturnsGenericResponse() throws Exception {
 @Test
 void eventCreatorCanUpdateOwnEvent() throws Exception {
     String response = mockMvc.perform(post("/events")
-            .header("Authorization", bearer(student.getEmail(), "STUDENT"))
+            .header("Authorization", bearer(alumni.getEmail(), "ALUMNI"))
             .contentType(MediaType.APPLICATION_JSON)
             .content("""
                 {
@@ -712,7 +954,7 @@ void eventCreatorCanUpdateOwnEvent() throws Exception {
         .asLong();
 
     mockMvc.perform(put("/events/{id}", eventId)
-            .header("Authorization", bearer(student.getEmail(), "STUDENT"))
+            .header("Authorization", bearer(alumni.getEmail(), "ALUMNI"))
             .contentType(MediaType.APPLICATION_JSON)
             .content("""
                 {
@@ -726,7 +968,7 @@ void eventCreatorCanUpdateOwnEvent() throws Exception {
 @Test
 void adminCanUpdateAnotherUsersEvent() throws Exception {
     String response = mockMvc.perform(post("/events")
-            .header("Authorization", bearer(student.getEmail(), "STUDENT"))
+            .header("Authorization", bearer(alumni.getEmail(), "ALUMNI"))
             .contentType(MediaType.APPLICATION_JSON)
             .content("""
                 {
@@ -760,7 +1002,7 @@ void adminCanUpdateAnotherUsersEvent() throws Exception {
 @Test
 void eventCreatorCanDeleteOwnEvent() throws Exception {
     String response = mockMvc.perform(post("/events")
-            .header("Authorization", bearer(student.getEmail(), "STUDENT"))
+            .header("Authorization", bearer(alumni.getEmail(), "ALUMNI"))
             .contentType(MediaType.APPLICATION_JSON)
             .content("""
                 {
@@ -780,13 +1022,13 @@ void eventCreatorCanDeleteOwnEvent() throws Exception {
         .asLong();
 
     mockMvc.perform(delete("/events/{id}", eventId)
-            .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+            .header("Authorization", bearer(alumni.getEmail(), "ALUMNI")))
         .andExpect(status().isOk());
 }
 @Test
  void adminCanDeleteAnotherUsersEvent() throws Exception {
     String response = mockMvc.perform(post("/events")
-            .header("Authorization", bearer(student.getEmail(), "STUDENT"))
+            .header("Authorization", bearer(alumni.getEmail(), "ALUMNI"))
             .contentType(MediaType.APPLICATION_JSON)
             .content("""
                 {
@@ -934,15 +1176,17 @@ void profileUpdateCannotChangeRoleOrStatusAndRepairsMissingRoleProfile() throws 
                     .header("Authorization", bearer(student.getEmail(), "STUDENT"))
                     .contentType(MediaType.APPLICATION_JSON)
                     .content("""
-                            {"name":"Updated Name","role":"ADMIN","status":"APPROVED"}
+                            {"name":"Updated Name","skills":"Dart, Flutter","role":"ADMIN","status":"APPROVED"}
                             """))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.role").value("STUDENT"))
-            .andExpect(jsonPath("$.status").value("APPROVED"));
+            .andExpect(jsonPath("$.status").value("APPROVED"))
+            .andExpect(jsonPath("$.skills").value("Dart, Flutter"));
 
     User updated = users.findById(student.getId()).orElseThrow();
     assertEquals("STUDENT", updated.getRole());
     assertEquals("APPROVED", updated.getStatus());
+    assertEquals("Dart, Flutter", updated.getSkills());
     assertTrue(studentProfileRepository.existsById(student.getId()));
     assertFalse(alumniProfileRepository.existsById(student.getId()));
 }
@@ -1420,6 +1664,8 @@ void authenticatedStudentCanRegisterForEvent() throws Exception {
                     .value("Registered successfully"));
 }
 @Test
+@org.springframework.transaction.annotation.Transactional(
+        propagation = Propagation.NOT_SUPPORTED)
 void receiverCanAcceptConnectionRequest() throws Exception {
     String response = mockMvc.perform(
             post("/connections/{receiverId}", admin.getId())
@@ -1439,7 +1685,11 @@ void receiverCanAcceptConnectionRequest() throws Exception {
                     .header("Authorization",
                             bearer(admin.getEmail(), "ADMIN"))
                     .param("status", "ACCEPTED"))
-            .andExpect(status().isOk());
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.id").value(connectionId))
+            .andExpect(jsonPath("$.status").value("ACCEPTED"))
+            .andExpect(jsonPath("$.requester.email").value(student.getEmail()))
+            .andExpect(jsonPath("$.receiver.email").value(admin.getEmail()));
 
 }
 @Test
@@ -1511,13 +1761,83 @@ void connectionStatusTransitionsAreCaseInsensitiveAndProtectedAfterProcessing() 
     mockMvc.perform(put("/connections/{id}", connectionId)
                     .header("Authorization", bearer(admin.getEmail(), "ADMIN"))
                     .param("status", "rejected"))
-            .andExpect(status().isBadRequest());
+            .andExpect(status().isConflict());
+}
+
+@Test
+void unauthenticatedUserCannotAcceptConnectionRequest() throws Exception {
+    String response = mockMvc.perform(
+            post("/connections/{receiverId}", admin.getId())
+                    .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+    long connectionId = new ObjectMapper().readTree(response).get("id").asLong();
+
+    mockMvc.perform(put("/connections/{id}", connectionId).param("status", "ACCEPTED"))
+            .andExpect(status().isUnauthorized());
+}
+
+@Test
+void acceptingMissingConnectionReturnsNotFound() throws Exception {
+    mockMvc.perform(put("/connections/{id}", Long.MAX_VALUE)
+                    .header("Authorization", bearer(admin.getEmail(), "ADMIN"))
+                    .param("status", "ACCEPTED"))
+            .andExpect(status().isNotFound());
+}
+
+@Test
+void rejectedConnectionCanBeRetriedAndAcceptedWithoutCreatingAnotherRow() throws Exception {
+    String response = mockMvc.perform(
+            post("/connections/{receiverId}", admin.getId())
+                    .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+    long connectionId = new ObjectMapper().readTree(response).get("id").asLong();
+
+    mockMvc.perform(put("/connections/{id}", connectionId)
+                    .header("Authorization", bearer(admin.getEmail(), "ADMIN"))
+                    .param("status", "REJECTED"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.status").value("REJECTED"));
+
+    mockMvc.perform(put("/connections/{id}", connectionId)
+                    .header("Authorization", bearer(admin.getEmail(), "ADMIN"))
+                    .param("status", "ACCEPTED"))
+            .andExpect(status().isConflict());
+
+    String retried = mockMvc.perform(
+            post("/connections/{receiverId}", admin.getId())
+                    .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.status").value("PENDING"))
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+    org.junit.jupiter.api.Assertions.assertEquals(
+            connectionId, new ObjectMapper().readTree(retried).get("id").asLong());
+
+    mockMvc.perform(put("/connections/{id}", connectionId)
+                    .header("Authorization", bearer(admin.getEmail(), "ADMIN"))
+                    .param("status", "ACCEPTED"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.status").value("ACCEPTED"));
+
+    mockMvc.perform(get("/connections")
+                    .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$", org.hamcrest.Matchers.hasSize(1)))
+            .andExpect(jsonPath("$[0].id").value(connectionId))
+            .andExpect(jsonPath("$[0].status").value("ACCEPTED"));
 }
 @Test
 void adminCanApproveEvent() throws Exception {
     String response = mockMvc.perform(
             post("/events")
-                    .header("Authorization", bearer(student.getEmail(), "STUDENT"))
+                    .header("Authorization", bearer(alumni.getEmail(), "ALUMNI"))
                     .contentType(MediaType.APPLICATION_JSON)
                     .content("""
                         {
@@ -1545,7 +1865,7 @@ void adminCanApproveEvent() throws Exception {
 void adminCanRejectEvent() throws Exception {
     String response = mockMvc.perform(
             post("/events")
-                    .header("Authorization", bearer(student.getEmail(), "STUDENT"))
+                    .header("Authorization", bearer(alumni.getEmail(), "ALUMNI"))
                     .contentType(MediaType.APPLICATION_JSON)
                     .content("""
                         {
@@ -1577,10 +1897,10 @@ void authenticatedUserCanGetConnections() throws Exception {
             .andExpect(status().isOk());
 }
 @Test
-void authenticatedUserCanCreateEvent() throws Exception {
+void alumniCanCreateEventAndStudentCannot() throws Exception {
     mockMvc.perform(post("/events")
                     .header("Authorization",
-                            bearer(student.getEmail(), "STUDENT"))
+                            bearer(alumni.getEmail(), "ALUMNI"))
                     .contentType(MediaType.APPLICATION_JSON)
                     .content("""
                             {
@@ -1589,7 +1909,15 @@ void authenticatedUserCanCreateEvent() throws Exception {
                               "location": "College Campus"
                             }
                             """))
-            .andExpect(status().isOk());
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.status").value("PENDING"))
+            .andExpect(jsonPath("$.createdBy").value(alumni.getEmail()));
+
+    mockMvc.perform(post("/events")
+                    .header("Authorization", bearer(student.getEmail(), "STUDENT"))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"title\":\"Student event\"}"))
+            .andExpect(status().isForbidden());
 }
 @Test
 void adminCanAccessAllEvents() throws Exception {

@@ -103,7 +103,12 @@ class ApiClient {
     if (text.isEmpty) return '';
     if (text.startsWith('{') ||
         text.startsWith('[') ||
-        (text.startsWith('"') && text.endsWith('"'))) {
+        (text.startsWith('"') && text.endsWith('"')) ||
+        text == 'true' ||
+        text == 'false' ||
+        text == 'null' ||
+        RegExp(r'^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$')
+            .hasMatch(text)) {
       return jsonDecode(text);
     }
     return text;

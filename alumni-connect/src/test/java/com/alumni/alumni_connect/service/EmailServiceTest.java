@@ -94,6 +94,51 @@ class EmailServiceTest {
     }
 
     @Test
+    void eventEmailFailureAfterCommitDoesNotFailRegistrationTransaction() {
+        DataSource dataSource = new DriverManagerDataSource(
+                "jdbc:h2:mem:event-email-failure;DB_CLOSE_DELAY=-1", "sa", "");
+        TransactionTemplate transaction = new TransactionTemplate(
+                new DataSourceTransactionManager(dataSource));
+        server.expect(requestTo(API_URL))
+                .andRespond(withStatus(HttpStatus.SERVICE_UNAVAILABLE)
+                        .contentType(APPLICATION_JSON)
+                        .body("{\"message\":\"provider unavailable\"}"));
+
+        transaction.execute(status -> {
+            emailService.sendEventRegistrationEmail(
+                    "student@example.test",
+                    "Mentorax launch",
+                    "2026-08-20",
+                    "Online",
+                    "https://example.test/event");
+            return null;
+        });
+
+        server.verify();
+    }
+
+    @Test
+    void missingEmailConfigurationDoesNotFailEventRegistrationTransaction() {
+        DataSource dataSource = new DriverManagerDataSource(
+                "jdbc:h2:mem:event-email-unconfigured;DB_CLOSE_DELAY=-1", "sa", "");
+        TransactionTemplate transaction = new TransactionTemplate(
+                new DataSourceTransactionManager(dataSource));
+        EmailService unconfigured = new EmailService("", "", restTemplate);
+
+        transaction.execute(status -> {
+            unconfigured.sendEventRegistrationEmail(
+                    "student@example.test",
+                    "Mentorax launch",
+                    "2026-08-20",
+                    "Online",
+                    "https://example.test/event");
+            return null;
+        });
+
+        server.verify();
+    }
+
+    @Test
     void providerErrorsBecomeSanitizedServiceUnavailableResponses() {
         server.expect(requestTo(API_URL))
                 .andRespond(withStatus(HttpStatus.UNAUTHORIZED)

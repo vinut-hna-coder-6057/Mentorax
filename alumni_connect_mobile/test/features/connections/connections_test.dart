@@ -218,6 +218,40 @@ void main() {
       expect(result.status, 'ACCEPTED');
     });
 
+    test('respondConnection surfaces server failures as useful API errors',
+        () async {
+      final dio = Dio(
+        BaseOptions(
+          baseUrl: 'https://api.example.test',
+          responseType: ResponseType.plain,
+        ),
+      );
+      final adapter = DioAdapter(dio: dio);
+      adapter.onPut(
+        '/connections/101',
+        (server) => server.reply(500, '{"error":"Internal server error"}'),
+        queryParameters: {'status': 'ACCEPTED'},
+      );
+
+      final repository = AppRepository(
+        ApiClient(
+          SecureStorageService(const FlutterSecureStorage()),
+          dio: dio,
+        ),
+      );
+
+      await expectLater(
+        repository.respondConnection(101, 'ACCEPTED'),
+        throwsA(
+          isA<ApiException>()
+              .having((error) => error.kind, 'kind', ApiErrorKind.server)
+              .having((error) => error.statusCode, 'statusCode', 500)
+              .having((error) => error.message, 'message',
+                  contains('service is temporarily unavailable')),
+        ),
+      );
+    });
+
     test('respondConnection normalizes status casing before sending request',
         () async {
       final dio = Dio(

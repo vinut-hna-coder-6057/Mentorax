@@ -10,8 +10,12 @@ import '../../shared/models/models.dart';
 class RealtimeService {
   final _state = StreamController<RealtimeState>.broadcast();
   final _messages = StreamController<ChatMessage>.broadcast();
+  final _notifications = StreamController<NotificationItem>.broadcast();
+  final _errors = StreamController<String>.broadcast();
   Stream<RealtimeState> get states => _state.stream;
   Stream<ChatMessage> get messages => _messages.stream;
+  Stream<NotificationItem> get notifications => _notifications.stream;
+  Stream<String> get errors => _errors.stream;
   RealtimeState _current = RealtimeState.disconnected;
   RealtimeState get current => _current;
   StompClient? _client;
@@ -46,8 +50,9 @@ class RealtimeService {
             ? RealtimeState.disconnected
             : RealtimeState.reconnecting);
       },
-      onStompError: (_) {
+      onStompError: (frame) {
         _subscribed = false;
+        if (!_errors.isClosed) _errors.add(frame.body ?? '');
         _set(RealtimeState.reconnecting);
       },
       onWebSocketError: (_) {
@@ -72,6 +77,23 @@ class RealtimeService {
           if (json is Map) {
             _messages
                 .add(ChatMessage.fromJson(Map<String, dynamic>.from(json)));
+          }
+        } catch (_) {
+          // Ignore malformed broker frames without terminating the connection.
+        }
+      },
+    );
+    _client!.subscribe(
+      destination: '/user/queue/notifications',
+      callback: (frame) {
+        final body = frame.body;
+        if (body == null || body.isEmpty) return;
+        try {
+          final json = jsonDecode(body);
+          if (json is Map) {
+            _notifications.add(
+              NotificationItem.fromJson(Map<String, dynamic>.from(json)),
+            );
           }
         } catch (_) {
           // Ignore malformed broker frames without terminating the connection.
@@ -113,6 +135,8 @@ class RealtimeService {
     disconnect();
     await _state.close();
     await _messages.close();
+    await _notifications.close();
+    await _errors.close();
   }
 }
 

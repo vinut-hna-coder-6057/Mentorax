@@ -186,7 +186,7 @@ AuthService authService = new AuthService(
 
     @Test
     void eventCreationUsesAuthenticatedCreatorAndRole() {
-        User caller = user("member@example.com", "STUDENT", 1L);
+        User caller = user("member@example.com", "ALUMNI", 1L);
 
       EventRequest request = new EventRequest(
         "Test Event",
@@ -216,15 +216,32 @@ AuthService authService = new AuthService(
         );
 
         assertSame(caller, saved.getCreator());
-        assertEquals("STUDENT", saved.getRole());
+        assertEquals("ALUMNI", saved.getRole());
         assertEquals("PENDING", saved.getStatus());
         assertEquals(0, saved.getAttendeeCount());
         assertNotNull(saved.getCreatedAt());
     }
 
     @Test
+    void studentCannotCreateEvents() {
+        User caller = user("student@example.com", "STUDENT", 1L);
+        when(users.findByEmail(caller.getEmail())).thenReturn(Optional.of(caller));
+
+        EventService service = new EventService(events, registrations, email, users);
+        EventRequest request = new EventRequest(
+                "Test Event", null, null, null, null, null, null);
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> service.createEvent(request, caller.getEmail()));
+
+        assertEquals(HttpStatus.FORBIDDEN, exception.getStatusCode());
+        verify(events, never()).save(any(Event.class));
+    }
+
+    @Test
     void eventOwnerMayUpdateButAnotherUserCannotUpdateOrDelete() {
-        User owner = user("owner@example.com", "STUDENT", 1L);
+        User owner = user("owner@example.com", "ALUMNI", 1L);
 
         Event stored = new Event();
         stored.setCreator(owner);
@@ -240,6 +257,8 @@ AuthService authService = new AuthService(
         null
 );
         when(events.findById(10L))
+                .thenReturn(Optional.of(stored));
+        when(events.findByIdForUpdate(10L))
                 .thenReturn(Optional.of(stored));
 
         when(users.findByEmail("owner@example.com"))
@@ -373,7 +392,7 @@ AuthService authService = new AuthService(
         Connection connection = new Connection();
         connection.setReceiver(receiver);
 
-        when(connections.findById(3L))
+        when(connections.findByIdForUpdateWithUsers(3L))
                 .thenReturn(Optional.of(connection));
 
         when(currentUser.requireUser())

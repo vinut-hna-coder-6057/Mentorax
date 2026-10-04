@@ -43,6 +43,25 @@ void main() {
     expect(mapped.message, contains('selected account type'));
   });
 
+  test('identifies a valid login blocked by pending alumni approval', () {
+    final request = RequestOptions(path: '/login');
+    final error = DioException(
+      requestOptions: request,
+      type: DioExceptionType.badResponse,
+      response: Response<dynamic>(
+        requestOptions: request,
+        statusCode: 403,
+        data: 'Account pending approval',
+      ),
+    );
+
+    final mapped = toApiException(error, requestPath: '/login');
+
+    expect(mapped.kind, ApiErrorKind.pendingApproval);
+    expect(mapped.statusCode, 403);
+    expect(mapped.message, contains('awaiting administrator approval'));
+  });
+
   test('duplicate registration recommends signing into the existing account',
       () {
     final request = RequestOptions(path: '/signup');
@@ -92,5 +111,24 @@ void main() {
 
     expect(mapped.kind, ApiErrorKind.timeout);
     expect(mapped.message, contains('timed out'));
+  });
+
+  test('maps connection acceptance server errors to a safe retry message', () {
+    final request = RequestOptions(path: '/connections/101');
+    final error = DioException(
+      requestOptions: request,
+      type: DioExceptionType.badResponse,
+      response: Response<dynamic>(
+        requestOptions: request,
+        statusCode: 500,
+        data: '{"error":"Internal server error"}',
+      ),
+    );
+
+    final mapped = toApiException(error, requestPath: '/connections/101');
+
+    expect(mapped.kind, ApiErrorKind.server);
+    expect(mapped.statusCode, 500);
+    expect(mapped.message, contains('Try again shortly'));
   });
 }

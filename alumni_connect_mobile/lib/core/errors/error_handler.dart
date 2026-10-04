@@ -21,9 +21,14 @@ ApiException toApiException(Object error, {String? requestPath}) {
       );
     }
     if (status == 403) {
-      final forbiddenMessage = switch (message.toLowerCase()) {
-        'account pending approval' =>
+      if (message.toLowerCase() == 'account pending approval') {
+        return ApiException(
+          ApiErrorKind.pendingApproval,
           'Your account is awaiting administrator approval.',
+          statusCode: status,
+        );
+      }
+      final forbiddenMessage = switch (message.toLowerCase()) {
         'account rejected' =>
           'Your account was not approved. Contact support for assistance.',
         'account not active' => 'Your account is not active.',

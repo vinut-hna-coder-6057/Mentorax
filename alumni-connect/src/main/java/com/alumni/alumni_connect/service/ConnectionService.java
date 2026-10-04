@@ -17,6 +17,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Arrays;
+import java.util.Optional;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
@@ -45,7 +46,17 @@ public class ConnectionService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required"));
         User receiver = pair.stream().filter(user -> user.getId().equals(receiverId)).findFirst()
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
-        if (repository.findByRequester_IdAndReceiver_Id(lockedRequester.getId(), receiverId).isPresent()
+        Optional<Connection> previousRequest =
+                repository.findByRequester_IdAndReceiver_Id(lockedRequester.getId(), receiverId);
+        if (previousRequest.isPresent()
+                && "REJECTED".equalsIgnoreCase(previousRequest.get().getStatus())) {
+            Connection retry = previousRequest.get();
+            retry.setStatus("PENDING");
+            retry.setCreatedAt(LocalDateTime.now());
+            retry.setRespondedAt(null);
+            return repository.saveAndFlush(retry);
+        }
+        if (previousRequest.isPresent()
                 || repository.findByRequester_IdAndReceiver_Id(receiverId, lockedRequester.getId()).isPresent()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Connection already exists");
         }
@@ -62,7 +73,7 @@ public class ConnectionService {
 
     @Transactional
     public Connection respond(Long id, String status) {
-        Connection connection = repository.findById(id)
+        Connection connection = repository.findByIdForUpdateWithUsers(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Connection not found"));
         User caller = currentUser.requireUser();
 
@@ -71,11 +82,14 @@ public class ConnectionService {
         }
 
         String normalizedStatus = status == null ? null : status.trim().toUpperCase();
-        if (!"PENDING".equalsIgnoreCase(connection.getStatus()) || normalizedStatus == null
+        if (normalizedStatus == null
                 || !("ACCEPTED".equals(normalizedStatus)
                 || "REJECTED".equals(normalizedStatus)
                 || "BLOCKED".equals(normalizedStatus))) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid connection transition");
+        }
+        if (!"PENDING".equalsIgnoreCase(connection.getStatus())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Connection request has already been processed");
         }
 
         connection.setStatus(normalizedStatus);
@@ -92,4 +106,3 @@ public class ConnectionService {
         return repository.findByRequester_IdOrReceiver_Id(caller.getId(), caller.getId(),pageable);
     }
 }
-

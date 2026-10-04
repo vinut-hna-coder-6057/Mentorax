@@ -59,6 +59,14 @@ public class EventService {
             .orElseThrow(() ->
                     new IllegalArgumentException("Authenticated user not found"));
 
+    boolean admin = "ADMIN".equalsIgnoreCase(creator.getRole());
+    boolean alumni = "ALUMNI".equalsIgnoreCase(creator.getRole());
+    if (!admin && !alumni) {
+        throw new ResponseStatusException(
+                HttpStatus.FORBIDDEN,
+                "Only alumni and admins can create events");
+    }
+
     Event event = new Event();
 
     event.setTitle(request.title());
@@ -73,8 +81,7 @@ public class EventService {
     event.setRole(creator.getRole());
     event.setCreatedAt(LocalDateTime.now());
 
-    if (creator.getRole() != null
-            && creator.getRole().toUpperCase().contains("ADMIN")) {
+    if (admin) {
         event.setStatus("APPROVED");
     } else {
         event.setStatus("PENDING");
@@ -112,9 +119,14 @@ public Event updateEvent(
 }
     @Transactional
     public void deleteEvent(Long id, String authenticatedEmail) {
-        Event event = eventRepository.findById(id)
+        Event event = eventRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Event not found"));
         requireCreatorOrAdmin(event, authenticatedEmail);
+        if (registrationRepository.countByEventId(id) > 0) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Cannot delete an event with registrations");
+        }
         eventRepository.delete(event);
     }
 
@@ -131,6 +143,20 @@ public Event updateEvent(
     }
     public List<Event> getApprovedEvents(int page, int size) { return eventRepository.findByStatusOrderByCreatedAtDesc("APPROVED", bounded(page,size)); }
 
+    public List<Event> getVisibleEvents(int page, int size, String authenticatedEmail) {
+        if (authenticatedEmail == null) {
+            return getApprovedEvents(page, size);
+        }
+        User caller = userRepository.findByEmail(authenticatedEmail)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.UNAUTHORIZED,
+                        "Authenticated user not found"));
+        if ("ADMIN".equalsIgnoreCase(caller.getRole())) {
+            return getApprovedEvents(page, size);
+        }
+        return eventRepository.findApprovedOrCreatedBy(caller.getId(), bounded(page, size));
+    }
+
     // =====================================
     // GET ALL EVENTS
     // =====================================
@@ -146,14 +172,16 @@ public Event updateEvent(
     // APPROVE EVENT
     // =====================================
 
+    @Transactional
     public Event approveEvent(Long id) {
 
         Event event =
-                eventRepository.findById(id)
+                eventRepository.findByIdForUpdate(id)
                         .orElseThrow(() ->
                                 new ResponseStatusException(HttpStatus.NOT_FOUND, "Event not found")
                         );
 
+        requirePending(event);
         event.setStatus("APPROVED");
 
         return eventRepository.save(event);
@@ -163,14 +191,16 @@ public Event updateEvent(
     // REJECT EVENT
     // =====================================
 
+    @Transactional
     public Event rejectEvent(Long id) {
 
         Event event =
-                eventRepository.findById(id)
+                eventRepository.findByIdForUpdate(id)
                         .orElseThrow(() ->
                                 new ResponseStatusException(HttpStatus.NOT_FOUND, "Event not found")
                         );
 
+        requirePending(event);
         event.setStatus("REJECTED");
 
         return eventRepository.save(event);
@@ -196,6 +226,17 @@ public Event updateEvent(
                                 new ResponseStatusException(HttpStatus.NOT_FOUND, "Event not found")
                         );
 
+        if (!"APPROVED".equalsIgnoreCase(event.getStatus())) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Event is not accepting registrations");
+        }
+
+        User user = userRepository.findByEmail(studentEmail)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.UNAUTHORIZED,
+                        "Authenticated user not found"));
+
         // =====================================
         // CHECK DUPLICATE
         // =====================================
@@ -204,7 +245,7 @@ public Event updateEvent(
                 registrationRepository
                         .existsByEventIdAndUser_Id(
                                 eventId,
-                                userRepository.findByEmail(studentEmail).orElseThrow(() -> new IllegalArgumentException("Authenticated user not found")).getId()
+                                user.getId()
                         );
 
         if (alreadyRegistered) {
@@ -224,9 +265,6 @@ public Event updateEvent(
         EventRegistration registration =
                 new EventRegistration();
 
-        User user = userRepository.findByEmail(studentEmail)
-                .orElseThrow(() -> new IllegalArgumentException("User not found"));
-
         registration.setEventId(eventId);
 
         registration.setEvent(event);
@@ -241,7 +279,7 @@ public Event updateEvent(
 
         try {
 
-            registrationRepository.save(
+            registrationRepository.saveAndFlush(
                     registration
             );
 
@@ -250,11 +288,9 @@ public Event updateEvent(
             // DATABASE UNIQUE CONSTRAINT
             // PROTECTS AGAINST RACE CONDITIONS
 
-            return ResponseEntity.ok(
-                    Map.of(
-                            "message",
-                            "Already registered"
-                    )
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Already registered"
             );
         }
 
@@ -416,5 +452,13 @@ public Event updateEvent(
         boolean owner = event.getCreator() != null && caller.getId().equals(event.getCreator().getId());
         boolean admin = "ADMIN".equalsIgnoreCase(caller.getRole());
         if (!owner && !admin) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "You do not control this event");
+    }
+
+    private void requirePending(Event event) {
+        if (!"PENDING".equalsIgnoreCase(event.getStatus())) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Only pending events can be approved or rejected");
+        }
     }
 }

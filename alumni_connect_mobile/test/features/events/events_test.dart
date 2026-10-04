@@ -299,6 +299,42 @@ void main() {
       expect(adapter.history, hasLength(1));
     });
 
+    test('eventRegistrationStatus fetches the authenticated registration state',
+        () async {
+      final dio = Dio(
+        BaseOptions(
+          baseUrl: 'https://api.example.test',
+          responseType: ResponseType.plain,
+        ),
+      );
+      final adapter = DioAdapter(dio: dio);
+      RequestOptions? sentRequest;
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            sentRequest = options;
+            handler.next(options);
+          },
+        ),
+      );
+      adapter.onGet(
+        '/events/10/registration-status',
+        (server) => server.reply(200, {'registered': true}),
+      );
+
+      final repository = AppRepository(
+        ApiClient(
+          SecureStorageService(const FlutterSecureStorage()),
+          dio: dio,
+        ),
+      );
+
+      expect(await repository.eventRegistrationStatus(10), isTrue);
+      expect(sentRequest?.method, 'GET');
+      expect(sentRequest?.path, '/events/10/registration-status');
+      expect(adapter.history, hasLength(1));
+    });
+
     // ------------------------------------------------------------
     // TEST 5 — CREATE EVENT
     // ------------------------------------------------------------

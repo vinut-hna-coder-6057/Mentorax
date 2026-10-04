@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
@@ -1819,7 +1820,7 @@ class _EventsScreenState extends ConsumerState<EventsScreen> {
                             IconButton(
                               tooltip: 'Approve',
                               onPressed: _workingEventIds.contains(event.id) ||
-                                      event.status?.toUpperCase() == 'APPROVED'
+                                      event.status?.toUpperCase() != 'PENDING'
                                   ? null
                                   : () => _runAdminAction(
                                         c,
@@ -1833,7 +1834,8 @@ class _EventsScreenState extends ConsumerState<EventsScreen> {
                             ),
                             IconButton(
                               tooltip: 'Reject',
-                              onPressed: _workingEventIds.contains(event.id)
+                              onPressed: _workingEventIds.contains(event.id) ||
+                                      event.status?.toUpperCase() != 'PENDING'
                                   ? null
                                   : () => _runAdminAction(
                                         c,
@@ -2463,7 +2465,8 @@ class _ConnectionsScreenState extends ConsumerState<ConnectionsScreen> {
       await ref
           .read(appRepositoryProvider)
           .respondConnection(connection.id, status);
-      final refreshedConnections = await ref.refresh(connectionsProvider.future);
+      final refreshedConnections =
+          await ref.refresh(connectionsProvider.future);
       if (!mounted) return;
       if (refreshedConnections.isEmpty) {
         return;
@@ -2762,7 +2765,8 @@ class _UserScreenState extends ConsumerState<UserScreen> {
     try {
       await action();
       if (!mounted) return;
-      final refreshedConnections = await ref.refresh(connectionsProvider.future);
+      final refreshedConnections =
+          await ref.refresh(connectionsProvider.future);
       if (!context.mounted) return;
       if (refreshedConnections.isNotEmpty || successMessage.isNotEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -3050,12 +3054,12 @@ class _EventDetails extends ConsumerStatefulWidget {
 
 class _EventDetailsState extends ConsumerState<_EventDetails> {
   bool _registering = false;
-  bool _registeredDuringSession = false;
   @override
   Widget build(BuildContext c) {
     final id = widget.id;
     final isAdmin = ref.watch(authProvider).valueOrNull?.role == UserRole.admin;
     final events = ref.watch(isAdmin ? adminEventsProvider : eventsProvider);
+    final registrationStatus = ref.watch(eventRegistrationStatusProvider(id));
     final eventsProviderToRefresh =
         isAdmin ? adminEventsProvider : eventsProvider;
     return Scaffold(
@@ -3141,52 +3145,97 @@ class _EventDetailsState extends ConsumerState<_EventDetails> {
                 Text(event.description!),
               ],
               const SizedBox(height: AppSpacing.xl),
-              SizedBox(
-                width: double.infinity,
-                child: _registeredDuringSession
-                    ? OutlinedButton.icon(
-                        onPressed: _registering
-                            ? null
-                            : () => _updateRegistration(
-                                  id,
-                                  register: false,
-                                  refreshProvider: () =>
-                                      ref.invalidate(eventsProviderToRefresh),
-                                ),
-                        icon: _registering
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : const Icon(Icons.event_busy_outlined),
-                        label: Text(
-                          _registering ? 'Please wait…' : 'Cancel registration',
-                        ),
-                      )
-                    : FilledButton.icon(
-                        onPressed: _registering
-                            ? null
-                            : () => _updateRegistration(
-                                  id,
-                                  register: true,
-                                  refreshProvider: () =>
-                                      ref.invalidate(eventsProviderToRefresh),
-                                ),
-                        icon: _registering
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : const Icon(Icons.event_available_outlined),
-                        label: Text(_registering ? 'Please wait…' : 'Register'),
+              if (event.status?.toUpperCase() == 'APPROVED')
+                registrationStatus.when(
+                  loading: () => const Center(
+                    child: CircularProgressIndicator(),
+                  ),
+                  error: (error, _) => Column(
+                    children: [
+                      Text(userFacingError(error)),
+                      TextButton(
+                        onPressed: () =>
+                            ref.invalidate(eventRegistrationStatusProvider(id)),
+                        child: const Text('Retry registration status'),
                       ),
-              ),
+                    ],
+                  ),
+                  data: (registered) => SizedBox(
+                    width: double.infinity,
+                    child: registered
+                        ? OutlinedButton.icon(
+                            onPressed: _registering
+                                ? null
+                                : () => _updateRegistration(
+                                      id,
+                                      register: false,
+                                      refreshProvider: () async {
+                                        final refreshedStatus =
+                                            await ref.refresh(
+                                                eventRegistrationStatusProvider(
+                                                        id)
+                                                    .future);
+                                        if (refreshedStatus) {
+                                          throw StateError(
+                                            'Event registration status did not update.',
+                                          );
+                                        }
+                                        await ref
+                                            .read(eventsProviderToRefresh
+                                                .notifier)
+                                            .loadFirstPage();
+                                      },
+                                    ),
+                            icon: _registering
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Icon(Icons.event_busy_outlined),
+                            label: Text(_registering
+                                ? 'Please wait…'
+                                : 'Cancel registration'),
+                          )
+                        : FilledButton.icon(
+                            onPressed: _registering
+                                ? null
+                                : () => _updateRegistration(
+                                      id,
+                                      register: true,
+                                      refreshProvider: () async {
+                                        final refreshedStatus =
+                                            await ref.refresh(
+                                                eventRegistrationStatusProvider(
+                                                        id)
+                                                    .future);
+                                        if (!refreshedStatus) {
+                                          throw StateError(
+                                            'Event registration status did not update.',
+                                          );
+                                        }
+                                        await ref
+                                            .read(eventsProviderToRefresh
+                                                .notifier)
+                                            .loadFirstPage();
+                                      },
+                                    ),
+                            icon: _registering
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Icon(Icons.event_available_outlined),
+                            label: Text(
+                                _registering ? 'Please wait…' : 'Register'),
+                          ),
+                  ),
+                ),
               if (isAdmin) ...[
                 const SizedBox(height: AppSpacing.md),
                 OutlinedButton.icon(
@@ -3205,7 +3254,7 @@ class _EventDetailsState extends ConsumerState<_EventDetails> {
   Future<void> _updateRegistration(
     int id, {
     required bool register,
-    required VoidCallback refreshProvider,
+    required Future<void> Function() refreshProvider,
   }) async {
     setState(() => _registering = true);
     try {
@@ -3215,25 +3264,42 @@ class _EventDetailsState extends ConsumerState<_EventDetails> {
       } else {
         await repository.cancelRegistration(id);
       }
-      if (!mounted) return;
-      setState(() => _registeredDuringSession = register);
-      refreshProvider();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-                register ? 'Registered for event' : 'Registration cancelled'),
-          ),
-        );
-      }
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(userFacingError(error))),
         );
       }
-    } finally {
       if (mounted) setState(() => _registering = false);
+      return;
+    }
+
+    if (!mounted) return;
+    try {
+      await refreshProvider();
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Registration was saved, but the event could not be refreshed: '
+              '${userFacingError(error)}',
+            ),
+          ),
+        );
+      }
+      if (mounted) setState(() => _registering = false);
+      return;
+    }
+
+    if (mounted) {
+      setState(() => _registering = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+              register ? 'Registered for event' : 'Registration cancelled'),
+        ),
+      );
     }
   }
 
@@ -3292,20 +3358,26 @@ class ChatScreen extends ConsumerStatefulWidget {
   ConsumerState<ChatScreen> createState() => _ChatScreenState();
 }
 
+bool isValidChatMessageContent(String content) =>
+    content.trim().isNotEmpty && content.length <= 2000;
+
 class _ChatScreenState extends ConsumerState<ChatScreen> {
   final _input = TextEditingController();
   final _scrollController = ScrollController();
   final _messages = <ChatMessage>[];
   StreamSubscription<ChatMessage>? _sub;
   StreamSubscription<RealtimeState>? _realtimeSub;
+  StreamSubscription<String>? _realtimeErrorSub;
   RealtimeState _realtimeState = RealtimeState.disconnected;
   bool _loading = true;
   bool _loadingOlder = false;
+  bool _sending = false;
   bool _hasMoreHistory = true;
   int _nextHistoryPage = 1;
   static const _historyPageSize = 50;
   String? _error;
   String? _sendError;
+  String? _pendingContent;
 
   bool get _isInbox => widget.email == 'inbox';
 
@@ -3316,7 +3388,24 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final realtime = ref.read(realtimeServiceProvider);
     _realtimeState = realtime.current;
     _realtimeSub = realtime.states.listen((state) {
-      if (mounted) setState(() => _realtimeState = state);
+      if (!mounted) return;
+      setState(() {
+        _realtimeState = state;
+        if (state != RealtimeState.connected && _pendingContent != null) {
+          _pendingContent = null;
+          _sending = false;
+          _sendError =
+              'Delivery could not be confirmed. Check the conversation before retrying.';
+        }
+      });
+    });
+    _realtimeErrorSub = realtime.errors.listen((_) {
+      if (!mounted || _pendingContent == null) return;
+      setState(() {
+        _pendingContent = null;
+        _sending = false;
+        _sendError = 'Message could not be sent. Your draft was kept.';
+      });
     });
     if (!_isInbox) {
       _loadHistory();
@@ -3326,12 +3415,23 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         final involves = (m.senderEmail == me && m.receiverEmail == other) ||
             (m.senderEmail == other && m.receiverEmail == me);
         if (!involves || !mounted) return;
+        final confirmsPendingSend = _pendingContent != null &&
+            m.senderEmail == me &&
+            m.receiverEmail == other &&
+            m.content == _pendingContent;
         setState(() {
           if (!_messages.any((existing) => _sameMessage(existing, m))) {
             _messages.add(m);
             _sortMessages();
           }
+          if (confirmsPendingSend) {
+            _pendingContent = null;
+            _sending = false;
+            _sendError = null;
+            if (_input.text == m.content) _input.clear();
+          }
         });
+        ref.invalidate(conversationsProvider);
         _scrollToLatest();
       });
     }
@@ -3465,26 +3565,40 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   Future<void> _send() async {
+    if (_sending) return;
     final me = ref.read(authProvider).valueOrNull?.email ?? '';
     final text = _input.text.trim();
     if (text.isEmpty || me.isEmpty) return;
-    final msg = ChatMessage(
-        senderEmail: me, receiverEmail: widget.email, content: text);
-    final ok = ref.read(realtimeServiceProvider).send(msg);
-    if (!ok) {
-      setState(() => _sendError = 'Not connected. Try again in a moment.');
+    if (!isValidChatMessageContent(text)) {
+      setState(() {
+        _sendError = 'Messages must be 2,000 characters or fewer.';
+      });
       return;
     }
+    final msg = ChatMessage(
+        senderEmail: me, receiverEmail: widget.email, content: text);
     setState(() {
       _sendError = null;
-      _input.clear();
+      _pendingContent = text;
+      _sending = true;
     });
+    final realtime = ref.read(realtimeServiceProvider);
+    final ok = realtime.send(msg);
+    if (!ok) {
+      setState(() {
+        _pendingContent = null;
+        _sending = false;
+        _sendError = 'Not connected. Try again in a moment.';
+      });
+      return;
+    }
   }
 
   @override
   void dispose() {
     _sub?.cancel();
     _realtimeSub?.cancel();
+    _realtimeErrorSub?.cancel();
     _scrollController.removeListener(_loadOlderWhenAtTop);
     _input.dispose();
     _scrollController.dispose();
@@ -3726,6 +3840,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       controller: _input,
                       minLines: 1,
                       maxLines: 4,
+                      maxLength: 2000,
+                      maxLengthEnforcement: MaxLengthEnforcement.enforced,
+                      readOnly: _sending,
                       textCapitalization: TextCapitalization.sentences,
                       textInputAction: TextInputAction.send,
                       decoration: const InputDecoration(
@@ -3738,8 +3855,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   const SizedBox(width: AppSpacing.sm),
                   IconButton.filled(
                     tooltip: 'Send message',
-                    onPressed: _send,
-                    icon: const Icon(Icons.send),
+                    onPressed: _sending ? null : _send,
+                    icon: _sending
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.send),
                   ),
                 ],
               ),

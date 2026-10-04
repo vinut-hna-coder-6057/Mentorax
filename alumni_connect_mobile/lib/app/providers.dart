@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../core/errors/api_exception.dart';
 import '../core/errors/error_handler.dart';
 import '../core/network/api_client.dart';
 import '../core/network/realtime_service.dart';
@@ -79,6 +80,15 @@ final authProvider =
       }
     },
   );
+  ref.listen<AsyncValue<NotificationItem>>(
+    realtimeNotificationsProvider,
+    (_, notification) {
+      if (notification.hasValue) {
+        ref.invalidate(notificationsProvider);
+        ref.invalidate(unreadNotificationCountProvider);
+      }
+    },
+  );
 
   notifier.restore();
 
@@ -95,6 +105,8 @@ final notificationsProvider = FutureProvider<List<NotificationItem>>(
     (ref) => ref.watch(appRepositoryProvider).notifications());
 final unreadNotificationCountProvider = FutureProvider<int>(
     (ref) => ref.watch(appRepositoryProvider).unreadCount());
+final realtimeNotificationsProvider = StreamProvider<NotificationItem>(
+    (ref) => ref.watch(realtimeServiceProvider).notifications);
 final conversationsProvider = StateNotifierProvider<
     ConversationsPaginationNotifier, AsyncValue<List<Conversation>>>(
   (ref) => ConversationsPaginationNotifier(ref.watch(appRepositoryProvider)),
@@ -110,6 +122,10 @@ final eventsProvider = StateNotifierProvider<EventsPaginationNotifier,
     ref.watch(appRepositoryProvider),
     all: false,
   ),
+);
+final eventRegistrationStatusProvider = FutureProvider.family<bool, int>(
+  (ref, eventId) =>
+      ref.watch(appRepositoryProvider).eventRegistrationStatus(eventId),
 );
 
 final adminEventsProvider = StateNotifierProvider<EventsPaginationNotifier,
@@ -295,6 +311,7 @@ class AuthNotifier extends StateNotifier<AsyncValue<User?>> {
 
   Future<String?> signIn(String email, String password, UserRole role) async {
     // Avoid AsyncLoading here: router treats loading as splash-only.
+    var tokenStored = false;
     try {
       final result = await _repo.login(email, password, role);
       if (result == 'WAIT_APPROVAL') {
@@ -308,6 +325,7 @@ class AuthNotifier extends StateNotifier<AsyncValue<User?>> {
           return 'Invalid credentials';
         }
         await _storage.writeToken(result);
+        tokenStored = true;
         final user = await _repo.userByEmail(identity.email);
         if (user.status.toUpperCase() != 'APPROVED') {
           await _storage.clearAuth();
@@ -321,8 +339,22 @@ class AuthNotifier extends StateNotifier<AsyncValue<User?>> {
       state = const AsyncData(null);
       return result;
     } catch (error) {
+      if (tokenStored) {
+        _realtime.disconnect();
+        try {
+          await _storage.clearAuth();
+        } catch (cleanupError, stackTrace) {
+          debugPrint(
+            'Unable to clear authentication after sign-in failed: '
+            '$cleanupError\n$stackTrace',
+          );
+        }
+      }
       state = const AsyncData(null);
       final apiError = toApiException(error, requestPath: '/login');
+      if (apiError.kind == ApiErrorKind.pendingApproval) {
+        return 'WAIT_APPROVAL';
+      }
       return apiError.message;
     }
   }

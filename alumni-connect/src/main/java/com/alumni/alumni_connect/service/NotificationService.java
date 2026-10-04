@@ -12,6 +12,7 @@ import com.alumni.alumni_connect.service.*;
 import org.springframework.http.HttpStatus;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
@@ -117,6 +118,7 @@ public class NotificationService {
     // MARK READ
     // =====================================
 
+    @Transactional
     public Notification markRead(
 
             Long id,
@@ -163,4 +165,3 @@ public class NotificationService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authenticated user no longer exists"));
     }
 }
-

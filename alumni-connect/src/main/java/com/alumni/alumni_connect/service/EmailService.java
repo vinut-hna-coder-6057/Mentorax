@@ -51,21 +51,7 @@ public class EmailService {
     }
 
     private void sendEmail(String to, String subject, String body) {
-        if (apiKey == null || apiKey.isBlank() || fromEmail == null || fromEmail.isBlank()) {
-            String missingConfiguration =
-                    (apiKey == null || apiKey.isBlank())
-                            && (fromEmail == null || fromEmail.isBlank())
-                            ? "RESEND_API_KEY, RESEND_FROM_EMAIL"
-                            : apiKey == null || apiKey.isBlank()
-                                    ? "RESEND_API_KEY"
-                                    : "RESEND_FROM_EMAIL";
-            log.error(
-                    "Resend email delivery is not configured: missing={}",
-                    missingConfiguration);
-            throw new ResponseStatusException(
-                    HttpStatus.SERVICE_UNAVAILABLE,
-                    "Email delivery is not configured");
-        }
+        requireEmailConfiguration();
 
         String recipient = EmailAddress.normalize(to);
         if (recipient == null || recipient.isBlank()) {
@@ -87,6 +73,7 @@ public class EmailService {
     }
 
     private void sendEmailNow(String to, String subject, String body) {
+        requireEmailConfiguration();
         HttpHeaders headers = new HttpHeaders();
         headers.setBearerAuth(apiKey);
         headers.setContentType(MediaType.APPLICATION_JSON);
@@ -128,6 +115,24 @@ public class EmailService {
                     safeProviderMessage(exception.getMessage()));
 
             throw unavailable();
+        }
+    }
+
+    private void requireEmailConfiguration() {
+        if (apiKey == null || apiKey.isBlank() || fromEmail == null || fromEmail.isBlank()) {
+            String missingConfiguration =
+                    (apiKey == null || apiKey.isBlank())
+                            && (fromEmail == null || fromEmail.isBlank())
+                            ? "RESEND_API_KEY, RESEND_FROM_EMAIL"
+                            : apiKey == null || apiKey.isBlank()
+                                    ? "RESEND_API_KEY"
+                                    : "RESEND_FROM_EMAIL";
+            log.error(
+                    "Resend email delivery is not configured: missing={}",
+                    missingConfiguration);
+            throw new ResponseStatusException(
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                    "Email delivery is not configured");
         }
     }
 
@@ -192,10 +197,42 @@ public class EmailService {
                 + "Meeting Link: " + eventLink + "\n\n"
                 + "Thank you for using Mentorax!";
 
-        sendEmail(
+        sendEventRegistrationEmailBestEffort(
                 to,
                 "Event Registration Successful",
                 body
         );
+    }
+
+    private void sendEventRegistrationEmailBestEffort(
+            String to,
+            String subject,
+            String body) {
+        String recipient = EmailAddress.normalize(to);
+        if (recipient == null || recipient.isBlank()) {
+            throw new IllegalArgumentException("Email recipient is required");
+        }
+
+        Runnable delivery = () -> {
+            try {
+                sendEmailNow(recipient, subject, body);
+            } catch (RuntimeException exception) {
+                log.error(
+                        "Event registration was committed, but confirmation email delivery failed: exceptionType={}",
+                        exception.getClass().getSimpleName());
+            }
+        };
+
+        if (TransactionSynchronizationManager.isActualTransactionActive()
+                && TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    delivery.run();
+                }
+            });
+        } else {
+            delivery.run();
+        }
     }
 }

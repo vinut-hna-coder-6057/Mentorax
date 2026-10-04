@@ -279,6 +279,87 @@ void main() {
       expect(fakeRealtime.disconnected, isTrue);
     });
 
+    test('pending approval login uses the existing approval-screen contract',
+        () async {
+      final dio = Dio(
+        BaseOptions(
+          baseUrl: 'https://api.example.test',
+          responseType: ResponseType.plain,
+        ),
+      );
+      final adapter = DioAdapter(dio: dio);
+      adapter.onPost(
+        '/login',
+        (server) => server.reply(
+          403,
+          {'error': 'Account pending approval'},
+        ),
+        data: {
+          'email': 'alumni@example.com',
+          'password': 'valid-password',
+          'role': 'ALUMNI',
+        },
+      );
+      final fakeStorage = FakeSecureStorageService();
+      final fakeRealtime = FakeRealtimeService();
+      final repository = AppRepository(ApiClient(fakeStorage, dio: dio));
+      final notifier = AuthNotifier(repository, fakeStorage, fakeRealtime);
+
+      expect(
+        await notifier.signIn(
+          'alumni@example.com',
+          'valid-password',
+          UserRole.alumni,
+        ),
+        'WAIT_APPROVAL',
+      );
+      expect(await fakeStorage.readToken(), isNull);
+      expect(notifier.state.value, isNull);
+    });
+
+    test('failed profile fetch after login clears newly stored token',
+        () async {
+      final dio = Dio(
+        BaseOptions(
+          baseUrl: 'https://api.example.test',
+          responseType: ResponseType.plain,
+        ),
+      );
+      final adapter = DioAdapter(dio: dio);
+      final token = createTestJwt();
+      adapter.onPost(
+        '/login',
+        (server) => server.reply(200, token),
+        data: {
+          'email': 'asha@example.com',
+          'password': 'valid-password',
+          'role': 'STUDENT',
+        },
+      );
+      adapter.onGet(
+        '/users/email/asha%40example.com',
+        (server) => server.reply(
+          500,
+          {'error': 'Internal Server Error'},
+        ),
+      );
+      final fakeStorage = FakeSecureStorageService();
+      final fakeRealtime = FakeRealtimeService();
+      final repository = AppRepository(ApiClient(fakeStorage, dio: dio));
+      final notifier = AuthNotifier(repository, fakeStorage, fakeRealtime);
+
+      final result = await notifier.signIn(
+        'asha@example.com',
+        'valid-password',
+        UserRole.student,
+      );
+
+      expect(result, contains('temporarily unavailable'));
+      expect(await fakeStorage.readToken(), isNull);
+      expect(notifier.state.value, isNull);
+      expect(fakeRealtime.disconnected, isTrue);
+    });
+
     test(
         'signOut clears stored token, disconnects realtime, and resets auth state',
         () async {

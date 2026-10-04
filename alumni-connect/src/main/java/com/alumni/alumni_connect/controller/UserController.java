@@ -80,9 +80,12 @@ public List<UserProfileResponse> getAllStudents(@RequestParam(defaultValue="0") 
             @PathVariable Long id
     ) {
 
-        return repository.findById(id)
-                .map(UserProfileResponse::from)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
+        User user = repository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "User not found"));
+        requireVisibleProfile(user);
+        return UserProfileResponse.from(user);
     }
 
     // =========================================
@@ -94,9 +97,12 @@ public List<UserProfileResponse> getAllStudents(@RequestParam(defaultValue="0") 
             @PathVariable String email
     ) {
 
-        return repository.findByEmail(email)
-                .map(UserProfileResponse::from)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
+        User user = repository.findByEmail(email)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "User not found"));
+        requireVisibleProfile(user);
+        return UserProfileResponse.from(user);
     }
     // =========================================
 // GET ALL USERS
@@ -112,6 +118,18 @@ public List<UserProfileResponse> getAllUsers(@RequestParam(defaultValue="0") int
     private Pageable bounded(int page, int size) {
         return PageRequest.of(Math.max(0, page), Math.max(1, Math.min(size, 100)), Sort.by("id").ascending());
     }
+
+    private void requireVisibleProfile(User target) {
+        User caller = currentUserService.requireUser();
+        boolean isOwner = caller.getId().equals(target.getId());
+        boolean isAdmin = currentUserService.isAdmin();
+        boolean targetIsApproved = "APPROVED".equalsIgnoreCase(target.getStatus());
+
+        if (!isOwner && !isAdmin && !targetIsApproved) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found");
+        }
+    }
+
     // =========================================
     // UPDATE PROFILE
     // =========================================
@@ -165,6 +183,10 @@ public List<UserProfileResponse> getAllUsers(@RequestParam(defaultValue="0") int
 
         user.setBio(
                 updatedUser.bio()
+        );
+
+        user.setSkills(
+                updatedUser.skills()
         );
 
         user.setCompany(

@@ -41,6 +41,17 @@ public interface EventRepository
     );
     List<Event> findByStatusOrderByCreatedAtDesc(String status, Pageable pageable);
 
+    @Query("""
+            SELECT e
+            FROM Event e
+            WHERE UPPER(e.status) = 'APPROVED'
+               OR e.creator.id = :creatorId
+            """)
+    List<Event> findApprovedOrCreatedBy(
+            @Param("creatorId") Long creatorId,
+            Pageable pageable
+    );
+
     // =====================================
     // PENDING EVENTS
     // =====================================
@@ -82,4 +93,3 @@ public interface EventRepository
             @Param("eventId") Long eventId
     );
 }
-

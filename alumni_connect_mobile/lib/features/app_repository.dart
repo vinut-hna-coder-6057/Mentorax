@@ -64,6 +64,10 @@ class AppRepository {
       api.post('/events/register', query: {'eventId': id}, decode: (_) {});
   Future<void> cancelRegistration(int id) =>
       api.delete('/events/register', query: {'eventId': id}, decode: (_) {});
+  Future<bool> eventRegistrationStatus(int id) => api.get(
+        '/events/$id/registration-status',
+        decode: (d) => (d as Map)['registered'] as bool,
+      );
   Future<EventItem> createEvent(EventItem event) => api.post('/events',
       data: event.toJson(),
       decode: (d) => EventItem.fromJson(Map<String, dynamic>.from(d as Map)));
@@ -204,8 +208,7 @@ class AppRepository {
       );
   Future<void> forgotPassword(String email) =>
       api.post('/forgot-password', data: {'email': email}, decode: (_) {});
-  Future<String> verifyOtp(String email, String otp) =>
-      api.post(
+  Future<String> verifyOtp(String email, String otp) => api.post(
         '/verify-otp',
         data: {'email': email, 'otp': otp},
         decode: (d) => (d as Map)['resetToken'] as String,
