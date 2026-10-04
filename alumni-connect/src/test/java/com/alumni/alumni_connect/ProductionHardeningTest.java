@@ -1,6 +1,7 @@
 package com.alumni.alumni_connect;
 import com.alumni.alumni_connect.dto.EventRequest;
 import com.alumni.alumni_connect.dto.MessageRequest;
+import com.alumni.alumni_connect.dto.SignupRequest;
 import com.alumni.alumni_connect.entity.Connection;
 import com.alumni.alumni_connect.entity.Event;
 import com.alumni.alumni_connect.entity.Notification;
@@ -34,6 +35,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.web.server.ResponseStatusException;
 import com.alumni.alumni_connect.service.SignupTransactionService;
@@ -144,6 +146,53 @@ AuthService authService = new AuthService(
         assertEquals("STUDENT", captor.getValue().role());
         assertEquals("Mentorax University", captor.getValue().college());
         assertEquals("Computer Science", captor.getValue().branch());
+    }
+
+    @Test
+    void signupMapsEmailUniquenessRaceToConflictWithoutRetryingTransaction() {
+        SignupTransactionService signupTransactions = mock(SignupTransactionService.class);
+        AuthService authService = new AuthService(
+                users,
+                encoder,
+                jwtUtil,
+                alumniProfiles,
+                signupTransactions);
+        SignupRequest request = signupRequest();
+        when(users.findByEmailIgnoreCase(request.email()))
+                .thenReturn(Optional.of(user(request.email(), "STUDENT", 1L)));
+        doThrow(new DataIntegrityViolationException("duplicate email"))
+                .when(signupTransactions).createAccount(request);
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> authService.signup(request));
+
+        assertEquals(HttpStatus.CONFLICT, exception.getStatusCode());
+        assertEquals("Email already exists.", exception.getReason());
+        verify(signupTransactions, times(1)).createAccount(request);
+    }
+
+    @Test
+    void signupDoesNotRetryUnrelatedDatabaseIntegrityFailures() {
+        SignupTransactionService signupTransactions = mock(SignupTransactionService.class);
+        AuthService authService = new AuthService(
+                users,
+                encoder,
+                jwtUtil,
+                alumniProfiles,
+                signupTransactions);
+        SignupRequest request = signupRequest();
+        DataIntegrityViolationException databaseFailure =
+                new DataIntegrityViolationException("profile constraint");
+        when(users.findByEmailIgnoreCase(request.email())).thenReturn(Optional.empty());
+        doThrow(databaseFailure).when(signupTransactions).createAccount(request);
+
+        DataIntegrityViolationException exception = assertThrows(
+                DataIntegrityViolationException.class,
+                () -> authService.signup(request));
+
+        assertSame(databaseFailure, exception);
+        verify(signupTransactions, times(1)).createAccount(request);
     }
 
     @Test
@@ -571,5 +620,28 @@ AuthService authService = new AuthService(
         }
 
         return user;
+    }
+
+    private SignupRequest signupRequest() {
+        return new SignupRequest(
+                "New Student",
+                "new-student@example.com",
+                "StudentPassword123",
+                "STUDENT",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+        );
     }
 }

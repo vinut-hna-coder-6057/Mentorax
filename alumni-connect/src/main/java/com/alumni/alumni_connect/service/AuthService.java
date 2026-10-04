@@ -48,10 +48,14 @@ public String signup(SignupRequest request) {
     try {
         signupTransactionService.createAccount(request);
     } catch (DataIntegrityViolationException exception) {
-        if (repository.findByEmailIgnoreCase(request.email()).isEmpty()) {
-            throw exception;
+        if (repository.findByEmailIgnoreCase(request.email()).isPresent()) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Email already exists.",
+                    exception
+            );
         }
-        signupTransactionService.createAccount(request);
+        throw exception;
     }
 
     return "Signup successful";
