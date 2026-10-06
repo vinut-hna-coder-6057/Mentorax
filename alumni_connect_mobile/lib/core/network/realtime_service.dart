@@ -51,7 +51,11 @@ class RealtimeService {
   bool _terminalFailure = false;
   String? _token;
   int _receiptSequence = 0;
+  int _sessionVersion = 0;
   final Map<String, RealtimeFailure> _pendingReceipts = {};
+
+  bool _isActiveSession(int sessionVersion) =>
+      sessionVersion == _sessionVersion && _client != null;
 
   void connect(String token) {
     if (token.isEmpty) return;
@@ -63,6 +67,7 @@ class RealtimeService {
       return;
     }
     disconnect();
+    final sessionVersion = ++_sessionVersion;
     _terminalFailure = false;
     _token = token;
     _set(RealtimeState.connecting);
@@ -73,12 +78,17 @@ class RealtimeService {
       stompConnectHeaders: stompHeadersForToken(token),
       reconnectDelay: const Duration(seconds: 5),
       beforeConnect: () async {
+        if (!_isActiveSession(sessionVersion)) return;
         _awaitingConnect = true;
         _pendingReceipts.clear();
         config.resetSession();
       },
-      onConnect: _onConnect,
+      onConnect: (_) {
+        if (!_isActiveSession(sessionVersion)) return;
+        _onConnect(sessionVersion, _client!);
+      },
       onWebSocketDone: () {
+        if (!_isActiveSession(sessionVersion)) return;
         if (_terminalFailure) return;
         _awaitingConnect = false;
         _subscribed = false;
@@ -87,18 +97,29 @@ class RealtimeService {
             ? RealtimeState.disconnected
             : RealtimeState.reconnecting);
       },
-      onStompError: _onStompError,
-      onUnhandledReceipt: _onReceipt,
-      onWebSocketError: _onWebSocketError,
+      onStompError: (frame) {
+        if (!_isActiveSession(sessionVersion)) return;
+        _onStompError(frame);
+      },
+      onUnhandledReceipt: (frame) {
+        if (!_isActiveSession(sessionVersion)) return;
+        _onReceipt(frame);
+      },
+      onWebSocketError: (error) {
+        if (!_isActiveSession(sessionVersion)) return;
+        _onWebSocketError(error);
+      },
     );
-    _client = StompClient(config: config)..activate();
+    final client = StompClient(config: config);
+    _client = client;
+    client.activate();
   }
 
-  void _onConnect(StompFrame _) {
+  void _onConnect(int sessionVersion, StompClient client) {
+    if (!_isActiveSession(sessionVersion)) return;
     _awaitingConnect = false;
     _set(RealtimeState.connected);
-    final client = _client;
-    if (_subscribed || client == null) return;
+    if (_subscribed) return;
     _subscribed = true;
     _subscribe(
       client,
@@ -287,6 +308,7 @@ class RealtimeService {
   }
 
   void disconnect() {
+    _sessionVersion++;
     _token = null;
     _subscribed = false;
     _awaitingConnect = false;
