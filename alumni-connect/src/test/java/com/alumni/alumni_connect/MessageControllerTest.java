@@ -6,6 +6,7 @@ import com.alumni.alumni_connect.entity.Message;
 import com.alumni.alumni_connect.service.MessageService;
 
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
@@ -31,6 +32,11 @@ class MessageControllerTest {
         messageService = Mockito.mock(MessageService.class);
         controller = new MessageController(messageService);
 
+        SecurityContextHolder.clearContext();
+    }
+
+    @AfterEach
+    void clearSecurityContext() {
         SecurityContextHolder.clearContext();
     }
 

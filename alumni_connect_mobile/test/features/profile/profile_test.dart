@@ -152,8 +152,10 @@ void main() {
         responseType: ResponseType.plain,
       ),
     );
-    final adapter = DioAdapter(dio: dio);
-    adapter.onPut(
+   final adapter = DioAdapter(dio: dio);
+dio.httpClientAdapter = adapter;
+
+adapter.onPut(
       '/users/1',
       (server) => server.reply(200, {
         'id': 1,
@@ -163,6 +165,7 @@ void main() {
         'status': 'APPROVED',
         'bio': 'Updated bio',
       }),
+      data: user.toJson(),
     );
     final repository = AppRepository(
       ApiClient(
@@ -189,6 +192,7 @@ void main() {
     adapter.onPut(
       '/users/1',
       (server) => server.reply(500, {'error': 'Internal server error'}),
+      data: user.toJson(),
     );
     final repository = AppRepository(
       ApiClient(
@@ -199,7 +203,11 @@ void main() {
 
     await expectLater(
       repository.updateUser(user),
-      throwsA(isA<ApiException>()),
+      throwsA(
+        isA<ApiException>()
+            .having((error) => error.kind, 'kind', ApiErrorKind.server)
+            .having((error) => error.statusCode, 'statusCode', 500),
+      ),
     );
   });
 }

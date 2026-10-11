@@ -321,31 +321,6 @@ Conversation conversation =
                 .findDirectConversation(lowId, highId)
                 .orElse(null);
 
-// The authenticated user must actually belong to the requested
-// conversation. This check also protects legacy conversations,
-// where there may not be a normalized Conversation row yet.
-if (conversation != null) {
-
-    User authenticatedUser =
-            userRepository.findByEmail(authenticatedEmail)
-                    .orElseThrow(() ->
-                            new IllegalArgumentException(
-                                    "Authenticated user not found"
-                            ));
-
-    boolean authenticatedUserIsParticipant =
-            participantRepository.existsByConversation_IdAndUser_Id(
-                    conversation.getId(),
-                    authenticatedUser.getId()
-            );
-
-    if (!authenticatedUserIsParticipant) {
-        throw new IllegalArgumentException(
-                "You are not part of this conversation"
-        );
-    }
-}
-
         List<Message> result = repository.findConversationPage(
                 conversation == null ? null : conversation.getId(),
                 sender,

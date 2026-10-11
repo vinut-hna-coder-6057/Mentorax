@@ -46,7 +46,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import org.mockito.ArgumentCaptor;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import java.time.LocalDateTime;
 
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.nullable;
@@ -58,6 +60,17 @@ import static org.mockito.ArgumentMatchers.any;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.http.HttpStatus;
+import static org.hamcrest.Matchers.is;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import com.alumni.alumni_connect.entity.Event;
+import com.alumni.alumni_connect.entity.EventRegistration;
+import com.alumni.alumni_connect.entity.User;
+import com.alumni.alumni_connect.repository.EventRegistrationRepository;
+import com.alumni.alumni_connect.repository.EventRepository;
+import com.alumni.alumni_connect.repository.UserRepository;
 @SpringBootTest
 @AutoConfigureMockMvc
 @Transactional
@@ -70,7 +83,14 @@ class SecurityApiIntegrationTest {
 private NotificationRepository notificationRepository;
 @Autowired
 private MessageRepository messageRepository;
+@Autowired
+private EventRepository eventRepository;
 
+@Autowired
+private EventRegistrationRepository eventRegistrationRepository;
+
+@Autowired
+private UserRepository userRepository;
 @Autowired
 private ConversationRepository conversationRepository;
 @MockBean
@@ -86,8 +106,6 @@ private OtpRepository otpRepository;
 private AlumniProfileRepository alumniProfileRepository;
 @Autowired
 private StudentProfileRepository studentProfileRepository;
-@Autowired
-private EventRepository eventRepository;
 @Autowired
 private PlatformTransactionManager transactionManager;
 @Autowired
@@ -194,6 +212,91 @@ void duplicateEventRegistrationIsHandledGracefully() throws Exception {
             nullable(String.class),
             eq("College Campus"),
             nullable(String.class));
+}
+@Test
+void registeredUserReturnsRegisteredTrue() throws Exception {
+    User user = new User();
+    user.setName("Registered Student");
+    user.setEmail("registered.student@test.com");
+    user.setPassword("password");
+    user.setRole("STUDENT");
+    user.setStatus("APPROVED");
+    user.setEmailVerified(true);
+
+    user = userRepository.save(user);
+
+    Event event = new Event();
+    event.setTitle("Test Event");
+    event.setDescription("Registration status test");
+    event.setLocation("Test Location");
+   event.setEventDate(LocalDateTime.now().plusDays(1).toString());
+    event.setAttendeeCount(1);
+    event.setStatus("APPROVED");
+   event.setCreatedBy(user.getEmail());
+
+    event = eventRepository.save(event);
+
+    EventRegistration registration = new EventRegistration();
+    registration.setEvent(event);
+    registration.setUser(user);
+    registration.setRegisteredAt(LocalDateTime.now());
+
+    eventRegistrationRepository.save(registration);
+
+    mockMvc.perform(
+            get("/events/" + event.getId() + "/registration-status")
+                    .with(user(user.getEmail()))
+    )
+    .andExpect(status().isOk())
+    .andExpect(jsonPath("$.registered", is(true)));
+}
+@Test
+void unregisteredUserReturnsRegisteredFalse() throws Exception {
+    User user = new User();
+    user.setName("Unregistered Student");
+    user.setEmail("unregistered.student@test.com");
+    user.setPassword("password");
+    user.setRole("STUDENT");
+    user.setStatus("APPROVED");
+    user.setEmailVerified(true);
+
+    user = userRepository.save(user);
+
+    Event event = new Event();
+    event.setTitle("Test Event 2");
+    event.setDescription("Registration status test");
+    event.setLocation("Test Location");
+    event.setEventDate(LocalDateTime.now().plusDays(1).toString());
+    event.setAttendeeCount(0);
+    event.setStatus("APPROVED");
+    event.setCreatedBy(user.getEmail());
+
+    event = eventRepository.save(event);
+
+    mockMvc.perform(
+            get("/events/" + event.getId() + "/registration-status")
+                    .with(user(user.getEmail()))
+    )
+    .andExpect(status().isOk())
+    .andExpect(jsonPath("$.registered", is(false)));
+}
+@Test
+void nonExistentEventReturns404() throws Exception {
+    User user = new User();
+    user.setName("Test Student");
+    user.setEmail("nonexistent.event@test.com");
+    user.setPassword("password");
+    user.setRole("STUDENT");
+    user.setStatus("APPROVED");
+    user.setEmailVerified(true);
+
+    user = userRepository.save(user);
+
+    mockMvc.perform(
+            get("/events/999999999/registration-status")
+                    .with(user(user.getEmail()))
+    )
+    .andExpect(status().isNotFound());
 }
 @Test
 void alumniEndpointWithoutAuthenticationReturns401() throws Exception {
