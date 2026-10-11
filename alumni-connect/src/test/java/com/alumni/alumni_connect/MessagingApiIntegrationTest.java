@@ -405,6 +405,7 @@ class MessagingApiIntegrationTest {
                 "STUDENT",
                 "APPROVED"
         );
+        user.setEmailVerified(true);
 
         return userRepository.save(user);
     }

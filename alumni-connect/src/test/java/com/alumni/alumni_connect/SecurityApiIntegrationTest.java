@@ -138,6 +138,10 @@ private EmailOutboxCipher emailOutboxCipher;
                 "not-used", "ALUMNI", "APPROVED"));
         admin = users.save(new User("Security Admin", "security-admin-" + suffix + "@example.test",
                 "not-used", "ADMIN", "APPROVED"));
+        student.setEmailVerified(true);
+        alumni.setEmailVerified(true);
+        users.save(student);
+        users.save(alumni);
     }
 
     @Test
@@ -416,6 +420,10 @@ void nonCreatorCannotViewEventAttendees() throws Exception {
 }
 @Test
 void registrationCreatesCorrectAttendeeRecord() throws Exception {
+    student.setRollno("private-event-roll");
+    student.setSection("private-event-section");
+    student.setLocation("private event address");
+    users.save(student);
 
     String eventResponse = mockMvc.perform(
             post("/events")
@@ -460,7 +468,13 @@ void registrationCreatesCorrectAttendeeRecord() throws Exception {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$[0].eventId").value(eventId))
             .andExpect(jsonPath("$[0].studentEmail")
-                    .value(student.getEmail()));
+                    .value(student.getEmail()))
+            .andExpect(jsonPath("$[0].user.id").value(student.getId()))
+            .andExpect(jsonPath("$[0].user.name").value(student.getName()))
+            .andExpect(jsonPath("$[0].user.email").doesNotExist())
+            .andExpect(jsonPath("$[0].user.rollno").doesNotExist())
+            .andExpect(jsonPath("$[0].user.section").doesNotExist())
+            .andExpect(jsonPath("$[0].user.location").doesNotExist());
 }
 @Test
 void unauthenticatedUserCannotRetrieveConversation() throws Exception {
@@ -1090,6 +1104,77 @@ void authenticatedUserCanGetOwnProfile() throws Exception {
 }
 
 @Test
+void directoryAndOtherApprovedProfilesDoNotExposePrivateIdentifiers() throws Exception {
+    student.setRollno("private-roll-" + UUID.randomUUID());
+    student.setSection("private-section");
+    student.setLocation("private street address");
+    student.setSkills("Java, Spring");
+    users.save(student);
+    alumni.setRollno("private-alumni-roll-" + UUID.randomUUID());
+    alumni.setSection("private-alumni-section");
+    alumni.setLocation("private alumni address");
+    users.save(alumni);
+
+    String directoryJson = mockMvc.perform(get("/users/students")
+                    .header("Authorization", bearer(alumni.getEmail(), "ALUMNI")))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+    var directoryProfiles = new ObjectMapper().readTree(directoryJson);
+    var directoryStudent = java.util.stream.StreamSupport.stream(
+                    directoryProfiles.spliterator(), false)
+            .filter(profile -> profile.path("id").asLong() == student.getId())
+            .findFirst()
+            .orElseThrow();
+    assertTrue(directoryStudent.has("skills"));
+    assertFalse(directoryStudent.has("email"));
+    assertFalse(directoryStudent.has("rollno"));
+    assertFalse(directoryStudent.has("section"));
+    assertFalse(directoryStudent.has("location"));
+
+    for (String alumniEndpoint : java.util.List.of("/alumni", "/alumni/approved")) {
+        String alumniJson = mockMvc.perform(get(alumniEndpoint)
+                        .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        var alumniProfiles = new ObjectMapper().readTree(alumniJson);
+        var directoryAlumni = java.util.stream.StreamSupport.stream(
+                        alumniProfiles.spliterator(), false)
+                .filter(profile -> profile.path("id").asLong() == alumni.getId())
+                .findFirst()
+                .orElseThrow();
+        assertFalse(directoryAlumni.has("email"));
+        assertFalse(directoryAlumni.has("rollno"));
+        assertFalse(directoryAlumni.has("section"));
+        assertFalse(directoryAlumni.has("location"));
+    }
+
+    mockMvc.perform(get("/users/{id}", student.getId())
+                    .header("Authorization", bearer(alumni.getEmail(), "ALUMNI")))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.email").doesNotExist())
+            .andExpect(jsonPath("$.rollno").doesNotExist())
+            .andExpect(jsonPath("$.section").doesNotExist())
+            .andExpect(jsonPath("$.location").doesNotExist())
+            .andExpect(jsonPath("$.skills").value("Java, Spring"));
+
+    mockMvc.perform(get("/users/{id}", student.getId())
+                    .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.email").value(student.getEmail()))
+            .andExpect(jsonPath("$.rollno").value(student.getRollno()))
+            .andExpect(jsonPath("$.section").value("private-section"))
+            .andExpect(jsonPath("$.location").value("private street address"));
+
+    mockMvc.perform(get("/users/email/{email}", student.getEmail())
+                    .header("Authorization", bearer(alumni.getEmail(), "ALUMNI")))
+            .andExpect(status().isForbidden());
+}
+
+@Test
 void nonAdminCannotLookUpUnapprovedProfileByIdOrEmail() throws Exception {
     alumni.setStatus("PENDING");
     users.save(alumni);
@@ -1099,12 +1184,22 @@ void nonAdminCannotLookUpUnapprovedProfileByIdOrEmail() throws Exception {
             .andExpect(status().isNotFound());
     mockMvc.perform(get("/users/email/{email}", alumni.getEmail())
                     .header("Authorization", bearer(student.getEmail(), "STUDENT")))
-            .andExpect(status().isNotFound());
+            .andExpect(status().isForbidden());
 
     mockMvc.perform(get("/users/{id}", alumni.getId())
                     .header("Authorization", bearer(admin.getEmail(), "ADMIN")))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.status").value("PENDING"));
+}
+
+@Test
+void emailVerificationRevocationInvalidatesExistingHttpTokens() throws Exception {
+    student.setEmailVerified(false);
+    users.save(student);
+
+    mockMvc.perform(get("/users")
+                    .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+            .andExpect(status().isUnauthorized());
 }
 
 @Test

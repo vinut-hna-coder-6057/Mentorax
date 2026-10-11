@@ -50,12 +50,12 @@ public class AlumniController {
     // =====================================================
 
     @GetMapping
-    public List<UserProfileResponse> getAllApprovedAlumni(@RequestParam(defaultValue="0") int page, @RequestParam(defaultValue="50") int size) {
+    public List<PublicDirectoryProfileResponse> getAllApprovedAlumni(@RequestParam(defaultValue="0") int page, @RequestParam(defaultValue="50") int size) {
         return repository.findByRoleAndStatus(
                 "ALUMNI",
                 "APPROVED", bounded(page,size)
         ).stream()
-                .map(UserProfileResponse::from)
+                .map(PublicDirectoryProfileResponse::from)
                 .toList();
     }
 
@@ -93,12 +93,12 @@ public class AlumniController {
     // =====================================================
 
     @GetMapping("/approved")
-    public List<UserProfileResponse> getApprovedAlumni(@RequestParam(defaultValue="0") int page, @RequestParam(defaultValue="50") int size) {
+    public List<PublicDirectoryProfileResponse> getApprovedAlumni(@RequestParam(defaultValue="0") int page, @RequestParam(defaultValue="50") int size) {
         return repository.findByRoleAndStatus(
                 "ALUMNI",
                 "APPROVED", bounded(page,size)
         ).stream()
-                .map(UserProfileResponse::from)
+                .map(PublicDirectoryProfileResponse::from)
                 .toList();
     }
 

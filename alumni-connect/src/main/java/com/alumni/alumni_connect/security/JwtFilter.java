@@ -46,7 +46,8 @@ public class JwtFilter extends OncePerRequestFilter {
                 var user = email == null ? null : userRepository.findByEmail(email).orElse(null);
                 if (user != null && role != null
                         && role.equalsIgnoreCase(user.getRole())
-                        && "APPROVED".equalsIgnoreCase(user.getStatus())) {
+                        && "APPROVED".equalsIgnoreCase(user.getStatus())
+                        && isEmailVerifiedForRole(user)) {
                     var authentication = new UsernamePasswordAuthenticationToken(email, null,
                             List.of(new SimpleGrantedAuthority("ROLE_" + role)));
                     authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
@@ -55,5 +56,11 @@ public class JwtFilter extends OncePerRequestFilter {
             }
         }
         filterChain.doFilter(request, response);
+    }
+
+    private boolean isEmailVerifiedForRole(com.alumni.alumni_connect.entity.User user) {
+        return (!"STUDENT".equalsIgnoreCase(user.getRole())
+                && !"ALUMNI".equalsIgnoreCase(user.getRole()))
+                || user.isEmailVerified();
     }
 }

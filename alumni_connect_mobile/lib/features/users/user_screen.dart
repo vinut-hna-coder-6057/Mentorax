@@ -54,7 +54,7 @@ class _UserScreenState extends ConsumerState<UserScreen> {
     final userState = r.watch(userByIdProvider(id));
     final connectionState = r.watch(connectionsProvider);
     final currentUser = r.watch(authProvider).valueOrNull;
-    final currentEmail = currentUser?.email ?? '';
+    final currentUserId = currentUser?.id;
     final isOwnProfile = currentUser?.id == id;
     final connections = connectionState.valueOrNull ?? const <ConnectionItem>[];
     final matches = connections
@@ -83,7 +83,9 @@ class _UserScreenState extends ConsumerState<UserScreen> {
           else if (!isOwnProfile && status == 'ACCEPTED')
             TextButton.icon(
               onPressed: () {
-                final email = userState.valueOrNull?.email;
+                final email = connection?.requester?.id == id
+                    ? connection?.requester?.email
+                    : connection?.receiver?.email;
                 if (email != null && email.isNotEmpty) {
                   c.push('/chat/${Uri.encodeComponent(email)}');
                 }
@@ -93,7 +95,7 @@ class _UserScreenState extends ConsumerState<UserScreen> {
             )
           else if (!isOwnProfile &&
               status == 'PENDING' &&
-              connection?.requester?.email == currentEmail)
+              connection?.requester?.id == currentUserId)
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: AppSpacing.lg),
               child: Center(child: StatusBadge('REQUEST SENT')),
@@ -180,7 +182,9 @@ class _UserScreenState extends ConsumerState<UserScreen> {
                         style: Theme.of(c).textTheme.headlineSmall,
                         textAlign: TextAlign.center),
                     const SizedBox(height: AppSpacing.xs),
-                    Text(user.email, textAlign: TextAlign.center),
+                    if ((isOwnProfile || currentUser?.role == UserRole.admin) &&
+                        user.email.isNotEmpty)
+                      Text(user.email, textAlign: TextAlign.center),
                     const SizedBox(height: AppSpacing.md),
                     StatusBadge(user.role.name),
                     if (user.location?.isNotEmpty == true) ...[

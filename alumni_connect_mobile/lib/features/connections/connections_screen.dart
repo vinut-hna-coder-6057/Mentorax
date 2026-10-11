@@ -41,7 +41,7 @@ class _ConnectionsScreenState extends ConsumerState<ConnectionsScreen> {
 
   @override
   Widget build(BuildContext c) {
-    final me = ref.watch(authProvider).valueOrNull?.email ?? '';
+    final myId = ref.watch(authProvider).valueOrNull?.id;
     final connections = ref.watch(connectionsProvider);
     return Scaffold(
       appBar: AppBar(title: const Text('Connections')),
@@ -73,8 +73,8 @@ class _ConnectionsScreenState extends ConsumerState<ConnectionsScreen> {
               ),
               data: (items) {
                 final visible = items.where((connection) {
-                  final incoming = connection.receiver?.email == me;
-                  final outgoing = connection.requester?.email == me;
+                  final incoming = connection.receiver?.id == myId;
+                  final outgoing = connection.requester?.id == myId;
                   final accepted =
                       connection.status.toUpperCase() == 'ACCEPTED';
                   return switch (_filter) {
@@ -105,7 +105,7 @@ class _ConnectionsScreenState extends ConsumerState<ConnectionsScreen> {
                   itemCount: visible.length,
                   itemBuilder: (context, index) {
                     final connection = visible[index];
-                    final incoming = connection.receiver?.email == me;
+                    final incoming = connection.receiver?.id == myId;
                     final other = incoming
                         ? connection.requester
                         : connection.receiver ?? connection.requester;

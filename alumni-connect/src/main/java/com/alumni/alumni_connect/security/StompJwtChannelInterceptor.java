@@ -15,6 +15,7 @@ import org.springframework.messaging.simp.stomp.StompCommand;
 import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.messaging.support.ChannelInterceptor;
 import org.springframework.messaging.support.MessageHeaderAccessor;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.stereotype.Component;
@@ -58,7 +59,7 @@ public class StompJwtChannelInterceptor implements ChannelInterceptor {
             var user = email == null ? null : userRepository.findByEmail(email).orElse(null);
             if (user == null || role == null
                     || !role.equalsIgnoreCase(user.getRole())
-                    || !"APPROVED".equalsIgnoreCase(user.getStatus())) {
+                    || !isActiveAccount(user)) {
                 throw new IllegalArgumentException("Authenticated account is not active");
             }
             accessor.setUser(new UsernamePasswordAuthenticationToken(email, null,
@@ -69,7 +70,8 @@ public class StompJwtChannelInterceptor implements ChannelInterceptor {
             }
             String email = accessor.getUser().getName();
             var user = userRepository.findByEmail(email).orElse(null);
-            if (user == null || !"APPROVED".equalsIgnoreCase(user.getStatus())) {
+            if (user == null || !isActiveAccount(user)
+                    || !hasCurrentRole(accessor, user.getRole())) {
                 throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authenticated account is not active");
             }
             rateLimiter.check(email, accessor.getSessionId());
@@ -79,6 +81,12 @@ public class StompJwtChannelInterceptor implements ChannelInterceptor {
             if (accessor.getUser() == null) {
                 throw new IllegalArgumentException("Authentication is required for this WebSocket operation");
             }
+            String email = accessor.getUser().getName();
+            var user = userRepository.findByEmail(email).orElse(null);
+            if (user == null || !isActiveAccount(user)
+                    || !hasCurrentRole(accessor, user.getRole())) {
+                throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authenticated account is not active");
+            }
             String destination = accessor.getDestination();
             if (destination == null || !PRIVATE_SUBSCRIPTIONS.contains(destination)) {
                 throw new IllegalArgumentException(
@@ -86,5 +94,18 @@ public class StompJwtChannelInterceptor implements ChannelInterceptor {
             }
         }
         return message;
+    }
+
+    private boolean isActiveAccount(com.alumni.alumni_connect.entity.User user) {
+        return "APPROVED".equalsIgnoreCase(user.getStatus())
+                && (!"STUDENT".equalsIgnoreCase(user.getRole())
+                && !"ALUMNI".equalsIgnoreCase(user.getRole())
+                || user.isEmailVerified());
+    }
+
+    private boolean hasCurrentRole(StompHeaderAccessor accessor, String role) {
+        return accessor.getUser() instanceof Authentication authentication
+                && authentication.getAuthorities().stream()
+                .anyMatch(authority -> ("ROLE_" + role).equalsIgnoreCase(authority.getAuthority()));
     }
 }

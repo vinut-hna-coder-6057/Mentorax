@@ -216,7 +216,6 @@ class _DirectoryScreenState extends ConsumerState<DirectoryScreen> {
 
       final haystack = [
         user.name,
-        user.email,
         user.company,
         user.jobRole,
         user.branch,
@@ -268,7 +267,8 @@ class _DirectoryScreenState extends ConsumerState<DirectoryScreen> {
           if (u.passoutYear?.isNotEmpty == true) 'Class of ${u.passoutYear}',
           if (u.location?.isNotEmpty == true) u.location!,
         ];
-        final text = details.isEmpty ? u.email : details.join(' · ');
+        final text =
+            details.isEmpty ? 'Mentorax community member' : details.join(' · ');
 
         return AppCard(
           child: InkWell(

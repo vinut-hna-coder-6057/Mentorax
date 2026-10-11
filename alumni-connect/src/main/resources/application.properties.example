@@ -27,10 +27,11 @@ management.endpoint.health.show-components=always
 # EMAIL CONFIGURATION
 # =====================================
 
-# Optional email delivery for password-reset OTP and event-registration
-# notifications. Signup and signin do not require email configuration.
-# Configure RESEND_API_KEY and RESEND_FROM_EMAIL in the environment if these
-# email features need to deliver messages. The sender must be verified in Resend.
+# Required for signup email verification and password-reset OTP delivery; also
+# used for event-registration email notifications. Set RESEND_API_KEY and
+# RESEND_FROM_EMAIL in the environment, using a verified Resend sender.
+app.email-outbox.enabled=${EMAIL_OUTBOX_ENABLED:true}
+app.email-outbox.poll-delay-ms=${EMAIL_OUTBOX_POLL_DELAY_MS:5000}
 
 
 # =========================================
@@ -48,3 +49,5 @@ app.rate-limit.login-email=${RATE_LIMIT_LOGIN_EMAIL:10}
 app.rate-limit.otp-ip=${RATE_LIMIT_OTP_IP:20}
 app.rate-limit.otp-email=${RATE_LIMIT_OTP_EMAIL:5}
 app.rate-limit.window-ms=${RATE_LIMIT_WINDOW_MS:900000}
+app.websocket.rate-limit.messages=${WEBSOCKET_RATE_LIMIT_MESSAGES:60}
+app.websocket.rate-limit.window-ms=${WEBSOCKET_RATE_LIMIT_WINDOW_MS:60000}

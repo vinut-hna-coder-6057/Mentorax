@@ -47,13 +47,13 @@ public class UserController {
     // =========================================
 
 @GetMapping("/alumni")
-public List<UserProfileResponse> getAllAlumni(@RequestParam(defaultValue="0") int page, @RequestParam(defaultValue="50") int size) {
+public List<PublicDirectoryProfileResponse> getAllAlumni(@RequestParam(defaultValue="0") int page, @RequestParam(defaultValue="50") int size) {
     Pageable pageable = bounded(page, size);
     return repository.findByRoleAndStatus(
             "ALUMNI",
             "APPROVED", pageable
     ).stream()
-            .map(UserProfileResponse::from)
+            .map(PublicDirectoryProfileResponse::from)
             .toList();
 }
     // =========================================
@@ -61,13 +61,13 @@ public List<UserProfileResponse> getAllAlumni(@RequestParam(defaultValue="0") in
     // @GetMapping("/alumni")=========================================
 
     @GetMapping("/students")
-public List<UserProfileResponse> getAllStudents(@RequestParam(defaultValue="0") int page, @RequestParam(defaultValue="50") int size) {
+    public List<PublicDirectoryProfileResponse> getAllStudents(@RequestParam(defaultValue="0") int page, @RequestParam(defaultValue="50") int size) {
     Pageable pageable = bounded(page, size);
     return repository.findByRoleAndStatus(
             "STUDENT",
             "APPROVED", pageable
     ).stream()
-            .map(UserProfileResponse::from)
+            .map(PublicDirectoryProfileResponse::from)
             .toList();
 }
 
@@ -76,7 +76,7 @@ public List<UserProfileResponse> getAllStudents(@RequestParam(defaultValue="0") 
     // =========================================
 
     @GetMapping("/{id}")
-    public UserProfileResponse getUserById(
+    public Object getUserById(
             @PathVariable Long id
     ) {
 
@@ -84,8 +84,13 @@ public List<UserProfileResponse> getAllStudents(@RequestParam(defaultValue="0") 
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND,
                         "User not found"));
-        requireVisibleProfile(user);
-        return UserProfileResponse.from(user);
+        User caller = currentUserService.requireUser();
+        boolean owner = caller.getId().equals(user.getId());
+        boolean admin = currentUserService.isAdmin();
+        requireVisibleProfile(user, owner, admin);
+        return owner || admin
+                ? UserProfileResponse.from(user)
+                : PublicDirectoryProfileResponse.from(user);
     }
 
     // =========================================
@@ -97,11 +102,17 @@ public List<UserProfileResponse> getAllStudents(@RequestParam(defaultValue="0") 
             @PathVariable String email
     ) {
 
-        User user = repository.findByEmail(email)
+        User caller = currentUserService.requireUser();
+        boolean admin = currentUserService.isAdmin();
+        if (!admin && !caller.getEmail().equalsIgnoreCase(email)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "You may only look up your own account");
+        }
+
+        User user = repository.findByEmailIgnoreCase(email)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND,
                         "User not found"));
-        requireVisibleProfile(user);
+        requireVisibleProfile(user, caller.getId().equals(user.getId()), admin);
         return UserProfileResponse.from(user);
     }
     // =========================================
@@ -119,10 +130,7 @@ public List<UserProfileResponse> getAllUsers(@RequestParam(defaultValue="0") int
         return PageRequest.of(Math.max(0, page), Math.max(1, Math.min(size, 100)), Sort.by("id").ascending());
     }
 
-    private void requireVisibleProfile(User target) {
-        User caller = currentUserService.requireUser();
-        boolean isOwner = caller.getId().equals(target.getId());
-        boolean isAdmin = currentUserService.isAdmin();
+    private void requireVisibleProfile(User target, boolean isOwner, boolean isAdmin) {
         boolean targetIsApproved = "APPROVED".equalsIgnoreCase(target.getStatus());
 
         if (!isOwner && !isAdmin && !targetIsApproved) {

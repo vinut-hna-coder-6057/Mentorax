@@ -212,6 +212,40 @@ class MessagingIntegrationTest {
         );
     }
 
+    @Test
+    void unverifiedAccountCannotConnectOrContinueAnExistingStompSession() {
+        alice.setEmailVerified(false);
+        userRepository.save(alice);
+        String token = jwtUtil.generateToken(alice.getEmail(), "STUDENT");
+
+        assertThrows(IllegalArgumentException.class, () -> interceptor.preSend(
+                MessageBuilder.createMessage(
+                        new byte[0],
+                        connectAccessor("Bearer " + token).getMessageHeaders()),
+                messageChannel));
+
+        alice.setEmailVerified(true);
+        userRepository.save(alice);
+        StompHeaderAccessor connected = connectAccessor("Bearer " + token);
+        org.springframework.messaging.Message<?> authenticated = interceptor.preSend(
+                MessageBuilder.createMessage(new byte[0], connected.getMessageHeaders()),
+                messageChannel);
+
+        alice.setEmailVerified(false);
+        userRepository.save(alice);
+        StompHeaderAccessor subscribe = StompHeaderAccessor.create(StompCommand.SUBSCRIBE);
+        subscribe.setDestination("/user/queue/messages");
+        subscribe.setUser(StompHeaderAccessor.wrap(authenticated).getUser());
+        subscribe.setLeaveMutable(true);
+
+        org.springframework.web.server.ResponseStatusException exception = assertThrows(
+                org.springframework.web.server.ResponseStatusException.class,
+                () -> interceptor.preSend(
+                        MessageBuilder.createMessage(new byte[0], subscribe.getMessageHeaders()),
+                        messageChannel));
+        assertEquals(401, exception.getStatusCode().value());
+    }
+
 
     // =========================================================
     // UNAUTHENTICATED STOMP SEND
@@ -1053,6 +1087,7 @@ void messageContentLongerThan2000CharactersIsRejected() {
                         "STUDENT",
                         "APPROVED"
                 );
+        user.setEmailVerified(true);
 
         return userRepository.save(
                 user
