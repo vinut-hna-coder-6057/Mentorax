@@ -21,17 +21,23 @@ public class SignupTransactionService {
     private final PasswordEncoder encoder;
     private final StudentProfileRepository studentProfileRepository;
     private final AlumniProfileRepository alumniProfileRepository;
+    private final OtpService otpService;
+    private final EmailOutboxService emailOutboxService;
 
     public SignupTransactionService(
             UserRepository repository,
             PasswordEncoder encoder,
             StudentProfileRepository studentProfileRepository,
-            AlumniProfileRepository alumniProfileRepository
+            AlumniProfileRepository alumniProfileRepository,
+            OtpService otpService,
+            EmailOutboxService emailOutboxService
     ) {
         this.repository = repository;
         this.encoder = encoder;
         this.studentProfileRepository = studentProfileRepository;
         this.alumniProfileRepository = alumniProfileRepository;
+        this.otpService = otpService;
+        this.emailOutboxService = emailOutboxService;
     }
 
     @Transactional
@@ -61,11 +67,7 @@ public class SignupTransactionService {
         user.setPassword(encoder.encode(user.getPassword()));
         user.setEmailVerified(false);
 
-        if ("ALUMNI".equalsIgnoreCase(user.getRole())) {
-            user.setStatus("PENDING");
-        } else {
-            user.setStatus("APPROVED");
-        }
+        user.setStatus("PENDING");
 
         User savedUser = repository.save(user);
 
@@ -79,6 +81,8 @@ public class SignupTransactionService {
             alumniProfileRepository.save(profile);
         }
 
+        String otp = otpService.generateOtp(savedUser.getEmail(), "EMAIL_VERIFICATION");
+        emailOutboxService.enqueueOtp(savedUser.getEmail(), "EMAIL_VERIFICATION", otp);
     }
 
     private ResponseStatusException emailAlreadyExists() {

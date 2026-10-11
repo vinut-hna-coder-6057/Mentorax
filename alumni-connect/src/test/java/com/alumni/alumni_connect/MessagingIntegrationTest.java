@@ -304,6 +304,38 @@ class MessagingIntegrationTest {
                         )
         );
 
+        StompHeaderAccessor ownNotifications =
+                StompHeaderAccessor.create(StompCommand.SUBSCRIBE);
+        ownNotifications.setDestination("/user/queue/notifications");
+        ownNotifications.setUser(StompHeaderAccessor.wrap(authenticated).getUser());
+        ownNotifications.setLeaveMutable(true);
+        assertDoesNotThrow(() -> interceptor.preSend(
+                MessageBuilder.createMessage(
+                        new byte[0],
+                        ownNotifications.getMessageHeaders()),
+                messageChannel));
+
+        StompHeaderAccessor unsupported =
+                StompHeaderAccessor.create(StompCommand.SUBSCRIBE);
+        unsupported.setDestination("/user/queue/private-extra");
+        unsupported.setUser(StompHeaderAccessor.wrap(authenticated).getUser());
+        unsupported.setLeaveMutable(true);
+        assertThrows(IllegalArgumentException.class, () -> interceptor.preSend(
+                MessageBuilder.createMessage(
+                        new byte[0],
+                        unsupported.getMessageHeaders()),
+                messageChannel));
+
+        StompHeaderAccessor caseVariant =
+                StompHeaderAccessor.create(StompCommand.SUBSCRIBE);
+        caseVariant.setDestination("/USER/queue/messages");
+        caseVariant.setUser(StompHeaderAccessor.wrap(authenticated).getUser());
+        caseVariant.setLeaveMutable(true);
+        assertThrows(IllegalArgumentException.class, () -> interceptor.preSend(
+                MessageBuilder.createMessage(
+                        new byte[0],
+                        caseVariant.getMessageHeaders()),
+                messageChannel));
 
         // -----------------------------------------------------
         // Another user's destination

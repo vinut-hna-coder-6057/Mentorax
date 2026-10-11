@@ -2,9 +2,13 @@ package com.alumni.alumni_connect;
 
 import com.alumni.alumni_connect.entity.Message;
 import com.alumni.alumni_connect.entity.User;
+import com.alumni.alumni_connect.entity.ConversationParticipantId;
+import com.alumni.alumni_connect.repository.ConversationParticipantRepository;
+import com.alumni.alumni_connect.repository.ConversationRepository;
 import com.alumni.alumni_connect.repository.MessageRepository;
 import com.alumni.alumni_connect.repository.UserRepository;
 import com.alumni.alumni_connect.security.JwtUtil;
+import com.alumni.alumni_connect.service.MessageService;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -17,6 +21,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.Locale;
 import java.util.UUID;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -39,6 +44,15 @@ class MessagingApiIntegrationTest {
 
     @Autowired
     private MessageRepository messageRepository;
+
+    @Autowired
+    private ConversationRepository conversationRepository;
+
+    @Autowired
+    private ConversationParticipantRepository participantRepository;
+
+    @Autowired
+    private MessageService messageService;
 
     private User alice;
     private User bob;
@@ -108,6 +122,79 @@ class MessagingApiIntegrationTest {
                 .value(alice.getEmail()))
         .andExpect(jsonPath("$[0].receiverEmail")
                 .value(bob.getEmail()));
+    }
+
+    @Test
+    void authenticatedReceiverCanGetLegacyConversationMessages() throws Exception {
+        messageRepository.save(new Message(
+                alice.getEmail(), bob.getEmail(), "Hello Alice", LocalDateTime.now()));
+
+        mockMvc.perform(get("/messages/conversation")
+                        .param("sender", alice.getEmail())
+                        .param("receiver", bob.getEmail())
+                        .header("Authorization", bearer(bob.getEmail(), "STUDENT")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].content").value("Hello Alice"));
+    }
+
+    @Test
+    void bothNormalizedConversationParticipantsCanReadMessages() throws Exception {
+        messageService.sendMessage(
+                new Message(alice.getEmail(), bob.getEmail(), "Normalized message", LocalDateTime.now()),
+                alice.getEmail());
+
+        for (User participant : new User[] {alice, bob}) {
+            mockMvc.perform(get("/messages/conversation")
+                            .param("sender", alice.getEmail())
+                            .param("receiver", bob.getEmail())
+                            .header("Authorization", bearer(participant.getEmail(), "STUDENT")))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$[0].content").value("Normalized message"));
+        }
+    }
+
+    @Test
+    void conversationLookupAcceptsEmailCaseDifferencesWithoutChangingIdentity()
+            throws Exception {
+        messageRepository.save(new Message(
+                alice.getEmail(), bob.getEmail(), "Case-insensitive lookup", LocalDateTime.now()));
+
+        mockMvc.perform(get("/messages/conversation")
+                        .param("sender", alice.getEmail().toUpperCase(Locale.ROOT))
+                        .param("receiver", bob.getEmail().toUpperCase(Locale.ROOT))
+                        .header("Authorization", bearer(alice.getEmail(), "STUDENT")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].content").value("Case-insensitive lookup"));
+    }
+
+    @Test
+    void unknownConversationUsersReturnNotFound() throws Exception {
+        String unknownEmail = "missing-" + UUID.randomUUID() + "@example.test";
+
+        mockMvc.perform(get("/messages/conversation")
+                        .param("sender", alice.getEmail())
+                        .param("receiver", unknownEmail)
+                        .header("Authorization", bearer(alice.getEmail(), "STUDENT")))
+                .andExpect(status().isNotFound());
+
+        mockMvc.perform(get("/messages/conversation")
+                        .param("sender", unknownEmail)
+                        .param("receiver", bob.getEmail())
+                        .header("Authorization", bearer(bob.getEmail(), "STUDENT")))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void missingConversationUsersReturnBadRequest() throws Exception {
+        mockMvc.perform(get("/messages/conversation")
+                        .param("sender", alice.getEmail())
+                        .header("Authorization", bearer(alice.getEmail(), "STUDENT")))
+                .andExpect(status().isBadRequest());
+
+        mockMvc.perform(get("/messages/conversation")
+                        .param("receiver", bob.getEmail())
+                        .header("Authorization", bearer(bob.getEmail(), "STUDENT")))
+                .andExpect(status().isBadRequest());
     }
 
     @Test
@@ -204,6 +291,27 @@ class MessagingApiIntegrationTest {
                 .value(
                         "You are not part of this conversation"
                 ));
+    }
+
+    @Test
+    void normalizedConversationRequiresCurrentParticipantMembership() throws Exception {
+        messageService.sendMessage(
+                new Message(alice.getEmail(), bob.getEmail(), "Normalized message", LocalDateTime.now()),
+                alice.getEmail());
+        long lowId = Math.min(alice.getId(), bob.getId());
+        long highId = Math.max(alice.getId(), bob.getId());
+        var conversation = conversationRepository.findDirectConversation(lowId, highId)
+                .orElseThrow();
+        participantRepository.deleteById(
+                new ConversationParticipantId(conversation.getId(), bob.getId()));
+
+        mockMvc.perform(get("/messages/conversation")
+                        .param("sender", alice.getEmail())
+                        .param("receiver", bob.getEmail())
+                        .header("Authorization", bearer(bob.getEmail(), "STUDENT")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error")
+                        .value("You are not part of this conversation"));
     }
 
     // =========================================================

@@ -26,6 +26,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         const publicRoutes = {
           '/login',
           '/register',
+          '/verify-email',
           '/forgot-password',
           '/reset-password',
           '/otp-verify',
@@ -63,10 +64,16 @@ final routerProvider = Provider<GoRouter>((ref) {
         GoRoute(
           path: '/login',
           builder: (_, state) => LoginScreen(
-            signupComplete: state.uri.queryParameters['registered'] == '1',
+            emailVerified: state.uri.queryParameters['verified'] == '1',
           ),
         ),
         GoRoute(path: '/register', builder: (_, __) => const RegisterScreen()),
+        GoRoute(
+          path: '/verify-email',
+          builder: (_, state) => EmailVerificationScreen(
+            email: state.uri.queryParameters['email'] ?? '',
+          ),
+        ),
         GoRoute(
             path: '/forgot-password',
             builder: (_, __) => const PasswordScreen(forgot: true)),
@@ -74,7 +81,8 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: '/reset-password',
             builder: (_, state) => PasswordScreen(
                   email: state.uri.queryParameters['email'] ?? '',
-                  resetToken: state.extra is String ? state.extra as String : '',
+                  resetToken:
+                      state.extra is String ? state.extra as String : '',
                 )),
         GoRoute(
             path: '/otp-verify',

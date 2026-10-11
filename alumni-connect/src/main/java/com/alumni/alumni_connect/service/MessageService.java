@@ -293,16 +293,18 @@ public class MessageService {
 );
         }
 
-        User senderUser = userRepository.findByEmail(sender)
+        User senderUser = userRepository.findByEmailIgnoreCase(sender)
                 .orElseThrow(() ->
-                        new IllegalArgumentException(
+                        new ResponseStatusException(
+                                HttpStatus.NOT_FOUND,
                                 "Sender not found"
                         )
                 );
 
-        User receiverUser = userRepository.findByEmail(receiver)
+        User receiverUser = userRepository.findByEmailIgnoreCase(receiver)
                 .orElseThrow(() ->
-                        new IllegalArgumentException(
+                        new ResponseStatusException(
+                                HttpStatus.NOT_FOUND,
                                 "Receiver not found"
                         )
                 );
@@ -321,10 +323,25 @@ Conversation conversation =
                 .findDirectConversation(lowId, highId)
                 .orElse(null);
 
+        if (conversation != null) {
+            User authenticatedUser = userRepository.findByEmailIgnoreCase(authenticatedEmail)
+                    .orElseThrow(() -> new ResponseStatusException(
+                            HttpStatus.UNAUTHORIZED,
+                            "Authenticated user no longer exists"
+                    ));
+            if (!participantRepository.existsByConversation_IdAndUser_Id(
+                    conversation.getId(),
+                    authenticatedUser.getId())) {
+                throw new IllegalArgumentException(
+                        "You are not part of this conversation"
+                );
+            }
+        }
+
         List<Message> result = repository.findConversationPage(
                 conversation == null ? null : conversation.getId(),
-                sender,
-                receiver,
+                senderUser.getEmail(),
+                receiverUser.getEmail(),
                 pageable
         );
 

@@ -22,10 +22,14 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
-import java.util.Locale;
+import java.util.Set;
 
 @Component
 public class StompJwtChannelInterceptor implements ChannelInterceptor {
+    private static final Set<String> PRIVATE_SUBSCRIPTIONS = Set.of(
+            "/user/queue/messages",
+            "/user/queue/notifications");
+
     private final JwtUtil jwtUtil;
     private final UserRepository userRepository;
     private final WebSocketMessageRateLimiter rateLimiter;
@@ -76,12 +80,9 @@ public class StompJwtChannelInterceptor implements ChannelInterceptor {
                 throw new IllegalArgumentException("Authentication is required for this WebSocket operation");
             }
             String destination = accessor.getDestination();
-            if (destination == null || !destination.startsWith("/user/queue/")) {
-                throw new IllegalArgumentException("Private subscriptions must use the authenticated user destination");
-            }
-            String normalized = destination.toLowerCase(Locale.ROOT);
-            if (normalized.matches("/user/[^/]+/queue/.*")) {
-                throw new IllegalArgumentException("Subscriptions to another user's destination are not allowed");
+            if (destination == null || !PRIVATE_SUBSCRIPTIONS.contains(destination)) {
+                throw new IllegalArgumentException(
+                        "Subscription is not an allowed private user destination");
             }
         }
         return message;

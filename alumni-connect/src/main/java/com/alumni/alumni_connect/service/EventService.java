@@ -23,6 +23,8 @@ import java.util.Optional;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import java.util.HashSet;
+import java.util.Set;
 
 @Service
 public class EventService {
@@ -76,6 +78,7 @@ public class EventService {
     event.setCategory(request.category());
     event.setMeetingLink(request.meetingLink());
     event.setImageUrl(request.imageUrl());
+    event.setMaxCapacity(request.maxCapacity());
 
     event.setCreator(creator);
     event.setRole(creator.getRole());
@@ -97,7 +100,7 @@ public Event updateEvent(
         EventRequest request,
         String authenticatedEmail
 ) {
-    Event event = eventRepository.findById(id)
+    Event event = eventRepository.findByIdForUpdate(id)
             .orElseThrow(() ->
                     new ResponseStatusException(
                             HttpStatus.NOT_FOUND,
@@ -105,6 +108,12 @@ public Event updateEvent(
                     ));
 
     requireCreatorOrAdmin(event, authenticatedEmail);
+    int registrations = registrationRepository.countByEventId(id);
+    if (request.maxCapacity() != null && request.maxCapacity() < registrations) {
+        throw new ResponseStatusException(
+                HttpStatus.CONFLICT,
+                "Capacity cannot be lower than the current registration count");
+    }
 
     event.setTitle(request.title());
     event.setDescription(request.description());
@@ -113,6 +122,7 @@ public Event updateEvent(
     event.setCategory(request.category());
     event.setMeetingLink(request.meetingLink());
     event.setImageUrl(request.imageUrl());
+    event.setMaxCapacity(request.maxCapacity());
 
     // Never copy privileged fields from client data.
     return eventRepository.save(event);
@@ -155,6 +165,46 @@ public Event updateEvent(
             return getApprovedEvents(page, size);
         }
         return eventRepository.findApprovedOrCreatedBy(caller.getId(), bounded(page, size));
+    }
+
+    @Transactional(readOnly = true)
+    public List<EventDTO> getVisibleEventDtos(int page, int size, String authenticatedEmail) {
+        User caller = authenticatedEmail == null
+                ? null
+                : userRepository.findByEmail(authenticatedEmail)
+                        .orElseThrow(() -> new ResponseStatusException(
+                                HttpStatus.UNAUTHORIZED,
+                                "Authenticated user not found"));
+        List<Event> events = caller == null || "ADMIN".equalsIgnoreCase(caller.getRole())
+                ? eventRepository.findByStatusOrderByCreatedAtDesc(
+                        "APPROVED", bounded(page, size))
+                : eventRepository.findApprovedOrCreatedBy(caller.getId(), bounded(page, size));
+        if (events.isEmpty()) {
+            return List.of();
+        }
+
+        Set<Long> linkVisibleEventIds = new HashSet<>();
+        if (caller != null) {
+            if ("ADMIN".equalsIgnoreCase(caller.getRole())) {
+                events.stream().map(Event::getId).forEach(linkVisibleEventIds::add);
+            } else {
+                List<Long> eventIds = events.stream().map(Event::getId).toList();
+                linkVisibleEventIds.addAll(registrationRepository.findRegisteredEventIds(
+                        caller.getId(), eventIds));
+                for (Event event : events) {
+                    if (event.getCreator() != null
+                            && caller.getId().equals(event.getCreator().getId())) {
+                        linkVisibleEventIds.add(event.getId());
+                    }
+                }
+            }
+        }
+
+        return events.stream()
+                .map(event -> EventDTO.from(
+                        event,
+                        linkVisibleEventIds.contains(event.getId())))
+                .toList();
     }
 
     // =====================================
@@ -258,6 +308,14 @@ public Event updateEvent(
             );
         }
 
+        int currentRegistrations = registrationRepository.countByEventId(eventId);
+        if (event.getMaxCapacity() != null
+                && currentRegistrations >= event.getMaxCapacity()) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Event is at capacity");
+        }
+
         // =====================================
         // CREATE REGISTRATION
         // =====================================
@@ -298,9 +356,7 @@ public Event updateEvent(
         // UPDATE RSVP COUNT
         // =====================================
 
-        event.setAttendeeCount(
-                event.getAttendeeCount() + 1
-        );
+        event.setAttendeeCount(currentRegistrations + 1);
 
         eventRepository.save(event);
 

@@ -1,6 +1,25 @@
 import '../core/network/api_client.dart';
 import '../shared/models/models.dart';
 
+class EmailVerificationResult {
+  const EmailVerificationResult({
+    required this.emailVerified,
+    required this.approvalPending,
+    required this.message,
+  });
+
+  final bool emailVerified;
+  final bool approvalPending;
+  final String message;
+
+  factory EmailVerificationResult.fromJson(Map<String, dynamic> json) =>
+      EmailVerificationResult(
+        emailVerified: json['emailVerified'] as bool,
+        approvalPending: json['approvalPending'] as bool,
+        message: json['message'] as String,
+      );
+}
+
 class AppRepository {
   const AppRepository(this.api);
   Future<void> approveAlumni(int id) async {
@@ -21,6 +40,16 @@ class AppRepository {
           decode: (d) => d as String);
   Future<String> signup(User user, String password) => api.post('/signup',
       data: user.toJson(password: password), decode: (d) => d as String);
+  Future<EmailVerificationResult> verifyEmail(String email, String otp) =>
+      api.post(
+        '/verify-email',
+        data: {'email': email, 'otp': otp},
+        decode: (d) => EmailVerificationResult.fromJson(
+          Map<String, dynamic>.from(d as Map),
+        ),
+      );
+  Future<void> resendEmailVerification(String email) =>
+      api.post('/resend-verification', data: {'email': email}, decode: (_) {});
   Future<List<User>> users(
     UserRole role, {
     int page = 0,

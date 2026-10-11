@@ -82,6 +82,8 @@ class ApiClient {
       const publicAuthPaths = {
         '/login',
         '/signup',
+        '/verify-email',
+        '/resend-verification',
         '/forgot-password',
         '/verify-otp',
         '/reset-password',

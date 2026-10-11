@@ -14,6 +14,8 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 public interface EventRegistrationRepository
 
@@ -45,6 +47,16 @@ public interface EventRegistrationRepository
     boolean existsByEventIdAndUser_Id(Long eventId, Long userId);
 
     Optional<EventRegistration> findByEventIdAndUser_Id(Long eventId, Long userId);
+
+    @Query("""
+            SELECT registration.eventId
+            FROM EventRegistration registration
+            WHERE registration.user.id = :userId
+              AND registration.eventId IN :eventIds
+            """)
+    List<Long> findRegisteredEventIds(
+            @Param("userId") Long userId,
+            @Param("eventIds") List<Long> eventIds);
 
     Optional<EventRegistration> findByEventIdAndStudentEmail(
 
@@ -86,4 +98,3 @@ public interface EventRegistrationRepository
 
     List<EventRegistration> findByUser_Id(Long userId);
 }
-

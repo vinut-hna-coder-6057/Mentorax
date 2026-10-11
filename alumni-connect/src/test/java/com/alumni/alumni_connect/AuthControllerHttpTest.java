@@ -222,17 +222,13 @@ class AuthControllerHttpTest {
     // =========================================================
 
     @Test
-    void signupShouldReturn409WhenEmailAlreadyExists()
+    void signupShouldReturnGenericResponseWhenEmailAlreadyExists()
             throws Exception {
 
         Mockito.when(
                 authService.signup(Mockito.any(com.alumni.alumni_connect.dto.SignupRequest.class))
-        ).thenThrow(
-                new ResponseStatusException(
-                        HttpStatus.CONFLICT,
-                        "Email already exists"
-                )
-        );
+        ).thenReturn(
+                "If this address is eligible, verification instructions will be sent shortly.");
 
         mockMvc.perform(
                 post("/signup")
@@ -246,12 +242,9 @@ class AuthControllerHttpTest {
                                 }
                                 """)
         )
-        .andExpect(status().isConflict())
-        .andExpect(content().contentTypeCompatibleWith(
-                MediaType.APPLICATION_JSON
-        ))
-        .andExpect(jsonPath("$.error")
-                .value("Email already exists"));
+        .andExpect(status().isOk())
+        .andExpect(content().string(
+                "If this address is eligible, verification instructions will be sent shortly."));
     }
 
 
@@ -265,7 +258,8 @@ class AuthControllerHttpTest {
 
         Mockito.when(
                 authService.signup(Mockito.any(com.alumni.alumni_connect.dto.SignupRequest.class))
-        ).thenReturn("Signup successful");
+        ).thenReturn(
+                "If this address is eligible, verification instructions will be sent shortly.");
 
         mockMvc.perform(
                 post("/signup")
@@ -280,6 +274,7 @@ class AuthControllerHttpTest {
                                 """)
         )
         .andExpect(status().isOk())
-        .andExpect(content().string("Signup successful"));
+        .andExpect(content().string(
+                "If this address is eligible, verification instructions will be sent shortly."));
     }
 }

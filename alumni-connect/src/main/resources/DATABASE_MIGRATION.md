@@ -20,9 +20,9 @@ When a Flyway history table exists, the detected history is authoritative. An ex
 
 The repository’s local MySQL 8.0.46 history was inspected during this change. It contains Flyway’s version-1 baseline marker and successful V2–V6 rows; V7 is pending. That database uses the historical legacy chain. The old migration files were therefore left byte-for-byte unchanged. `db/normalized/V1__create_alumni_connect_schema.sql` is a byte-identical copy of historical V1 so a database that actually applied V1 can retain its checksum.
 
-The fresh V1 includes the normalized schema plus the conversation-pair and canonical-connection constraints currently supplied by legacy V5 and V7. V1 already includes the `email_verified` column and `messages.conversation_id` foreign key; those operations are not repeated in the fresh baseline. Profile data backfill is run only for databases that already contain user rows.
+The fresh V1 includes the normalized schema plus the conversation-pair and canonical-connection constraints currently supplied by legacy V5 and V7. V1 already includes the `email_verified` column and `messages.conversation_id` foreign key; those operations are not repeated in the fresh baseline. Profile data backfill is run only for databases that already contain user rows. Shared V12 marks accounts that existed before the email-verification flow as verified so the new requirement does not lock out existing users; accounts created after deployment remain unverified until they complete the flow. Shared V13 adds nullable `events.max_capacity`; `NULL` means unlimited for existing and newly created events that omit a capacity.
 
-Keep applied migration files in `db/migration` immutable. Because the fresh and normalized histories use separate Flyway locations, changes added after their baselines must also be represented in those routed chains. The password-reset and alumni-status changes use V8/V9 for the legacy history, V2/V3 for the fresh history, and V3/V4 for the normalized history. Add future schema changes to every supported chain (or to a shared location only when the migration version is valid and non-conflicting in all of them).
+Keep applied migration files in `db/migration` immutable. Because the fresh and normalized histories use separate Flyway locations, changes added after their baselines must also be represented in those routed chains. The password-reset and alumni-status changes use V8/V9 for the legacy history, V2/V3 for the fresh history, and V3/V4 for the normalized history. Shared V12 applies the existing-account email-verification backfill and V13 adds event registration capacity to all supported histories.
 
 ## Existing database deployment
 
@@ -55,9 +55,9 @@ SHOW TABLES;
 
 The schema must include users, student_profiles, alumni_profiles, skills, user_skills, events, event_registrations, connections, conversations, conversation_participants, messages, notifications, and otp_verifications. Inspect the important table definitions with `SHOW CREATE TABLE` before promoting the configuration.
 
-An optional real-MySQL startup test can be run against an empty disposable schema by setting `MENTORAX_MYSQL_MIGRATION_TEST_URL`, `MENTORAX_MYSQL_MIGRATION_TEST_USERNAME`, and `MENTORAX_MYSQL_MIGRATION_TEST_PASSWORD`, then selecting `FreshMySqlMigrationTest`. It refuses a schema that already contains tables.
+The backend CI job provisions two disposable MySQL 8 schemas and explicitly runs `FreshMySqlMigrationTest` before the complete backend suite. The test class verifies the automatic fresh route from an empty schema and recovery of the recognized normalized-V1 history, including their shared V10–V13 migrations. Spring Boot starts with `ddl-auto=validate`; assertions cover the complete Flyway history, the recorded fresh checksums, required tables/columns, the outbox indexes, event-capacity check constraint, foreign keys, and unique indexes. CI fails if either schema's URL or credentials are missing, rather than silently treating these real-MySQL tests as optional.
 
-The backend CI job provisions two isolated MySQL 8 schemas for the fresh migration and known failed-V2 recovery tests. These tests apply the current Flyway locations, run Spring Boot with `ddl-auto=validate`, verify the fresh production checksums, and assert key foreign keys and unique indexes. Never point either test URL at production or a schema containing data.
+To run these tests locally, set `MENTORAX_MYSQL_MIGRATION_TEST_URL`, `MENTORAX_MYSQL_MIGRATION_TEST_USERNAME`, and `MENTORAX_MYSQL_MIGRATION_TEST_PASSWORD` to a disposable empty MySQL 8 schema; set the corresponding `MENTORAX_MYSQL_RECOVERY_TEST_*` variables to a second disposable empty schema. Both tests refuse to use a schema that already contains tables. Without these settings, JUnit reports the tests as skipped outside CI. Never point either test URL at production or a schema containing user data.
 
 ## Railway runtime configuration
 
@@ -67,12 +67,13 @@ Configure the Railway backend service root directory as `alumni-connect`. Build 
 - `JWT_SECRET` (at least 32 UTF-8 bytes)
 - `CORS_ALLOWED_ORIGIN_PATTERNS` and `WEBSOCKET_ALLOWED_ORIGINS` (comma-separated trusted origins; avoid broad wildcards in production)
 
-Email configuration is optional and is not required for application startup,
-signup, or signin. Keep `RESEND_API_KEY` and `RESEND_FROM_EMAIL` only if
-password-reset OTP and event-registration email delivery should remain
-available. Use a sender/domain verified in Resend; test-mode accounts may
-restrict recipients to an authorized address. Without these variables,
-email-sending requests cannot deliver messages.
+Email configuration is optional for application startup and for administrator
+or already-active account signin. `RESEND_API_KEY` and `RESEND_FROM_EMAIL` are
+required for new student/alumni verification codes, password-reset OTPs, and
+event-registration email delivery. Use a sender/domain verified in Resend;
+test-mode accounts may restrict recipients to an authorized address. Without
+these variables, queued email delivery will be deferred until the outbox
+message expires, and new self-registered accounts cannot complete verification.
 
 The public readiness endpoint is `/actuator/health/readiness`. It reports readiness only while the application is accepting traffic and the configured database is available. Only the health actuator endpoint is exposed, and health details are not included in responses.
 

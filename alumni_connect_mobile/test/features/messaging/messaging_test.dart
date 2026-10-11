@@ -25,11 +25,19 @@ class _TestRealtimeService extends RealtimeService {
   @override
   Stream<ChatMessage> get messages => _messageController.stream;
   @override
+  Stream<RealtimeSessionEvent<ChatMessage>> get messageEvents =>
+      _messageController.stream.map(
+        (message) => RealtimeSessionEvent(0, 0, message),
+      );
+  @override
   Stream<RealtimeState> get states => _stateController.stream;
   @override
   Stream<RealtimeFailure> get errors => _errorController.stream;
   @override
   RealtimeState get current => RealtimeState.connected;
+
+  @override
+  bool isCurrentSession(int sessionVersion, [int? connectionVersion]) => true;
 
   @override
   bool send(ChatMessage message) {

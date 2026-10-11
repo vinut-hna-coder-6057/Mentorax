@@ -31,6 +31,10 @@ class RealtimeService {
         .toString();
   }
 
+  RealtimeService({RealtimeStompClientFactory? clientFactory})
+      : _clientFactory = clientFactory ?? _StompClientAdapter.new;
+
+  final RealtimeStompClientFactory _clientFactory;
   static Map<String, String> stompHeadersForToken(String token) => {
         'Authorization': 'Bearer $token',
       };
@@ -38,24 +42,43 @@ class RealtimeService {
   final _state = StreamController<RealtimeState>.broadcast();
   final _messages = StreamController<ChatMessage>.broadcast();
   final _notifications = StreamController<NotificationItem>.broadcast();
+  final _messageEvents =
+      StreamController<RealtimeSessionEvent<ChatMessage>>.broadcast();
+  final _notificationEvents =
+      StreamController<RealtimeSessionEvent<NotificationItem>>.broadcast();
   final _errors = StreamController<RealtimeFailure>.broadcast();
   Stream<RealtimeState> get states => _state.stream;
   Stream<ChatMessage> get messages => _messages.stream;
   Stream<NotificationItem> get notifications => _notifications.stream;
+  Stream<RealtimeSessionEvent<ChatMessage>> get messageEvents =>
+      _messageEvents.stream;
+  Stream<RealtimeSessionEvent<NotificationItem>> get notificationEvents =>
+      _notificationEvents.stream;
   Stream<RealtimeFailure> get errors => _errors.stream;
   RealtimeState _current = RealtimeState.disconnected;
   RealtimeState get current => _current;
-  StompClient? _client;
+  RealtimeStompClient? _client;
   bool _subscribed = false;
   bool _awaitingConnect = false;
   bool _terminalFailure = false;
   String? _token;
   int _receiptSequence = 0;
   int _sessionVersion = 0;
+  int _connectionVersion = 0;
   final Map<String, RealtimeFailure> _pendingReceipts = {};
+  final Set<String> _seenMessages = {};
+  final Set<String> _seenNotifications = {};
 
   bool _isActiveSession(int sessionVersion) =>
       sessionVersion == _sessionVersion && _client != null;
+
+  int get sessionVersion => _sessionVersion;
+
+  bool isCurrentSession(int sessionVersion, [int? connectionVersion]) =>
+      _isActiveSession(sessionVersion) &&
+      _token != null &&
+      !_terminalFailure &&
+      (connectionVersion == null || connectionVersion == _connectionVersion);
 
   void connect(String token) {
     if (token.isEmpty) return;
@@ -90,6 +113,7 @@ class RealtimeService {
       onWebSocketDone: () {
         if (!_isActiveSession(sessionVersion)) return;
         if (_terminalFailure) return;
+        _connectionVersion++;
         _awaitingConnect = false;
         _subscribed = false;
         _pendingReceipts.clear();
@@ -110,34 +134,49 @@ class RealtimeService {
         _onWebSocketError(error);
       },
     );
-    final client = StompClient(config: config);
+    final client = _clientFactory(config);
     _client = client;
     client.activate();
   }
 
-  void _onConnect(int sessionVersion, StompClient client) {
+  void _onConnect(int sessionVersion, RealtimeStompClient client) {
     if (!_isActiveSession(sessionVersion)) return;
     _awaitingConnect = false;
     _set(RealtimeState.connected);
     if (_subscribed) return;
     _subscribed = true;
+    final connectionVersion = _connectionVersion;
     _subscribe(
+      sessionVersion,
+      connectionVersion,
       client,
       messagesDestination,
       RealtimeFailure.subscription,
-      _decodeMessage,
+      (body) => _decodeMessage(
+        sessionVersion,
+        connectionVersion,
+        body,
+      ),
     );
     if (_terminalFailure) return;
     _subscribe(
+      sessionVersion,
+      connectionVersion,
       client,
       notificationsDestination,
       RealtimeFailure.subscription,
-      _decodeNotification,
+      (body) => _decodeNotification(
+        sessionVersion,
+        connectionVersion,
+        body,
+      ),
     );
   }
 
   void _subscribe(
-    StompClient client,
+    int sessionVersion,
+    int connectionVersion,
+    RealtimeStompClient client,
     String destination,
     RealtimeFailure failure,
     void Function(String body) onBody,
@@ -149,6 +188,7 @@ class RealtimeService {
         destination: destination,
         headers: {'receipt': receipt},
         callback: (frame) {
+          if (!isCurrentSession(sessionVersion, connectionVersion)) return;
           final body = frame.body;
           if (body == null || body.isEmpty) return;
           onBody(body);
@@ -164,11 +204,26 @@ class RealtimeService {
     }
   }
 
-  void _decodeMessage(String body) {
+  void _decodeMessage(
+    int sessionVersion,
+    int connectionVersion,
+    String body,
+  ) {
+    if (!isCurrentSession(sessionVersion, connectionVersion)) return;
     try {
       final json = jsonDecode(body);
       if (json is Map) {
-        _messages.add(ChatMessage.fromJson(Map<String, dynamic>.from(json)));
+        final message = ChatMessage.fromJson(Map<String, dynamic>.from(json));
+        final key = message.id == null
+            ? '${message.senderEmail}|${message.receiverEmail}|'
+                '${message.timestamp}|${message.content}'
+            : 'id:${message.id}';
+        if (!_seenMessages.add(key)) return;
+        if (_seenMessages.length > 2000) _seenMessages.clear();
+        _messages.add(message);
+        _messageEvents.add(
+          RealtimeSessionEvent(sessionVersion, connectionVersion, message),
+        );
       }
     } catch (error) {
       debugPrint(
@@ -176,13 +231,25 @@ class RealtimeService {
     }
   }
 
-  void _decodeNotification(String body) {
+  void _decodeNotification(
+    int sessionVersion,
+    int connectionVersion,
+    String body,
+  ) {
+    if (!isCurrentSession(sessionVersion, connectionVersion)) return;
     try {
       final json = jsonDecode(body);
       if (json is Map) {
-        _notifications.add(
-          NotificationItem.fromJson(Map<String, dynamic>.from(json)),
-        );
+        final notification =
+            NotificationItem.fromJson(Map<String, dynamic>.from(json));
+        if (!_seenNotifications.add('id:${notification.id}')) return;
+        if (_seenNotifications.length > 2000) _seenNotifications.clear();
+        _notifications.add(notification);
+        _notificationEvents.add(RealtimeSessionEvent(
+          sessionVersion,
+          connectionVersion,
+          notification,
+        ));
       }
     } catch (error) {
       debugPrint(
@@ -285,10 +352,13 @@ class RealtimeService {
     _emitFailure(failure);
     if (terminal) {
       _terminalFailure = true;
+      _connectionVersion++;
       _awaitingConnect = false;
       _token = null;
       _subscribed = false;
       _pendingReceipts.clear();
+      _seenMessages.clear();
+      _seenNotifications.clear();
       final client = _client;
       _client = null;
       try {
@@ -309,11 +379,14 @@ class RealtimeService {
 
   void disconnect() {
     _sessionVersion++;
+    _connectionVersion++;
     _token = null;
     _subscribed = false;
     _awaitingConnect = false;
     _terminalFailure = false;
     _pendingReceipts.clear();
+    _seenMessages.clear();
+    _seenNotifications.clear();
     final client = _client;
     _client = null;
     try {
@@ -334,8 +407,86 @@ class RealtimeService {
     await _state.close();
     await _messages.close();
     await _notifications.close();
+    await _messageEvents.close();
+    await _notificationEvents.close();
     await _errors.close();
   }
+}
+
+class RealtimeSessionEvent<T> {
+  const RealtimeSessionEvent(
+    this.sessionVersion,
+    this.connectionVersion,
+    this.value,
+  );
+
+  final int sessionVersion;
+  final int connectionVersion;
+  final T value;
+}
+
+typedef RealtimeStompClientFactory = RealtimeStompClient Function(
+  StompConfig config,
+);
+
+abstract interface class RealtimeStompClient {
+  bool get connected;
+
+  void activate();
+
+  void deactivate();
+
+  void subscribe({
+    required String destination,
+    required StompFrameCallback callback,
+    Map<String, String>? headers,
+  });
+
+  void send({
+    required String destination,
+    Map<String, String>? headers,
+    String? body,
+  });
+}
+
+class _StompClientAdapter implements RealtimeStompClient {
+  _StompClientAdapter(StompConfig config)
+      : _client = StompClient(config: config);
+
+  final StompClient _client;
+
+  @override
+  bool get connected => _client.connected;
+
+  @override
+  void activate() => _client.activate();
+
+  @override
+  void deactivate() => _client.deactivate();
+
+  @override
+  void subscribe({
+    required String destination,
+    required StompFrameCallback callback,
+    Map<String, String>? headers,
+  }) =>
+      _client.subscribe(
+        destination: destination,
+        callback: callback,
+        headers: headers,
+      );
+
+  @override
+  void send({
+    required String destination,
+    Map<String, String>? headers,
+    String? body,
+  }) =>
+      _client.send(
+        destination: destination,
+        headers: headers,
+        body: body,
+      );
 }
 
 enum RealtimeFailure { connection, authentication, subscription, send }

@@ -3,6 +3,7 @@ package com.alumni.alumni_connect.controller;
 import com.alumni.alumni_connect.config.*;
 import com.alumni.alumni_connect.controller.*;
 import com.alumni.alumni_connect.dto.*;
+import com.alumni.alumni_connect.dto.EmailVerificationResponse;
 import com.alumni.alumni_connect.entity.*;
 import com.alumni.alumni_connect.exception.*;
 import com.alumni.alumni_connect.repository.*;
@@ -18,17 +19,27 @@ public class AuthController {
 
     private final AuthService authService;
     private final RequestRateLimiter rateLimiter;
+    private final EmailVerificationService emailVerificationService;
 
     @Autowired
     public AuthController(
-            AuthService authService, RequestRateLimiter rateLimiter
+            AuthService authService,
+            RequestRateLimiter rateLimiter,
+            EmailVerificationService emailVerificationService
     ) {
         this.authService = authService;
         this.rateLimiter = rateLimiter;
+        this.emailVerificationService = emailVerificationService;
     }
 
     /** Keeps direct Java callers source compatible; this overload is not an HTTP handler. */
-    public AuthController(AuthService authService) { this(authService, new RequestRateLimiter()); }
+    public AuthController(AuthService authService, RequestRateLimiter rateLimiter) {
+        this(authService, rateLimiter, null);
+    }
+
+    public AuthController(AuthService authService) {
+        this(authService, new RequestRateLimiter(), null);
+    }
 
     // =====================================
     // SIGNUP
@@ -36,8 +47,24 @@ public class AuthController {
 
     @PostMapping("/signup")
     public String signup(@Valid @RequestBody SignupRequest request, HttpServletRequest http) {
-        rateLimiter.check("otp", http.getRemoteAddr(), request.email());
+        rateLimiter.check("email-verification", http.getRemoteAddr(), request.email());
         return authService.signup(request);
+    }
+
+    @PostMapping("/verify-email")
+    public EmailVerificationResponse verifyEmail(
+            @Valid @RequestBody VerifyOtpRequest request,
+            HttpServletRequest http) {
+        rateLimiter.check("email-verification", http.getRemoteAddr(), request.getEmail());
+        return emailVerificationService.verify(request);
+    }
+
+    @PostMapping("/resend-verification")
+    public String resendVerification(
+            @Valid @RequestBody ResendVerificationRequest request,
+            HttpServletRequest http) {
+        rateLimiter.check("email-verification", http.getRemoteAddr(), request.getEmail());
+        return emailVerificationService.resend(request.getEmail());
     }
 
     // =====================================

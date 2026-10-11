@@ -97,7 +97,7 @@ class FlywayMigrationConfigurationTest {
         var dataSource = new DriverManagerDataSource(url, "sa", "");
         Flyway flyway = Flyway.configure()
                 .dataSource(dataSource)
-                .locations("classpath:db/shared")
+                .locations("classpath:db/fresh,classpath:db/shared")
                 .load();
 
         new FlywayMigrationConfiguration()

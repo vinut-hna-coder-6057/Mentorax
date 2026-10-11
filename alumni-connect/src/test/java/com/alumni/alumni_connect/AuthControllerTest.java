@@ -167,12 +167,13 @@ class AuthControllerTest {
         user.setPassword("password123");
 
         when(authService.signup(user))
-                .thenReturn("Signup successful");
+                .thenReturn(
+                        "If this address is eligible, verification instructions will be sent shortly.");
 
         Object result = controller.signup(user);
 
         assertEquals(
-                "Signup successful",
+                "If this address is eligible, verification instructions will be sent shortly.",
                 result
         );
     }

@@ -21,6 +21,13 @@ ApiException toApiException(Object error, {String? requestPath}) {
       );
     }
     if (status == 403) {
+      if (message.toLowerCase() == 'email verification required') {
+        return ApiException(
+          ApiErrorKind.verificationRequired,
+          'Verify your email before signing in.',
+          statusCode: status,
+        );
+      }
       if (message.toLowerCase() == 'account pending approval') {
         return ApiException(
           ApiErrorKind.pendingApproval,
@@ -46,7 +53,7 @@ ApiException toApiException(Object error, {String? requestPath}) {
       final conflictMessage = message
               .toLowerCase()
               .contains('email already exists')
-          ? 'An account already uses this email. Sign in with the existing account.'
+          ? 'If this address is eligible, verification instructions will be sent shortly.'
           : message;
       return ApiException(
         ApiErrorKind.conflict,

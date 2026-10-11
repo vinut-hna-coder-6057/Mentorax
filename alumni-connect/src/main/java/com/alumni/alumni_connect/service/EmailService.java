@@ -181,6 +181,18 @@ public class EmailService {
         sendEmail(to, "Password Reset OTP", body);
     }
 
+    public void sendEmailVerificationOtp(String to, String otp) {
+        String body =
+                "Hello,\n\n"
+                + "Your Mentorax email verification code is:\n\n"
+                + otp
+                + "\n\nThis code is valid for 5 minutes.\n\n"
+                + "Do not share this code with anyone.\n\n"
+                + "Thank you,\nMentorax Team";
+
+        sendEmail(to, "Verify your Mentorax email", body);
+    }
+
     public void sendEventRegistrationEmail(
             String to,
             String eventTitle,

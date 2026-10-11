@@ -51,11 +51,13 @@ public class OtpService {
     @Transactional
     public String generateOtp(String email, String purpose) {
         email = EmailAddress.normalize(email);
-
-        SecureRandom random = new SecureRandom();
+        if (!"PASSWORD_RESET".equals(purpose)
+                && !"EMAIL_VERIFICATION".equals(purpose)) {
+            throw new IllegalArgumentException("Unsupported OTP purpose");
+        }
 
         int number =
-                100000 + random.nextInt(900000);
+                100000 + SECURE_RANDOM.nextInt(900000);
 
         String otpValue =
                 String.valueOf(number);
@@ -86,6 +88,11 @@ public class OtpService {
         otpRepository.save(otp);
 
         return otpValue;
+    }
+
+    @Transactional
+    public void invalidateOtp(String email, String purpose) {
+        otpRepository.deleteByEmailAndPurpose(EmailAddress.normalize(email), purpose);
     }
 
     // =====================================

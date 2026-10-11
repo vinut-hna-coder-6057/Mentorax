@@ -61,6 +61,23 @@ jobs:
           mysql --host=127.0.0.1 --port=3306 --user=root --password="$MYSQL_ROOT_PASSWORD" \
             --execute="CREATE DATABASE mentorax_migration_test; CREATE DATABASE mentorax_recovery_test;"
 
+      - name: Require configured disposable MySQL schemas
+        run: |
+          test -n "$MENTORAX_MYSQL_MIGRATION_TEST_URL"
+          test -n "$MENTORAX_MYSQL_MIGRATION_TEST_USERNAME"
+          test -n "$MENTORAX_MYSQL_MIGRATION_TEST_PASSWORD"
+          test -n "$MENTORAX_MYSQL_RECOVERY_TEST_URL"
+          test -n "$MENTORAX_MYSQL_RECOVERY_TEST_USERNAME"
+          test -n "$MENTORAX_MYSQL_RECOVERY_TEST_PASSWORD"
+
+      - name: Run real-MySQL migration tests
+        run: ./mvnw -q "-Dtest=FreshMySqlMigrationTest" test
+
+      - name: Recreate disposable schemas before full backend suite
+        run: |
+          MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql --host=127.0.0.1 --port=3306 --user=root \
+            --execute="DROP DATABASE mentorax_migration_test; DROP DATABASE mentorax_recovery_test; CREATE DATABASE mentorax_migration_test; CREATE DATABASE mentorax_recovery_test;"
+
       - name: Run backend tests
         run: ./mvnw test
 

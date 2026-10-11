@@ -57,6 +57,13 @@ sends the JWT in its STOMP `CONNECT` headers. SockJS transport setup is
 unauthenticated at the HTTP layer; the backend validates the JWT before
 accepting the STOMP connection.
 
+Self-registration creates an unverified student or alumni account and opens
+the email-code verification flow. A verified student can sign in; a verified
+alumnus remains pending until an administrator approves the account. Existing
+administrator sign-in and the separate password-reset OTP flow are unchanged.
+
 Implemented contract paths are derived directly from the backend controllers:
-`/login`, `/signup`, `/users`, `/connections`, `/events`, `/notifications`,
-`/conversations`, `/messages/conversation`, and admin alumni approval.
+`/login`, `/signup`, `/verify-email`, `/resend-verification`,
+`/forgot-password`, `/verify-otp`, `/reset-password`, `/users`,
+`/connections`, `/events`, `/notifications`, `/conversations`,
+`/messages/conversation`, and admin alumni approval.

@@ -48,11 +48,11 @@ public EventDTO createEvent(
             @RequestParam(defaultValue="50") int size,
             Authentication authentication
     ) {
-        return eventService.getVisibleEvents(
+        return eventService.getVisibleEventDtos(
                 page,
                 size,
                 authentication == null ? null : authentication.getName()
-        ).stream().map(EventDTO::from).toList();
+        );
     }
 
     // =====================================

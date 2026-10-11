@@ -80,10 +80,15 @@ final authProvider =
       }
     },
   );
-  ref.listen<AsyncValue<NotificationItem>>(
+  ref.listen<AsyncValue<RealtimeSessionEvent<NotificationItem>>>(
     realtimeNotificationsProvider,
     (_, notification) {
-      if (notification.hasValue) {
+      final event = notification.valueOrNull;
+      if (event != null &&
+          ref.read(realtimeServiceProvider).isCurrentSession(
+                event.sessionVersion,
+                event.connectionVersion,
+              )) {
         ref.invalidate(notificationsProvider);
         ref.invalidate(unreadNotificationCountProvider);
       }
@@ -105,8 +110,14 @@ final notificationsProvider = FutureProvider<List<NotificationItem>>(
     (ref) => ref.watch(appRepositoryProvider).notifications());
 final unreadNotificationCountProvider = FutureProvider<int>(
     (ref) => ref.watch(appRepositoryProvider).unreadCount());
-final realtimeNotificationsProvider = StreamProvider<NotificationItem>(
-    (ref) => ref.watch(realtimeServiceProvider).notifications);
+final realtimeNotificationsProvider =
+    StreamProvider<RealtimeSessionEvent<NotificationItem>>((ref) {
+  final realtime = ref.watch(realtimeServiceProvider);
+  return realtime.notificationEvents.where((event) => realtime.isCurrentSession(
+        event.sessionVersion,
+        event.connectionVersion,
+      ));
+});
 final conversationsProvider = StateNotifierProvider<
     ConversationsPaginationNotifier, AsyncValue<List<Conversation>>>(
   (ref) => ConversationsPaginationNotifier(ref.watch(appRepositoryProvider)),
@@ -262,24 +273,34 @@ class AuthNotifier extends StateNotifier<AsyncValue<User?>> {
   final AppRepository _repo;
   final SecureStorageService _storage;
   final RealtimeService _realtime;
+  int _operationVersion = 0;
+  Future<void> _storageTail = Future<void>.value();
 
-  void setUser(User user) => state = AsyncData(user);
+  void setUser(User user) {
+    _operationVersion++;
+    state = AsyncData(user);
+  }
+
   Future<void> retryRestore() async {
     state = const AsyncLoading();
     await restore();
   }
 
   Future<void> restore() async {
+    final operation = ++_operationVersion;
     // Hard ceiling: never leave the router in AsyncLoading indefinitely if
     // platform secure-storage stalls beyond Future.timeout (seen on emulators).
     final watchdog = Timer(const Duration(seconds: 3), () {
-      if (state.isLoading) {
+      if (_isCurrentOperation(operation) && state.isLoading) {
+        _operationVersion++;
+        _realtime.disconnect();
         state = const AsyncData(null);
       }
     });
     try {
-      final token =
-          await _storage.readToken().timeout(const Duration(seconds: 2));
+      final token = await _serializeStorage(_storage.readToken)
+          .timeout(const Duration(seconds: 2));
+      if (!_isCurrentOperation(operation)) return;
 
       if (token == null || token.isEmpty) {
         state = const AsyncData(null);
@@ -288,20 +309,25 @@ class AuthNotifier extends StateNotifier<AsyncValue<User?>> {
 
       final identity = _fromJwt(token);
       if (identity == null) {
-        await _storage.clearAuth();
+        await _clearStorageIfCurrent(operation);
+        if (!_isCurrentOperation(operation)) return;
         state = const AsyncData(null);
         return;
       }
       final user = await _repo.userByEmail(identity.email);
+      if (!_isCurrentOperation(operation)) return;
 
       if (user.status.toUpperCase() != 'APPROVED') {
-        await _storage.clearAuth();
+        await _clearStorageIfCurrent(operation);
+        if (!_isCurrentOperation(operation)) return;
         state = const AsyncData(null);
         return;
       }
       _realtime.connect(token);
       state = AsyncData(user);
     } catch (e, st) {
+      if (!_isCurrentOperation(operation)) return;
+      _operationVersion++;
       _realtime.disconnect();
       state = AsyncError(e, st);
     } finally {
@@ -311,9 +337,11 @@ class AuthNotifier extends StateNotifier<AsyncValue<User?>> {
 
   Future<String?> signIn(String email, String password, UserRole role) async {
     // Avoid AsyncLoading here: router treats loading as splash-only.
+    final operation = ++_operationVersion;
     var tokenStored = false;
     try {
       final result = await _repo.login(email, password, role);
+      if (!_isCurrentOperation(operation)) return 'Sign-in was cancelled.';
       if (result == 'WAIT_APPROVAL') {
         state = const AsyncData(null);
         return result;
@@ -324,25 +352,35 @@ class AuthNotifier extends StateNotifier<AsyncValue<User?>> {
           state = const AsyncData(null);
           return 'Invalid credentials';
         }
-        await _storage.writeToken(result);
-        tokenStored = true;
+        tokenStored = await _serializeStorage(() async {
+          if (!_isCurrentOperation(operation)) return false;
+          await _storage.writeToken(result);
+          return _isCurrentOperation(operation);
+        });
+        if (!_isCurrentOperation(operation)) return 'Sign-in was cancelled.';
+        if (!tokenStored) return 'Sign-in was cancelled.';
+        _realtime.connect(result);
         final user = await _repo.userByEmail(identity.email);
+        if (!_isCurrentOperation(operation)) return 'Sign-in was cancelled.';
         if (user.status.toUpperCase() != 'APPROVED') {
-          await _storage.clearAuth();
+          _realtime.disconnect();
+          await _clearStorageIfCurrent(operation);
+          if (!_isCurrentOperation(operation)) return 'Sign-in was cancelled.';
           state = const AsyncData(null);
           return 'Account is not approved';
         }
-        _realtime.connect(result);
         state = AsyncData(user);
         return null;
       }
       state = const AsyncData(null);
       return result;
     } catch (error) {
+      if (!_isCurrentOperation(operation)) return 'Sign-in was cancelled.';
+      _operationVersion++;
       if (tokenStored) {
         _realtime.disconnect();
         try {
-          await _storage.clearAuth();
+          await _serializeStorage(_storage.clearAuth);
         } catch (cleanupError, stackTrace) {
           debugPrint(
             'Unable to clear authentication after sign-in failed: '
@@ -355,6 +393,9 @@ class AuthNotifier extends StateNotifier<AsyncValue<User?>> {
       if (apiError.kind == ApiErrorKind.pendingApproval) {
         return 'WAIT_APPROVAL';
       }
+      if (apiError.kind == ApiErrorKind.verificationRequired) {
+        return 'VERIFY_EMAIL';
+      }
       return apiError.message;
     }
   }
@@ -364,10 +405,31 @@ class AuthNotifier extends StateNotifier<AsyncValue<User?>> {
   }
 
   Future<void> signOut() async {
+    _operationVersion++;
     _realtime.disconnect();
-    await _storage.clearAuth();
     state = const AsyncData(null);
+    await _serializeStorage(_storage.clearAuth);
   }
+
+  bool _isCurrentOperation(int operation) => operation == _operationVersion;
+
+  Future<T> _serializeStorage<T>(Future<T> Function() action) {
+    final completer = Completer<T>();
+    final operation = _storageTail.then((_) async {
+      try {
+        completer.complete(await action());
+      } catch (error, stackTrace) {
+        completer.completeError(error, stackTrace);
+      }
+    });
+    _storageTail = operation.catchError((Object _) {});
+    return completer.future;
+  }
+
+  Future<void> _clearStorageIfCurrent(int operation) =>
+      _serializeStorage(() async {
+        if (_isCurrentOperation(operation)) await _storage.clearAuth();
+      });
 
   /// Returns null when the JWT payload is missing email/role.
   User? _fromJwt(String token) {

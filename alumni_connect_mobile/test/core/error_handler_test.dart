@@ -62,8 +62,25 @@ void main() {
     expect(mapped.message, contains('awaiting administrator approval'));
   });
 
-  test('duplicate registration recommends signing into the existing account',
-      () {
+  test('offers the email verification flow for unverified login attempts', () {
+    final request = RequestOptions(path: '/login');
+    final error = DioException(
+      requestOptions: request,
+      type: DioExceptionType.badResponse,
+      response: Response<dynamic>(
+        requestOptions: request,
+        statusCode: 403,
+        data: '{"error":"Email verification required"}',
+      ),
+    );
+
+    final mapped = toApiException(error, requestPath: '/login');
+
+    expect(mapped.kind, ApiErrorKind.verificationRequired);
+    expect(mapped.message, 'Verify your email before signing in.');
+  });
+
+  test('does not reveal whether a signup email already has an account', () {
     final request = RequestOptions(path: '/signup');
     final error = DioException(
       requestOptions: request,
@@ -78,8 +95,11 @@ void main() {
     final mapped = toApiException(error, requestPath: '/signup');
 
     expect(mapped.kind, ApiErrorKind.conflict);
-    expect(mapped.message, contains('Sign in with the existing account'));
-    expect(mapped.message, isNot(contains('verification')));
+    expect(
+      mapped.message,
+      'If this address is eligible, verification instructions will be sent shortly.',
+    );
+    expect(mapped.message, isNot(contains('already exists')));
   });
 
   test('keeps protected-route 401 distinct from login failure', () {

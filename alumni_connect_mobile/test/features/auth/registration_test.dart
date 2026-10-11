@@ -1,5 +1,3 @@
-
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
@@ -25,30 +23,101 @@ void main() {
       .setMockMethodCallHandler(storageChannel, (call) async => null);
 
   group('Registration API Contract', () {
-    test('signup proceeds directly to sign in or existing alumni approval', () {
+    test('student and alumni signup both proceed to email verification', () {
       expect(
-        registrationSuccessLocation(UserRole.student),
-        '/login?registered=1',
-      );
-      expect(
-        registrationSuccessLocation(UserRole.alumni),
-        '/pending-approval',
+        registrationSuccessLocation('ravi@example.com'),
+        '/verify-email?email=ravi%40example.com',
       );
     });
 
-    testWidgets('login acknowledges signup without showing verification UI',
+    testWidgets('verification screen presents email and one-time code inputs',
         (tester) async {
       await tester.pumpWidget(
         const ProviderScope(
           child: MaterialApp(
-            home: LoginScreen(signupComplete: true),
+            home: EmailVerificationScreen(email: 'ravi@example.com'),
           ),
         ),
       );
 
-      expect(find.text('Your account was created. Sign in to continue.'),
-          findsOneWidget);
-      expect(find.text('Verify email'), findsNothing);
+      expect(find.text('Verify your email'), findsOneWidget);
+      expect(find.text('Verification code'), findsOneWidget);
+      expect(find.text('Resend verification code'), findsOneWidget);
+      expect(find.byType(TextFormField), findsNWidgets(2));
+    });
+
+    testWidgets('login confirms email verification before sign in',
+        (tester) async {
+      await tester.pumpWidget(
+        const ProviderScope(
+          child: MaterialApp(
+            home: LoginScreen(emailVerified: true),
+          ),
+        ),
+      );
+
+      expect(find.text('Email verified. You can now sign in.'), findsOneWidget);
+    });
+
+    test('email verification and resend use separate backend endpoints',
+        () async {
+      final dio = Dio(
+        BaseOptions(
+          baseUrl: 'https://api.example.test',
+          responseType: ResponseType.plain,
+        ),
+      );
+      final adapter = DioAdapter(dio: dio);
+      final requests = <RequestOptions>[];
+      dio.interceptors.add(InterceptorsWrapper(
+        onRequest: (options, handler) {
+          requests.add(options);
+          handler.next(options);
+        },
+      ));
+      adapter.onPost(
+        '/verify-email',
+        (server) => server.reply(200, {
+          'emailVerified': true,
+          'approvalPending': true,
+          'message':
+              'Email verified. Your account is awaiting administrator approval.',
+        }),
+        data: const {'email': 'priya@example.com', 'otp': '123456'},
+      );
+      adapter.onPost(
+        '/resend-verification',
+        (server) => server.reply(
+          200,
+          'If an account requires email verification, a code will be sent shortly',
+        ),
+        data: const {'email': 'priya@example.com'},
+      );
+      final repository = AppRepository(
+        ApiClient(
+          SecureStorageService(const FlutterSecureStorage()),
+          dio: dio,
+        ),
+      );
+
+      final result = await repository.verifyEmail(
+        'priya@example.com',
+        '123456',
+      );
+      await repository.resendEmailVerification('priya@example.com');
+
+      expect(result.emailVerified, isTrue);
+      expect(result.approvalPending, isTrue);
+      expect(result.message, contains('administrator approval'));
+      expect(requests.map((request) => request.path), [
+        '/verify-email',
+        '/resend-verification',
+      ]);
+      expect(requests[0].data, {
+        'email': 'priya@example.com',
+        'otp': '123456',
+      });
+      expect(requests[1].data, {'email': 'priya@example.com'});
     });
 
     // ------------------------------------------------------------
@@ -84,7 +153,10 @@ void main() {
 
       adapter.onPost(
         '/signup',
-        (server) => server.reply(200, 'Signup successful'),
+        (server) => server.reply(
+          200,
+          'If this address is eligible, verification instructions will be sent shortly.',
+        ),
         data: expectedPayload,
       );
 
@@ -115,7 +187,10 @@ void main() {
       // Ensure id is not accidentally transmitted in the signup payload
       expect(sentData.containsKey('id'), isFalse);
 
-      expect(response, 'Signup successful');
+      expect(
+        response,
+        'If this address is eligible, verification instructions will be sent shortly.',
+      );
       expect(adapter.history, hasLength(1));
     });
 
@@ -152,7 +227,10 @@ void main() {
 
       adapter.onPost(
         '/signup',
-        (server) => server.reply(200, 'Signup successful'),
+        (server) => server.reply(
+          200,
+          'If this address is eligible, verification instructions will be sent shortly.',
+        ),
         data: expectedPayload,
       );
 
@@ -180,14 +258,17 @@ void main() {
       expect(sentData['password'], 'StrongAlumniPass8');
       expect(sentData.containsKey('id'), isFalse);
 
-      expect(response, 'Signup successful');
+      expect(
+        response,
+        'If this address is eligible, verification instructions will be sent shortly.',
+      );
       expect(adapter.history, hasLength(1));
     });
 
     // ------------------------------------------------------------
-    // TEST 3 — INVALID REGISTRATION RESPONSE (CONFLICT / DUPLICATE EMAIL)
+    // TEST 3 — DUPLICATE REGISTRATION RESPONSE
     // ------------------------------------------------------------
-    test('signup handles 409 Conflict when email already exists', () async {
+    test('signup receives a non-enumerating account response', () async {
       final dio = Dio(
         BaseOptions(
           baseUrl: 'https://api.example.test',
@@ -206,7 +287,10 @@ void main() {
 
       adapter.onPost(
         '/signup',
-        (server) => server.reply(409, 'Email already exists'),
+        (server) => server.reply(
+          200,
+          'If this address is eligible, verification instructions will be sent shortly.',
+        ),
         data: existingUser.toJson(password: 'ValidPassword123'),
       );
 
@@ -217,15 +301,9 @@ void main() {
         ),
       );
 
-      await expectLater(
-        repository.signup(existingUser, 'ValidPassword123'),
-        throwsA(
-          isA<ApiException>()
-              .having((e) => e.kind, 'kind', ApiErrorKind.conflict)
-              .having((e) => e.message, 'message',
-                  contains('An account already uses this email'))
-              .having((e) => e.statusCode, 'statusCode', 409),
-        ),
+      expect(
+        await repository.signup(existingUser, 'ValidPassword123'),
+        'If this address is eligible, verification instructions will be sent shortly.',
       );
     });
 

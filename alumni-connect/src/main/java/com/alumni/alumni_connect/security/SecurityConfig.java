@@ -106,6 +106,8 @@ public class SecurityConfig {
                                 "/login",
 
                                 "/signup",
+                                "/verify-email",
+                                "/resend-verification",
 
                                 "/forgot-password",
                                 "/verify-otp",

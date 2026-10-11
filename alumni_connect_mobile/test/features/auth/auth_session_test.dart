@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
@@ -48,6 +49,31 @@ class FakeRealtimeService extends RealtimeService {
     disconnected = true;
     connectedToken = null;
   }
+}
+
+class _DeferredAppRepository extends AppRepository {
+  _DeferredAppRepository(
+    this.loginResults,
+    this.userResults,
+    SecureStorageService storage,
+  ) : super(
+          ApiClient(
+            storage,
+            dio: Dio(BaseOptions(baseUrl: 'https://api.example.test')),
+          ),
+        );
+
+  final List<Completer<String>> loginResults;
+  final List<Completer<User>> userResults;
+  int _loginIndex = 0;
+  int _userIndex = 0;
+
+  @override
+  Future<String> login(String email, String password, UserRole role) =>
+      loginResults[_loginIndex++].future;
+
+  @override
+  Future<User> userByEmail(String email) => userResults[_userIndex++].future;
 }
 
 String createTestJwt({
@@ -317,6 +343,44 @@ void main() {
       expect(notifier.state.value, isNull);
     });
 
+    test('unverified login exposes a distinct verification-flow result',
+        () async {
+      final dio = Dio(
+        BaseOptions(
+          baseUrl: 'https://api.example.test',
+          responseType: ResponseType.plain,
+        ),
+      );
+      final adapter = DioAdapter(dio: dio);
+      adapter.onPost(
+        '/login',
+        (server) => server.reply(
+          403,
+          {'error': 'Email verification required'},
+        ),
+        data: {
+          'email': 'student@example.com',
+          'password': 'valid-password',
+          'role': 'STUDENT',
+        },
+      );
+      final fakeStorage = FakeSecureStorageService();
+      final fakeRealtime = FakeRealtimeService();
+      final repository = AppRepository(ApiClient(fakeStorage, dio: dio));
+      final notifier = AuthNotifier(repository, fakeStorage, fakeRealtime);
+
+      expect(
+        await notifier.signIn(
+          'student@example.com',
+          'valid-password',
+          UserRole.student,
+        ),
+        'VERIFY_EMAIL',
+      );
+      expect(await fakeStorage.readToken(), isNull);
+      expect(notifier.state.value, isNull);
+    });
+
     test('failed profile fetch after login clears newly stored token',
         () async {
       final dio = Dio(
@@ -392,6 +456,64 @@ void main() {
       expect(lastState?.value, isNull);
       expect(lastState?.hasError, isFalse);
       expect(fakeRealtime.disconnected, isTrue);
+    });
+
+    test('late login and restore results cannot revive a logged-out session',
+        () async {
+      final storage = FakeSecureStorageService();
+      final realtime = FakeRealtimeService();
+      final firstLogin = Completer<String>();
+      final secondLogin = Completer<String>();
+      final signedInUser = Completer<User>();
+      final repository = _DeferredAppRepository(
+        [firstLogin, secondLogin],
+        [signedInUser],
+        storage,
+      );
+      final notifier = AuthNotifier(repository, storage, realtime);
+
+      final staleLogin = notifier.signIn(
+        'asha@example.com',
+        'old-password',
+        UserRole.student,
+      );
+      await notifier.signOut();
+      firstLogin.complete(createTestJwt(email: 'asha@example.com'));
+      expect(await staleLogin, 'Sign-in was cancelled.');
+      expect(await storage.readToken(), isNull);
+      expect(realtime.connectedToken, isNull);
+
+      final currentLogin = notifier.signIn(
+        'asha@example.com',
+        'new-password',
+        UserRole.student,
+      );
+      secondLogin.complete(createTestJwt(email: 'asha@example.com'));
+      await pumpEventQueue();
+      signedInUser.complete(testUser);
+      expect(await currentLogin, isNull);
+      expect(realtime.connectedToken, createTestJwt(email: 'asha@example.com'));
+      expect(notifier.state.value, testUser);
+
+      final delayedUser = Completer<User>();
+      final delayedRestoreRepository = _DeferredAppRepository(
+        const [],
+        [delayedUser],
+        storage,
+      );
+      final restoreRealtime = FakeRealtimeService();
+      final restoreNotifier =
+          AuthNotifier(delayedRestoreRepository, storage, restoreRealtime);
+      await storage.writeToken(createTestJwt(email: 'asha@example.com'));
+      final delayedRestore = restoreNotifier.restore();
+      await pumpEventQueue();
+      await restoreNotifier.signOut();
+      delayedUser.complete(testUser);
+      await delayedRestore;
+
+      expect(restoreNotifier.state.value, isNull);
+      expect(await storage.readToken(), isNull);
+      expect(restoreRealtime.connectedToken, isNull);
     });
   });
 }

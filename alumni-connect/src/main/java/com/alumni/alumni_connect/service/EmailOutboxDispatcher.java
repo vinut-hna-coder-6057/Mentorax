@@ -35,7 +35,8 @@ public class EmailOutboxDispatcher {
     }
 
     private void deliver(EmailOutboxService.ClaimedMessage message) {
-        if (!"PASSWORD_RESET".equals(message.purpose())) {
+        if (!"PASSWORD_RESET".equals(message.purpose())
+                && !"EMAIL_VERIFICATION".equals(message.purpose())) {
             log.info(
                     "Discarding unsupported queued email purpose: outboxId={}, purpose={}",
                     message.id(),
@@ -45,7 +46,11 @@ public class EmailOutboxDispatcher {
         }
         try {
             String otp = cipher.decrypt(message.encryptedOtp());
-            emailService.sendOtpEmail(message.recipient(), otp);
+            if ("PASSWORD_RESET".equals(message.purpose())) {
+                emailService.sendOtpEmail(message.recipient(), otp);
+            } else {
+                emailService.sendEmailVerificationOtp(message.recipient(), otp);
+            }
         } catch (RuntimeException exception) {
             log.warn(
                     "Queued OTP delivery deferred: outboxId={}, exceptionType={}",

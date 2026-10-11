@@ -84,7 +84,7 @@ class ProductionHardeningTest {
         );
 
         assertEquals("Event", request.title());
-        assertEquals(7, EventRequest.class.getRecordComponents().length);
+        assertEquals(8, EventRequest.class.getRecordComponents().length);
         assertFalse(mapper.writeValueAsString(request).contains("createdBy"));
     }
 
@@ -137,7 +137,9 @@ AuthService authService = new AuthService(
         request.setCollege("Mentorax University");
         request.setBranch("Computer Science");
 
-        assertEquals("Signup successful", authService.signup(request));
+        assertEquals(
+                "If this address is eligible, verification instructions will be sent shortly.",
+                authService.signup(request));
 
         ArgumentCaptor<com.alumni.alumni_connect.dto.SignupRequest> captor =
                 ArgumentCaptor.forClass(com.alumni.alumni_connect.dto.SignupRequest.class);
@@ -149,7 +151,7 @@ AuthService authService = new AuthService(
     }
 
     @Test
-    void signupMapsEmailUniquenessRaceToConflictWithoutRetryingTransaction() {
+    void signupMapsEmailUniquenessRaceToGenericResponseWithoutRetryingTransaction() {
         SignupTransactionService signupTransactions = mock(SignupTransactionService.class);
         AuthService authService = new AuthService(
                 users,
@@ -163,12 +165,9 @@ AuthService authService = new AuthService(
         doThrow(new DataIntegrityViolationException("duplicate email"))
                 .when(signupTransactions).createAccount(request);
 
-        ResponseStatusException exception = assertThrows(
-                ResponseStatusException.class,
-                () -> authService.signup(request));
-
-        assertEquals(HttpStatus.CONFLICT, exception.getStatusCode());
-        assertEquals("Email already exists.", exception.getReason());
+        assertEquals(
+                "If this address is eligible, verification instructions will be sent shortly.",
+                authService.signup(request));
         verify(signupTransactions, times(1)).createAccount(request);
     }
 
@@ -244,7 +243,8 @@ AuthService authService = new AuthService(
         "2026-10-10",
         "TECH",
         "https://example.com/meeting",
-        "https://example.com/image.png"
+        "https://example.com/image.png",
+        null
 );
         when(users.findByEmail("member@example.com"))
                 .thenReturn(Optional.of(caller));
@@ -278,7 +278,7 @@ AuthService authService = new AuthService(
 
         EventService service = new EventService(events, registrations, email, users);
         EventRequest request = new EventRequest(
-                "Test Event", null, null, null, null, null, null);
+                "Test Event", null, null, null, null, null, null, null);
 
         ResponseStatusException exception = assertThrows(
                 ResponseStatusException.class,
@@ -303,10 +303,9 @@ AuthService authService = new AuthService(
         null,
         null,
         null,
+        null,
         null
 );
-        when(events.findById(10L))
-                .thenReturn(Optional.of(stored));
         when(events.findByIdForUpdate(10L))
                 .thenReturn(Optional.of(stored));
 

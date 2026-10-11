@@ -22,6 +22,8 @@ import java.time.LocalDateTime;
 
 @Service
 public class AuthService {
+    private static final String GENERIC_SIGNUP_RESPONSE =
+            "If this address is eligible, verification instructions will be sent shortly.";
 
     private final UserRepository repository;
     private final BCryptPasswordEncoder encoder;
@@ -47,18 +49,19 @@ public class AuthService {
 public String signup(SignupRequest request) {
     try {
         signupTransactionService.createAccount(request);
-    } catch (DataIntegrityViolationException exception) {
-        if (repository.findByEmailIgnoreCase(request.email()).isPresent()) {
-            throw new ResponseStatusException(
-                    HttpStatus.CONFLICT,
-                    "Email already exists.",
-                    exception
-            );
-        }
-        throw exception;
+} catch (ResponseStatusException exception) {
+    if (exception.getStatusCode().value() == HttpStatus.CONFLICT.value()) {
+        return GENERIC_SIGNUP_RESPONSE;
     }
+    throw exception;
+} catch (DataIntegrityViolationException exception) {
+    if (repository.findByEmailIgnoreCase(request.email()).isPresent()) {
+        return GENERIC_SIGNUP_RESPONSE;
+    }
+    throw exception;
+}
 
-    return "Signup successful";
+return GENERIC_SIGNUP_RESPONSE;
 }
 
 /** Legacy entry point retained for existing internal callers. */
@@ -138,6 +141,15 @@ public String signup(User user) {
             throw new ResponseStatusException(
                     HttpStatus.FORBIDDEN,
                     "Account rejected"
+            );
+        }
+
+        if (("STUDENT".equalsIgnoreCase(existing.getRole())
+                || "ALUMNI".equalsIgnoreCase(existing.getRole()))
+                && !existing.isEmailVerified()) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "Email verification required"
             );
         }
 

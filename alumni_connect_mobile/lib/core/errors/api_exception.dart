@@ -2,6 +2,7 @@ enum ApiErrorKind {
   network,
   timeout,
   unauthorized,
+  verificationRequired,
   pendingApproval,
   forbidden,
   notFound,

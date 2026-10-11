@@ -79,6 +79,9 @@ private String status = "PENDING";
 
     private int attendeeCount = 0;
 
+    @Column(name = "max_capacity")
+    private Integer maxCapacity;
+
     // =====================================
     // OPTIONAL FEATURES
     // =====================================
@@ -270,6 +273,14 @@ private String imageUrl;
 
         this.attendeeCount =
                 attendeeCount;
+    }
+
+    public Integer getMaxCapacity() {
+        return maxCapacity;
+    }
+
+    public void setMaxCapacity(Integer maxCapacity) {
+        this.maxCapacity = maxCapacity;
     }
 
     // =====================================

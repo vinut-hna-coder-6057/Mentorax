@@ -27,6 +27,15 @@ class _TestRealtimeService extends RealtimeService {
   @override
   Stream<NotificationItem> get notifications => _controller.stream;
 
+  @override
+  Stream<RealtimeSessionEvent<NotificationItem>> get notificationEvents =>
+      _controller.stream.map(
+        (notification) => RealtimeSessionEvent(0, 0, notification),
+      );
+
+  @override
+  bool isCurrentSession(int sessionVersion, [int? connectionVersion]) => true;
+
   void emit(NotificationItem notification) => _controller.add(notification);
 
   @override

@@ -13,6 +13,7 @@ import jakarta.persistence.LockModeType;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -39,8 +40,10 @@ public interface EventRepository
     findByStatusOrderByCreatedAtDesc(
             String status
     );
+    @EntityGraph(attributePaths = "creator")
     List<Event> findByStatusOrderByCreatedAtDesc(String status, Pageable pageable);
 
+    @EntityGraph(attributePaths = "creator")
     @Query("""
             SELECT e
             FROM Event e

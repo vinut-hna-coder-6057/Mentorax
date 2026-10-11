@@ -36,7 +36,8 @@ public class EmailOutboxService {
 
     @Transactional
     public void enqueueOtp(String email, String purpose, String otp) {
-        if (!"PASSWORD_RESET".equals(purpose)) {
+        if (!"PASSWORD_RESET".equals(purpose)
+                && !"EMAIL_VERIFICATION".equals(purpose)) {
             throw new IllegalArgumentException("Unsupported email OTP purpose");
         }
         LocalDateTime now = LocalDateTime.now();
@@ -47,6 +48,11 @@ public class EmailOutboxService {
                 purpose,
                 now,
                 now.plus(MESSAGE_TTL)));
+    }
+
+    @Transactional
+    public void discardOtp(String email, String purpose) {
+        repository.deleteByRecipientAndPurpose(email, purpose);
     }
 
     @Transactional
