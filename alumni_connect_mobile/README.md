@@ -45,11 +45,9 @@ flutter build apk --release --dart-define=API_BASE_URL=https://mentorax-producti
 Profile/release API configuration requires this HTTPS URL; the app rejects a
 missing or non-HTTPS API URL when its API configuration is initialized, and the
 Android release manifest blocks cleartext HTTP. Do not put API secrets in Dart
-defines; values compiled into an app are public. The current
-`com.example.alumni_connect_mobile`
-application ID is still Flutter's placeholder and must be replaced with the
-organization's chosen unique ID before publishing; it is intentionally not
-guessed here.
+defines; values compiled into an app are public. The Android application ID is
+configured as `com.mentorax.app` for release publishing and must stay unique to
+this app.
 
 Realtime messaging uses the same `API_BASE_URL` with the SockJS `/chat`
 endpoint. The STOMP client converts HTTPS to secure WebSocket (`wss://`) and
