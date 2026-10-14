@@ -1,214 +1,343 @@
+<div align="center">
+
 # Mentorax
 
-Mentorax is a mobile-first alumni and student networking application. It
-supports verified account onboarding, alumni approval, professional
-discoverability, connections, events, notifications, and realtime messaging.
+### Connecting students and alumni through a secure, community-driven networking platform.
 
-## Project status
+A mobile-first alumni network for professional discovery, event participation, notifications, and real-time conversations — built with **Flutter, Java, Spring Boot, and MySQL**.
 
-| Area | Status |
-| --- | --- |
-| Core authentication, verification, profiles, networking, events, notifications, and messaging | Implemented |
-| Backend, Flutter, security, and database-migration tests | Present in the repository |
-| GitHub Actions backend, Flutter, and Android build workflows | Configured |
-| Production deployment | Not independently verified by this repository |
-| Structured mentorship workflow and matching | Planned; not currently implemented |
-| AI/LLM or machine-learning recommendations | Not implemented |
+[![Java](https://img.shields.io/badge/Java-21-ED8B00?style=for-the-badge&logo=openjdk&logoColor=white)](https://www.java.com/)
+[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-Backend-6DB33F?style=for-the-badge&logo=springboot&logoColor=white)](https://spring.io/projects/spring-boot)
+[![Flutter](https://img.shields.io/badge/Flutter-Mobile-02569B?style=for-the-badge&logo=flutter&logoColor=white)](https://flutter.dev/)
+[![MySQL](https://img.shields.io/badge/MySQL-Database-4479A1?style=for-the-badge&logo=mysql&logoColor=white)](https://www.mysql.com/)
+[![Maven](https://img.shields.io/badge/Maven-Build-C71A36?style=for-the-badge&logo=apachemaven&logoColor=white)](https://maven.apache.org/)
 
-## User journeys
+**[Repository](https://github.com/vinut-hna-coder-6057/Mentorax) · Built to explore reliable full-stack product engineering**
 
-- **Student:** register, verify the email OTP, sign in, maintain a profile,
-  discover approved community profiles, request connections, register for
-  events, receive notifications, and message accepted connections.
-- **Alumni:** register, verify the email OTP, wait for an administrator to
-  approve the account, then use the student networking features.
-- **Administrator:** sign in, review alumni approvals and event moderation, and
-  access administrative user functions.
-- **Password recovery:** request a separate password-reset OTP, verify it to
-  receive a short-lived reset authorization, then set a new password. Email
-  verification and password reset are distinct flows.
+</div>
+
+---
+
+## The problem
+
+Students often struggle to find relevant alumni, discover career events, and maintain meaningful professional connections after joining a college community. Alumni, in turn, need a practical way to share experience and engage with students. Administrators need visibility and control over membership and community activities.
+
+**Mentorax brings these workflows into one mobile-first platform** with distinct student, alumni, and administrator experiences.
+
+## Product overview
+
+![Mentorax / Alumni Connect platform overview](docs/images/mentorax-overview.jpg)
+
+*Conceptual overview of the student, alumni, and administrator roles and how they interact.*
+
+## Key capabilities
+
+### 👥 Role-aware community
+
+- Separate student, alumni, and administrator workflows.
+- Student and alumni registration with email OTP verification.
+- Alumni accounts remain pending until administrator approval.
+- Professional profile management and discovery of approved community members.
+- Connection requests to help members build a professional network.
+
+### 💬 Real-time communication
+
+- Direct messaging between connected users.
+- STOMP over SockJS/WebSocket transport.
+- JWT validation when establishing a STOMP connection.
+- Protected messaging destinations and private user queues.
+- Server-side checks for message operations and subscription access.
+
+### 📅 Events and notifications
+
+- Event creation and moderation workflows.
+- Event registration and attendee tracking.
+- Notifications for relevant community actions, including event and approval updates.
+- Administrator workflows for reviewing alumni approvals and event activity.
+
+### 🔐 Authentication and account safety
+
+- JWT-based authentication for protected APIs.
+- Email verification and password-reset flows kept separate.
+- Short-lived, single-use OTP/reset workflows with attempt limits.
+- Hashed OTP and reset-authorization values in persistence.
+- Role-aware access checks and server-side ownership validation.
+- Professional directory responses intentionally exclude sensitive account fields.
+
+### 🧰 Backend and database engineering
+
+- Layered Spring Boot application: controllers, services, repositories, and DTOs.
+- Jakarta Bean Validation for request validation.
+- Spring Data JPA/Hibernate for persistence.
+- Flyway migrations with Hibernate schema validation.
+- Environment-configured CORS and WebSocket origins.
+- Bounded process-local rate limits for selected HTTP and STOMP operations.
+- GitHub Actions workflows for backend, Flutter, and Android build checks.
+
+> **Scope note:** Mentorax is a networking and community platform. AI/LLM recommendations and automated mentorship matching are not implemented in the current repository.
+
+---
 
 ## Architecture
 
-```text
-Flutter mobile application
-        │
-        ├── REST / JSON ───────┐
-        └── STOMP over SockJS ─┤
-                               ▼
-                     Spring Boot application
-                               │
-                       Controllers / DTOs
-                               │
-                           Services
-                               │
-                         Repositories
-                               │
-                    MySQL + Flyway migrations
+```mermaid
+flowchart TB
+    subgraph Client["Flutter mobile application"]
+        UI["Screens and feature modules"]
+        State["Riverpod state management"]
+        API["Dio API client"]
+        RT["STOMP / SockJS client"]
+        Secure["Secure token storage"]
+        UI --> State
+        State --> API
+        State --> RT
+        State --> Secure
+    end
 
-Realtime path:
-Flutter STOMP client → /chat SockJS endpoint → JWT-authenticated STOMP
-CONNECT/SEND/SUBSCRIBE → application destinations and private user queues
+    subgraph Server["Java 21 · Spring Boot"]
+        Security["Spring Security · JWT"]
+        Controllers["REST controllers · DTO validation"]
+        Services["Business services · authorization"]
+        Realtime["STOMP / WebSocket security"]
+        Repositories["Spring Data JPA repositories"]
+        Security --> Controllers
+        Controllers --> Services
+        Realtime --> Services
+        Services --> Repositories
+    end
+
+    DB[("MySQL")]
+    Migrations["Flyway migrations"]
+    API --> Security
+    RT --> Realtime
+    Repositories --> DB
+    Migrations --> DB
 ```
+
+### Technology choices
+
+| Layer | Technology | Responsibility |
+|---|---|---|
+| Mobile client | Flutter, Dart | Cross-platform mobile interface |
+| State management | Riverpod | Manage client-side state and dependencies |
+| Navigation | GoRouter | Route organization and navigation |
+| HTTP | Dio | REST API communication |
+| Real-time | STOMP over SockJS/WebSocket | Messaging and live updates |
+| Backend | Java 21, Spring Boot | API endpoints and business workflows |
+| Security | Spring Security, JWT | Authentication and authorization |
+| Validation | Jakarta Bean Validation | Validate incoming request data |
+| Persistence | Spring Data JPA, Hibernate | Data access and ORM |
+| Database | MySQL | Persistent application data |
+| Schema migrations | Flyway | Versioned database evolution |
+| Build and checks | Maven, Flutter tooling, GitHub Actions | Repeatable builds and automated checks |
+
+---
+
+## Authentication and trust boundaries
+
+Mentorax treats authentication and authorization as separate concerns.
+
+1. A user registers and receives an email-verification OTP.
+2. The verification flow validates the OTP and activates a student account after successful verification.
+3. Alumni accounts require administrator approval after verification.
+4. Login and protected operations enforce the applicable account state.
+5. Password recovery uses its own OTP purpose and a short-lived reset authorization.
+6. Protected service operations use the authenticated principal for identity and ownership checks rather than trusting a client-supplied user ID.
+
+### Privacy-oriented decisions
+
+- Public directory/detail responses expose professional profile information rather than private account fields.
+- OTPs and reset authorization values are stored as hashes in the verification data model.
+- Email verification and password reset are separate flows.
+- CORS and WebSocket origins are configured through environment-specific settings.
+- Secrets and service credentials should be supplied through environment configuration, never committed to source control.
+
+---
+
+## Repository layout
+
+```text
+Mentorax/
+├── alumni-connect/                 # Spring Boot backend
+│   └── src/main/
+│       ├── java/                   # API, services, security, persistence
+│       └── resources/
+│           ├── db/migration/       # Flyway migrations
+│           └── DATABASE_MIGRATION.md
+├── alumni_connect_mobile/          # Flutter mobile application
+│   ├── lib/
+│   │   └── features/               # Feature-oriented screens and logic
+│   ├── android/                    # Android application/build configuration
+│   └── test/                       # Flutter tests
+├── .github/workflows/              # Automated backend/mobile/build checks
+└── README.md
+```
+
+*Exact filenames and folders may evolve as the project develops.*
+
+---
+
+## Getting started
+
+### Prerequisites
+
+Install the following tools before running the project:
+
+- JDK 21
+- Maven or the repository's Maven wrapper
+- Flutter SDK and Dart
+- Android Studio or Android SDK tooling for Android builds
+- MySQL
+- Git
+
+### 1. Clone the repository
+
+```bash
+git clone https://github.com/vinut-hna-coder-6057/Mentorax.git
+cd Mentorax
+```
+
+### 2. Configure the database and environment
+
+Create a MySQL database for local development. Configure the backend's database connection and any required authentication, email, and application settings using the project's supported configuration mechanism.
+
+**Do not commit real passwords, JWT signing secrets, SMTP credentials, or production connection strings.** Use local environment variables or an ignored local configuration file. Check the backend configuration and README files for the exact variable names expected by your checkout.
+
+### 3. Run the backend
+
+From the backend directory:
+
+```bash
+cd alumni-connect
+```
+
+On macOS/Linux:
+
+```bash
+./mvnw spring-boot:run
+```
+
+On Windows PowerShell:
+
+```powershell
+.\mvnw.cmd spring-boot:run
+```
+
+If the repository does not contain the Maven wrapper, use an installed Maven version:
+
+```bash
+mvn spring-boot:run
+```
+
+### 4. Run the Flutter app
+
+Open a second terminal at the repository root:
+
+```bash
+cd alumni_connect_mobile
+flutter pub get
+flutter run
+```
+
+Choose an available emulator or connected device. Ensure the app's API base URL points to an address reachable from that device. For an Android emulator, `localhost` refers to the emulator itself, not automatically to your development computer.
+
+### 5. Build an Android debug APK
+
+```bash
+cd alumni_connect_mobile
+flutter build apk --debug
+```
+
+The APK is normally produced under:
+
+```text
+build/app/outputs/flutter-apk/app-debug.apk
+```
+
+For a release build, configure signing securely and follow the project's release instructions. Do not distribute a debug APK as a production release.
+
+---
+
+## Testing and quality checks
+
+Run the checks relevant to the component you changed.
 
 ### Backend
 
-The Java 21 / Spring Boot backend uses Spring MVC, Spring Security, JWT,
-Jakarta Bean Validation, Spring Data JPA/Hibernate, Flyway, MySQL, and Spring's
-STOMP/WebSocket support. Business and ownership checks live in services and
-derive the caller identity from the authenticated principal.
-
-### Flutter
-
-The `alumni_connect_mobile/` client uses Flutter, Riverpod, Dio, secure token
-storage, GoRouter, and a STOMP client. Feature screens are grouped under
-`lib/features/`; API access is centralized in the repository and API-client
-layers.
-
-### Realtime messaging
-
-The Flutter client authenticates in the STOMP `CONNECT` frame with its JWT.
-The backend checks the token and current account before accepting a connection,
-validates private user-queue subscriptions, and rate-limits authenticated
-message sends. SockJS transport setup is publicly reachable, but STOMP
-operations require authentication. The current simple broker is in-memory and
-is intended for a single application instance.
-
-## Authentication and privacy
-
-- Public signup creates an unverified student or alumni account and queues an
-  email-verification OTP.
-- OTPs are short-lived, hashed in the verification table, attempt-limited, and
-  single-use. The outbox stores encrypted OTP payloads for asynchronous email
-  delivery.
-- Successful student email verification activates the account. Alumni remain
-  pending until administrator approval. Login and protected requests require
-  the applicable verified/approved account state.
-- Password reset uses a distinct OTP purpose and a short-lived, single-use
-  reset authorization token stored as a hash.
-- Profile directory responses are limited to professional fields. Email,
-  student roll number, section, and arbitrary location are not included in
-  public directory/detail responses. Owners and administrators retain their
-  full profile response. Connection responses share counterpart email only
-  after the connection is accepted, as the existing chat client addresses
-  recipients by email.
-- HTTP and STOMP rate limits are bounded and process-local. They protect a
-  single running instance; a shared limiter would be required before
-  horizontal scaling.
-- CORS and WebSocket origins are environment-configured. Do not use broad
-  production origin patterns or commit credentials.
-
-## Data and migrations
-
-Hibernate runs with `ddl-auto=validate`; schema changes are handled by Flyway.
-Migration routing chooses the fresh, normalized, or historical legacy chain
-from the database's recognized shape/history and appends shared migrations.
-Unknown or conflicting histories fail closed. Applied historical migrations
-must remain unchanged; schema corrections belong in new migrations.
-
-`alumni-connect/src/main/resources/DATABASE_MIGRATION.md` documents routing,
-deployment checks, and MySQL migration testing. GitHub Actions provisions
-disposable MySQL 8 schemas for real-MySQL migration tests. Those tests require
-the configured disposable database and must not be pointed at databases with
-application data.
-
-## Local development
-
-Prerequisites:
-
-- Java 21
-- MySQL 8
-- Flutter SDK for mobile development
-
-1. Create a local MySQL database and configure the backend variables shown in
-   [`.env.example`](./.env.example). The example is a reference, not a file
-   automatically loaded by Spring or the shell. Keep real values outside Git.
-2. Start the backend:
-
-   ```sh
-   cd alumni-connect
-   ./mvnw spring-boot:run
-   ```
-
-3. Start the Flutter client:
-
-   ```sh
-   cd alumni_connect_mobile
-   flutter pub get
-   flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8080
-   ```
-
-The emulator URL is for Android debug only. Profile/release Flutter builds
-require an HTTPS API URL; see the [mobile README](./alumni_connect_mobile/README.md).
-
-### Environment variables
-
-Backend configuration is supplied through environment variables:
-
-| Variable | Purpose |
-| --- | --- |
-| `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` | MySQL connection |
-| `JWT_SECRET` | Signing and domain-separated email-outbox encryption key material; use a high-entropy secret of at least 32 bytes |
-| `JWT_EXPIRATION_MS` | Optional token lifetime |
-| `CORS_ALLOWED_ORIGIN_PATTERNS`, `WEBSOCKET_ALLOWED_ORIGINS` | Explicit trusted web origins |
-| `RESEND_API_KEY`, `RESEND_FROM_EMAIL` | Email verification, password-reset, and event email delivery; use a verified sender |
-| `RATE_LIMIT_LOGIN_IP`, `RATE_LIMIT_LOGIN_EMAIL`, `RATE_LIMIT_OTP_IP`, `RATE_LIMIT_OTP_EMAIL`, `RATE_LIMIT_WINDOW_MS` | HTTP login/OTP rate limits |
-| `app.websocket.rate-limit.messages`, `app.websocket.rate-limit.window-ms` | Optional STOMP send limits (Spring property names) |
-| `app.email-outbox.enabled`, `app.email-outbox.poll-delay-ms` | Optional outbox dispatcher settings |
-
-Email delivery credentials are not needed merely to start the application, but
-email verification and password-reset delivery require a functioning Resend
-configuration. Without delivery, queued messages expire and self-registered
-users cannot complete verification.
-
-## Testing and CI
-
-Backend:
-
-```sh
+```bash
 cd alumni-connect
 ./mvnw test
 ```
 
-Flutter:
+Windows PowerShell:
 
-```sh
+```powershell
+.\mvnw.cmd test
+```
+
+### Flutter
+
+```bash
 cd alumni_connect_mobile
 flutter analyze
 flutter test
 ```
 
-GitHub Actions runs backend tests with MySQL 8, Flutter analysis/tests, and a
-debug Android APK build. The backend job explicitly runs
-`FreshMySqlMigrationTest` against its disposable MySQL schemas before the full
-backend suite. Local executions of that test class require separate empty
-loopback MySQL test schemas configured with the `MENTORAX_MYSQL_MIGRATION_TEST_*`
-and `MENTORAX_MYSQL_RECOVERY_TEST_*` variables; absent those settings, JUnit
-skips those MySQL-only tests locally.
+### Android debug build
 
-## API overview
+```bash
+flutter build apk --debug
+```
 
-The backend exposes REST endpoints for authentication and verification,
-users/profiles, alumni administration, connections, events, notifications,
-messages, and conversations. Realtime messaging is provided over STOMP at
-`/chat`. Endpoint definitions and authorization rules are maintained in the
-Spring controllers and security configuration.
+The project has included backend tests, Flutter analysis/tests, Android build checks, and CI workflows in development. Run them against your current checkout before relying on their result; a previous successful run is not a guarantee that every later change is safe.
 
-## Deployment and limitations
+---
 
-The backend configuration supports a Railway-style deployment using externally
-provided MySQL and secret variables. The repository documents a Railway run
-configuration, but this README does not assert that a particular deployment is
-currently live or production-ready. Review Flyway history and run migrations
-against an explicitly selected database before deployment.
+## Important engineering trade-offs
 
-Known limitations:
+- **Real-time broker:** the current Spring simple broker is in-memory and suited to a single application instance. Horizontal scaling would require a shared messaging/broker strategy and coordinated session behavior.
+- **Rate limiting:** the existing process-local limits do not automatically coordinate across multiple backend instances. Distributed deployment calls for a shared limiter.
+- **Database evolution:** schema changes should be made through new Flyway migrations; already-applied historical migrations should not be rewritten casually.
+- **Deployment:** production hosting, production-scale capacity, and end-to-end operational performance should be verified separately before being claimed as production-ready.
 
-- The STOMP simple broker and in-memory rate limiters are instance-local.
-- Email delivery depends on Resend configuration.
-- No structured mentorship-offering/request workflow or recommendation system
-  is present. A future workflow should reuse existing profiles, notifications,
-  connections, and messaging, and begin with deterministic explainable
-  matching rather than an LLM.
-- No benchmark figures are claimed; run a reproducible workload before drawing
-  performance conclusions.
+These constraints are documented intentionally: they make the architecture's current boundaries visible and provide a practical path for future hardening.
+
+## Roadmap
+
+Potential next steps, not claims of existing functionality:
+
+- [ ] Shared rate limiting for multi-instance deployments
+- [ ] External message broker for horizontally scaled real-time messaging
+- [ ] Expanded integration and end-to-end test coverage
+- [ ] Deployment runbooks, observability, and operational dashboards
+- [ ] Structured mentorship matching and recommendations
+- [ ] Accessibility and usability testing with real student/alumni users
+
+## Contributing
+
+Issues and pull requests are welcome.
+
+1. Fork the repository.
+2. Create a focused feature branch.
+3. Make the smallest clear change that solves the problem.
+4. Run the relevant backend/mobile checks.
+5. Open a pull request with the motivation, implementation notes, and test results.
+
+Please do not include credentials, real user data, or production secrets in issues, logs, screenshots, or commits.
+
+## Author
+
+**Vinuthna** — Computer Science (AI & ML) undergraduate interested in backend engineering, full-stack development, and reliable software systems.
+
+- GitHub: [@vinut-hna-coder-6057](https://github.com/vinut-hna-coder-6057)
+- Project: [Mentorax repository](https://github.com/vinut-hna-coder-6057/Mentorax)
+
+---
+
+<div align="center">
+
+**Mentorax — bringing students and alumni closer through technology.**
+
+If you find the project interesting, explore the code and share feedback.
+
+</div>
