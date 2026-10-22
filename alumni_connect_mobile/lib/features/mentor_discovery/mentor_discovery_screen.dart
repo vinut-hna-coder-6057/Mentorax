@@ -38,9 +38,11 @@ class MentorMatch {
         name: json['name'] as String? ?? 'Mentorax alum',
         jobTitle: json['jobTitle'] as String?,
         company: json['company'] as String?,
-        skills: (json['skills'] as List? ?? const []).whereType<String>().toList(),
-        evidence:
-            (json['evidence'] as List? ?? const []).whereType<String>().toList(),
+        skills:
+            (json['skills'] as List? ?? const []).whereType<String>().toList(),
+        evidence: (json['evidence'] as List? ?? const [])
+            .whereType<String>()
+            .toList(),
         relevanceEstimate: (json['relevanceEstimate'] as num?)?.toDouble() ?? 0,
         uncertainty: json['uncertainty'] as String? ?? '',
         conversationTopic: json['conversationTopic'] as String? ?? '',
@@ -49,7 +51,8 @@ class MentorMatch {
 }
 
 class MentorDiscoveryResult {
-  const MentorDiscoveryResult(this.matches, this.rankingMethod, this.fallbackUsed);
+  const MentorDiscoveryResult(
+      this.matches, this.rankingMethod, this.fallbackUsed);
   final List<MentorMatch> matches;
   final String rankingMethod;
   final bool fallbackUsed;
@@ -57,8 +60,8 @@ class MentorDiscoveryResult {
   factory MentorDiscoveryResult.fromJson(Map<String, dynamic> json) =>
       MentorDiscoveryResult(
         (json['recommendations'] as List? ?? const [])
-            .map((item) => MentorMatch.fromJson(
-                Map<String, dynamic>.from(item as Map)))
+            .map((item) =>
+                MentorMatch.fromJson(Map<String, dynamic>.from(item as Map)))
             .toList(),
         json['rankingMethod'] as String? ?? 'Profile relevance ranking',
         json['fallbackUsed'] as bool? ?? true,
@@ -108,6 +111,21 @@ class _MentorDiscoveryScreenState extends ConsumerState<MentorDiscoveryScreen> {
   final Map<int, TextEditingController> _drafts = {};
   final Set<int> _requesting = {};
 
+  static const _exampleQuestions = [
+    'How should I prepare for software engineering internships?',
+    'How can I improve my DSA and interview skills?',
+    'What skills should I learn to become a machine learning engineer?',
+  ];
+
+  void _useExampleQuestion(String question) {
+    setState(() {
+      _goal.value = TextEditingValue(
+        text: question,
+        selection: TextSelection.collapsed(offset: question.length),
+      );
+    });
+  }
+
   @override
   void dispose() {
     _goal.dispose();
@@ -125,7 +143,8 @@ class _MentorDiscoveryScreenState extends ConsumerState<MentorDiscoveryScreen> {
       ref.invalidate(connectionsProvider);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Connection request sent for your review.')),
+        const SnackBar(
+            content: Text('Connection request sent for your review.')),
       );
       context.push('/user/${match.id}');
     } catch (error) {
@@ -145,15 +164,15 @@ class _MentorDiscoveryScreenState extends ConsumerState<MentorDiscoveryScreen> {
     final result = ref.watch(mentorDiscoveryProvider);
     final width = MediaQuery.sizeOf(context).width;
     return Scaffold(
-      appBar: AppBar(title: const Text('AI Mentor Discovery')),
+      appBar: AppBar(title: const Text('Find Relevant Alumni')),
       body: ListView(
         padding: EdgeInsets.all(width >= 900 ? 32 : 20),
         children: [
-          Text('What would you like guidance on?',
+          Text('Ask a career question',
               style: Theme.of(context).textTheme.headlineSmall),
           const SizedBox(height: AppSpacing.sm),
           const Text(
-              'Describe a career goal or question. We will compare it with approved alumni profiles when you ask.'),
+              'Enter a career question to find approved alumni with relevant experience. Your question is only used to search profiles; it is not sent to any alumnus.'),
           const SizedBox(height: AppSpacing.md),
           TextField(
             controller: _goal,
@@ -162,10 +181,25 @@ class _MentorDiscoveryScreenState extends ConsumerState<MentorDiscoveryScreen> {
             maxLength: 500,
             textCapitalization: TextCapitalization.sentences,
             decoration: const InputDecoration(
-              labelText: 'Career goal or mentoring question',
-              hintText: 'For example: How can I move into data engineering?',
+              labelText: 'What would you like to ask a mentor?',
+              hintText: 'Enter a career-related question',
               alignLabelWithHint: true,
             ),
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          Text('Example questions',
+              style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: AppSpacing.xs),
+          Wrap(
+            spacing: AppSpacing.xs,
+            runSpacing: AppSpacing.xs,
+            children: [
+              for (final question in _exampleQuestions)
+                ActionChip(
+                  label: Text(question),
+                  onPressed: () => _useExampleQuestion(question),
+                ),
+            ],
           ),
           const SizedBox(height: AppSpacing.sm),
           result.isLoading
@@ -184,13 +218,16 @@ class _MentorDiscoveryScreenState extends ConsumerState<MentorDiscoveryScreen> {
                   ),
                 )
               : FilledButton.icon(
+                  key: const ValueKey('findRelevantAlumniButton'),
                   onPressed: () {
                     if (_goal.text.trim().isNotEmpty) {
-                      ref.read(mentorDiscoveryProvider.notifier).discover(_goal.text);
+                      ref
+                          .read(mentorDiscoveryProvider.notifier)
+                          .discover(_goal.text);
                     }
                   },
                   icon: const Icon(Icons.auto_awesome),
-                  label: const Text('Find mentors'),
+                  label: const Text('Find Relevant Alumni'),
                 ),
           const SizedBox(height: AppSpacing.lg),
           if (result.hasError)
@@ -204,9 +241,9 @@ class _MentorDiscoveryScreenState extends ConsumerState<MentorDiscoveryScreen> {
           if (result.valueOrNull case final data?) ...[
             if (data.matches.isEmpty)
               const EmptyState(
-                title: 'No eligible alumni found',
+                title: 'No relevant alumni found',
                 message:
-                    'There are no approved alumni profiles available to compare right now.',
+                    'No approved alumni matched this question. Try another career question or refine your wording.',
                 icon: Icons.person_search_outlined,
               )
             else ...[
@@ -241,13 +278,15 @@ class _MentorDiscoveryScreenState extends ConsumerState<MentorDiscoveryScreen> {
                     .where((value) => value?.trim().isNotEmpty == true)
                     .join(' · ')),
               const SizedBox(height: AppSpacing.sm),
-              Text('Relevance estimate: ${match.relevanceEstimate.toStringAsFixed(1)}%'),
+              Text(
+                  'Relevance estimate: ${match.relevanceEstimate.toStringAsFixed(1)}%'),
               if (match.skills.isNotEmpty) ...[
                 const SizedBox(height: AppSpacing.xs),
                 Text('Profile skills: ${match.skills.join(', ')}'),
               ],
               const SizedBox(height: AppSpacing.sm),
-              Text('Why this match', style: Theme.of(context).textTheme.titleMedium),
+              Text('Why this match',
+                  style: Theme.of(context).textTheme.titleMedium),
               if (match.evidence.isEmpty)
                 const Text('No direct matching profile evidence was found.')
               else
@@ -272,36 +311,35 @@ class _MentorDiscoveryScreenState extends ConsumerState<MentorDiscoveryScreen> {
                   alignLabelWithHint: true,
                 ),
               ),
-              Row(
+              Wrap(
+                spacing: AppSpacing.sm,
+                runSpacing: AppSpacing.sm,
                 children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () async {
-                        await Clipboard.setData(ClipboardData(text: draft.text));
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Draft copied. It has not been sent.')),
-                          );
-                        }
-                      },
-                      icon: const Icon(Icons.copy),
-                      label: const Text('Copy draft'),
-                    ),
+                  OutlinedButton.icon(
+                    onPressed: () async {
+                      await Clipboard.setData(ClipboardData(text: draft.text));
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                              content:
+                                  Text('Draft copied. It has not been sent.')),
+                        );
+                      }
+                    },
+                    icon: const Icon(Icons.copy),
+                    label: const Text('Copy draft'),
                   ),
-                  const SizedBox(width: AppSpacing.sm),
-                  Expanded(
-                    child: FilledButton.tonalIcon(
-                      onPressed: _requesting.contains(match.id)
-                          ? null
-                          : () => _requestConnection(match),
-                      icon: _requesting.contains(match.id)
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2))
-                          : const Icon(Icons.person_add_alt_1),
-                      label: const Text('Request connection'),
-                    ),
+                  FilledButton.tonalIcon(
+                    onPressed: _requesting.contains(match.id)
+                        ? null
+                        : () => _requestConnection(match),
+                    icon: _requesting.contains(match.id)
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(Icons.person_add_alt_1),
+                    label: const Text('Request connection'),
                   ),
                 ],
               ),
