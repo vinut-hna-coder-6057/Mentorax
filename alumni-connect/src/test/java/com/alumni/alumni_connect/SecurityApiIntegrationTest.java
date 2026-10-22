@@ -136,6 +136,8 @@ private EmailOutboxCipher emailOutboxCipher;
                 "not-used", "STUDENT", "APPROVED"));
         alumni = users.save(new User("Security Alumni", "security-alumni-" + suffix + "@example.test",
                 "not-used", "ALUMNI", "APPROVED"));
+        alumni.setJobRole("Data Engineer");
+        alumni.setSkills("data engineering");
         admin = users.save(new User("Security Admin", "security-admin-" + suffix + "@example.test",
                 "not-used", "ADMIN", "APPROVED"));
         student.setEmailVerified(true);
@@ -192,13 +194,28 @@ private EmailOutboxCipher emailOutboxCipher;
         mockMvc.perform(post("/ai/mentor-discovery")
                         .header("Authorization", studentToken)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"goal\":\"data engineering\"}"))
+                        .content("{\"goal\":\"How can I prepare for data engineering roles?\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.fallbackUsed").value(true))
+                .andExpect(jsonPath("$.intent").value("CAREER_MENTOR_SEARCH"))
                 .andExpect(jsonPath("$.recommendations[*].id").value(
                         org.hamcrest.Matchers.hasItem(alumni.getId().intValue())))
                 .andExpect(jsonPath("$.recommendations[*].id").value(
                         org.hamcrest.Matchers.not(org.hamcrest.Matchers.hasItem(pendingAlumni.getId().intValue()))));
+
+        mockMvc.perform(post("/ai/career-assistant")
+                        .header("Authorization", studentToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"goal\":\"Who is the Prime Minister of India?\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.intent").value("GENERAL_KNOWLEDGE"))
+                .andExpect(jsonPath("$.recommendations").isEmpty())
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("not configured")));
+
+        mockMvc.perform(post("/ai/career-assistant")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"goal\":\"data engineering\"}"))
+                .andExpect(status().isUnauthorized());
     }
     @Test
 @Transactional(propagation = Propagation.NOT_SUPPORTED)

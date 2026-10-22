@@ -1,7 +1,7 @@
 """Optional, stateless TF-IDF ranker. Keep this service on a private network."""
 from typing import List
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -89,9 +89,9 @@ def rank(request: RankingRequest):
     ]
     try:
         matrix = TfidfVectorizer(ngram_range=(1, 2), stop_words="english").fit_transform(documents)
-        scores = cosine_similarity(matrix[0:1], matrix[1:]).flatten()
     except ValueError:
-        scores = [0.0] * len(request.candidates)
+        raise HTTPException(status_code=503, detail="TF-IDF vectorization failed") from None
+    scores = cosine_similarity(matrix[0:1], matrix[1:]).flatten()
     ranked = sorted(zip(request.candidates, scores), key=lambda pair: (-float(pair[1]), pair[0].id))
     return {
         "rankedIds": [candidate.id for candidate, _ in ranked],

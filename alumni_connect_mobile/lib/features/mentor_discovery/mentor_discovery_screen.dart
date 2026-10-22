@@ -51,20 +51,43 @@ class MentorMatch {
 }
 
 class MentorDiscoveryResult {
-  const MentorDiscoveryResult(
-      this.matches, this.rankingMethod, this.fallbackUsed);
+  const MentorDiscoveryResult({
+    required this.matches,
+    required this.rankingMethod,
+    required this.fallbackUsed,
+    required this.intent,
+    this.answer,
+    this.needsClarification = false,
+    this.clarificationQuestion,
+    this.message,
+    this.sources = const [],
+  });
   final List<MentorMatch> matches;
   final String rankingMethod;
   final bool fallbackUsed;
+  final String intent;
+  final String? answer;
+  final bool needsClarification;
+  final String? clarificationQuestion;
+  final String? message;
+  final List<String> sources;
 
   factory MentorDiscoveryResult.fromJson(Map<String, dynamic> json) =>
       MentorDiscoveryResult(
-        (json['recommendations'] as List? ?? const [])
+        matches: (json['recommendations'] as List? ?? const [])
             .map((item) =>
                 MentorMatch.fromJson(Map<String, dynamic>.from(item as Map)))
             .toList(),
-        json['rankingMethod'] as String? ?? 'Profile relevance ranking',
-        json['fallbackUsed'] as bool? ?? true,
+        rankingMethod:
+            json['rankingMethod'] as String? ?? 'Profile relevance ranking',
+        fallbackUsed: json['fallbackUsed'] as bool? ?? true,
+        intent: json['intent'] as String? ?? 'CAREER_MENTOR_SEARCH',
+        answer: json['answer'] as String?,
+        needsClarification: json['needsClarification'] as bool? ?? false,
+        clarificationQuestion: json['clarificationQuestion'] as String?,
+        message: json['message'] as String?,
+        sources:
+            (json['sources'] as List? ?? const []).whereType<String>().toList(),
       );
 }
 
@@ -116,6 +139,10 @@ class _MentorDiscoveryScreenState extends ConsumerState<MentorDiscoveryScreen> {
     'How can I improve my DSA and interview skills?',
     'What skills should I learn to become a machine learning engineer?',
   ];
+  static const _generalExamples = [
+    'Who is the Prime Minister of India?',
+    'What is 2 + 2?',
+  ];
 
   void _useExampleQuestion(String question) {
     setState(() {
@@ -164,15 +191,15 @@ class _MentorDiscoveryScreenState extends ConsumerState<MentorDiscoveryScreen> {
     final result = ref.watch(mentorDiscoveryProvider);
     final width = MediaQuery.sizeOf(context).width;
     return Scaffold(
-      appBar: AppBar(title: const Text('Find Relevant Alumni')),
+      appBar: AppBar(title: const Text('Career Assistant')),
       body: ListView(
         padding: EdgeInsets.all(width >= 900 ? 32 : 20),
         children: [
-          Text('Ask a career question',
+          Text('What can I help you with?',
               style: Theme.of(context).textTheme.headlineSmall),
           const SizedBox(height: AppSpacing.sm),
           const Text(
-              'Enter a career question to find approved alumni with relevant experience. Your question is only used to search profiles; it is not sent to any alumnus.'),
+              'Career questions find approved alumni. General questions are routed separately, but reliable factual answering is not configured yet. Nothing is sent to an alumnus automatically.'),
           const SizedBox(height: AppSpacing.md),
           TextField(
             controller: _goal,
@@ -181,13 +208,13 @@ class _MentorDiscoveryScreenState extends ConsumerState<MentorDiscoveryScreen> {
             maxLength: 500,
             textCapitalization: TextCapitalization.sentences,
             decoration: const InputDecoration(
-              labelText: 'What would you like to ask a mentor?',
-              hintText: 'Enter a career-related question',
+              labelText: 'Ask a career or general question',
+              hintText: 'Type your question here',
               alignLabelWithHint: true,
             ),
           ),
           const SizedBox(height: AppSpacing.xs),
-          Text('Example questions',
+          Text('Career and mentor examples',
               style: Theme.of(context).textTheme.titleSmall),
           const SizedBox(height: AppSpacing.xs),
           Wrap(
@@ -195,6 +222,21 @@ class _MentorDiscoveryScreenState extends ConsumerState<MentorDiscoveryScreen> {
             runSpacing: AppSpacing.xs,
             children: [
               for (final question in _exampleQuestions)
+                ActionChip(
+                  label: Text(question),
+                  onPressed: () => _useExampleQuestion(question),
+                ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Text('General question examples',
+              style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: AppSpacing.xs),
+          Wrap(
+            spacing: AppSpacing.xs,
+            runSpacing: AppSpacing.xs,
+            children: [
+              for (final question in _generalExamples)
                 ActionChip(
                   label: Text(question),
                   onPressed: () => _useExampleQuestion(question),
@@ -213,12 +255,12 @@ class _MentorDiscoveryScreenState extends ConsumerState<MentorDiscoveryScreen> {
                           height: 18,
                           child: CircularProgressIndicator(strokeWidth: 2)),
                       SizedBox(width: 12),
-                      Text('Finding relevant alumni…'),
+                      Text('Routing your question...'),
                     ],
                   ),
                 )
               : FilledButton.icon(
-                  key: const ValueKey('findRelevantAlumniButton'),
+                  key: const ValueKey('submitAssistantQuestion'),
                   onPressed: () {
                     if (_goal.text.trim().isNotEmpty) {
                       ref
@@ -227,34 +269,93 @@ class _MentorDiscoveryScreenState extends ConsumerState<MentorDiscoveryScreen> {
                     }
                   },
                   icon: const Icon(Icons.auto_awesome),
-                  label: const Text('Find Relevant Alumni'),
+                  label: const Text('Ask Career Assistant'),
                 ),
           const SizedBox(height: AppSpacing.lg),
           if (result.hasError)
             ErrorState(
-              title: 'Mentor discovery could not finish',
+              title: 'Career assistant could not finish',
               message: userFacingError(result.error!),
               onRetry: () => ref
                   .read(mentorDiscoveryProvider.notifier)
                   .discover(_goal.text, retry: true),
             ),
-          if (result.valueOrNull case final data?) ...[
-            if (data.matches.isEmpty)
-              const EmptyState(
-                title: 'No relevant alumni found',
-                message:
-                    'No approved alumni matched this question. Try another career question or refine your wording.',
-                icon: Icons.person_search_outlined,
-              )
-            else ...[
-              Text(data.fallbackUsed
-                  ? 'Local fallback ranking · ${data.rankingMethod}'
-                  : 'TF-IDF ranking · ${data.rankingMethod}'),
+          if (result.valueOrNull case final data?)
+            _assistantResult(context, data),
+        ],
+      ),
+    );
+  }
+
+  Widget _assistantResult(BuildContext context, MentorDiscoveryResult result) {
+    if (result.intent == 'CAREER_MENTOR_SEARCH' ||
+        result.intent == 'ALUMNI_QUESTION') {
+      if (result.matches.isEmpty) {
+        final noApprovedAlumni =
+            result.rankingMethod == 'No approved alumni available';
+        return EmptyState(
+          title: noApprovedAlumni
+              ? 'No approved alumni available'
+              : 'No relevant alumni found',
+          message: result.message ??
+              'Try another career question or refine your wording.',
+          icon: Icons.person_search_outlined,
+        );
+      }
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (result.intent == 'ALUMNI_QUESTION' && result.message != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+              child: AppCard(
+                child: Padding(
+                  padding: const EdgeInsets.all(AppSpacing.md),
+                  child: Text(result.message!),
+                ),
+              ),
+            ),
+          Text(result.fallbackUsed
+              ? 'Local fallback · ${result.rankingMethod}'
+              : 'TF-IDF ordering · ${result.rankingMethod}'),
+          const SizedBox(height: AppSpacing.sm),
+          for (final match in result.matches) _mentorCard(context, match),
+        ],
+      );
+    }
+
+    final title = switch (result.intent) {
+      'GENERAL_KNOWLEDGE' => 'General question',
+      'GREETING_OR_SMALLTALK' => 'Hello',
+      _ => result.needsClarification
+          ? 'Could you clarify?'
+          : 'Question not supported',
+    };
+    return AppCard(
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.md),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(title, style: Theme.of(context).textTheme.titleMedium),
+            if (result.answer?.isNotEmpty == true) ...[
+              const SizedBox(height: AppSpacing.xs),
+              Text(result.answer!),
+            ],
+            if (result.clarificationQuestion?.isNotEmpty == true) ...[
+              const SizedBox(height: AppSpacing.xs),
+              Text(result.clarificationQuestion!),
+            ],
+            if (result.message?.isNotEmpty == true) ...[
+              const SizedBox(height: AppSpacing.xs),
+              Text(result.message!),
+            ],
+            if (result.sources.isNotEmpty) ...[
               const SizedBox(height: AppSpacing.sm),
-              for (final match in data.matches) _mentorCard(context, match),
+              for (final source in result.sources) Text('Source: $source'),
             ],
           ],
-        ],
+        ),
       ),
     );
   }
@@ -279,7 +380,7 @@ class _MentorDiscoveryScreenState extends ConsumerState<MentorDiscoveryScreen> {
                     .join(' · ')),
               const SizedBox(height: AppSpacing.sm),
               Text(
-                  'Relevance estimate: ${match.relevanceEstimate.toStringAsFixed(1)}%'),
+                  'Profile keyword overlap (estimate, not probability): ${match.relevanceEstimate.toStringAsFixed(1)}%'),
               if (match.skills.isNotEmpty) ...[
                 const SizedBox(height: AppSpacing.xs),
                 Text('Profile skills: ${match.skills.join(', ')}'),

@@ -52,11 +52,11 @@ class MentorDiscoveryE2ETest {
         mockMvc.perform(post("/ai/mentor-discovery")
                         .header("Authorization", token)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"goal\":\"data engineering Python\"}"))
+                        .content("{\"goal\":\"How can I prepare for data engineering with Python?\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.fallbackUsed").value(false))
                 .andExpect(jsonPath("$.rankingMethod").value(
-                        "TF-IDF cosine similarity over goal and public profile"))
+                        "TF-IDF ordering with Java profile evidence gate"))
                 .andExpect(jsonPath("$.recommendations[0].id").value(mentor.getId()))
                 .andExpect(jsonPath("$.recommendations[0].relevanceEstimate").isNumber())
                 .andExpect(jsonPath("$.recommendations[0].evidence").isArray())
@@ -67,7 +67,7 @@ class MentorDiscoveryE2ETest {
         mockMvc.perform(post("/ai/mentor-discovery")
                         .header("Authorization", token)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"goal\":\"data engineering Python\"}"))
+                        .content("{\"goal\":\"How can I prepare for data engineering with Python?\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.fallbackUsed").value(true))
                 .andExpect(jsonPath("$.recommendations[0].id").value(mentor.getId()));

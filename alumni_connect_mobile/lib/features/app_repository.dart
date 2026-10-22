@@ -23,7 +23,7 @@ class EmailVerificationResult {
 class AppRepository {
   const AppRepository(this.api);
   Future<Map<String, dynamic>> discoverMentors(String goal) => api.post(
-        '/ai/mentor-discovery',
+        '/ai/career-assistant',
         data: {'goal': goal},
         decode: (d) => Map<String, dynamic>.from(d as Map),
       );

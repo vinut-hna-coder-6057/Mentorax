@@ -293,9 +293,11 @@ The project has included backend tests, Flutter analysis/tests, Android build ch
 
 ## AI Mentor Discovery
 
-Students can open **Find a mentor** from Home and submit a career goal or mentoring question. Only this explicit submit action calls `POST /ai/mentor-discovery`; login, directory browsing, and normal navigation do not invoke ranking. Spring Security requires a student JWT, derives identity from the security context, selects up to 500 approved alumni, and sends only their public professional profile fields with the current goal to the optional ranker. Recommendations and explanations are returned from those same profile records. No migration or prompt storage is used.
+Students can open **Find a mentor** from Home and submit a question to `POST /ai/career-assistant` (the older `/ai/mentor-discovery` path remains compatible). Spring Security requires a student JWT. A deterministic local intent classifier runs before discovery: career and explicit alumni questions may reach ranking; general questions, greetings, and unclear requests do not. The general-answer service is not configured, so factual questions receive an honest unavailable response rather than a guessed answer. No question is sent to an alumnus automatically.
 
-The default `AI_MENTOR_ENABLED=false` keeps the Python service optional. Java's keyword-overlap fallback remains available. To run the TF-IDF ranker locally, open PowerShell at the repository root:
+For career searches, Spring derives the student from the security context and loads up to 500 approved alumni. It first applies a local profile-evidence gate, then sends only eligible professional profile fields (never alumni names or emails) to the optional Python ranker. `AI_MENTOR_MIN_RELEVANCE` configures normalized keyword overlap from 0 to 1; the default `0.0` still requires positive profile evidence. This is a transparent, uncalibrated starting threshold, not a probability or validated quality score. TF-IDF orders eligible candidates; Java validates all returned IDs/scores, and the response estimate shown to the student is the independent profile keyword overlap, not the raw TF-IDF cosine score. No migration or prompt storage is used.
+
+The default `AI_MENTOR_ENABLED=false` keeps the Python service optional. Java keyword overlap remains the fallback. To run the TF-IDF ranker locally, open PowerShell at the repository root:
 
 ```powershell
 cd mentorax-ai
@@ -305,9 +307,9 @@ python -m pip install -r requirements.txt
 uvicorn app:app --host 127.0.0.1 --port 8090
 ```
 
-Configure Spring with `AI_MENTOR_ENABLED=true` and `AI_SERVICE_URL=http://127.0.0.1:8090`. Restart Spring after changing environment values. In hosted environments, set the service URL to a private backend-reachable address and restrict ingress to Spring. Set `AI_MENTOR_ENABLED=false` to disable calls; the feature then uses the fallback. Existing Mentorax features do not depend on Python or Ollama. No LLM is used or downloaded.
+Configure Spring with `AI_MENTOR_ENABLED=true`, `AI_SERVICE_URL=http://127.0.0.1:8090`, and (optionally) `AI_MENTOR_MIN_RELEVANCE=0.0`. Restart Spring after changing environment values. In hosted environments, set the service URL to a private backend-reachable address and restrict ingress to Spring. Set `AI_MENTOR_ENABLED=false` to disable Python; qualified career searches use the fallback. Existing Mentorax features do not depend on Python or Ollama. No LLM or embedding model is used or downloaded.
 
-Each result includes a relevance estimate, evidence, uncertainty, a suggested topic, and an editable message draft. Drafts are never sent by Mentorax; **Copy draft** is optional, and **Request connection** is a separate manual action using the existing connection endpoint. After a connection is accepted, users can continue in the existing chat workflow. The ranking is lexical and does not infer mentor availability, response likelihood, or mentoring preference, which the current schema does not store.
+Each result includes professional profile evidence, an uncertainty note, a suggested topic, and an editable message draft. An explicit alumni-question request shows the possible recipients and states that the question was not sent. **Copy draft** and **Request connection** remain separate student actions; after a connection is accepted, students can review and send a message using the existing chat. The matching is lexical, not semantic; it does not infer mentor availability, response likelihood, or mentoring preference, which the current schema does not store. General factual answering remains unavailable until a dependable answering source is selected and deployed.
 
 ---
 

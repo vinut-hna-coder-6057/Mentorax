@@ -12,6 +12,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -19,6 +20,7 @@ import org.springframework.web.client.RestTemplate;
 
 import java.util.List;
 import java.util.Map;
+import java.util.stream.IntStream;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -72,6 +74,8 @@ class MentorDiscoveryServiceTest {
 
         assertTrue(response.recommendations().isEmpty());
         assertFalse(response.fallbackUsed());
+        assertEquals("No approved alumni available", response.rankingMethod());
+        assertTrue(response.message().contains("no approved alumni"));
         verifyNoInteractions(userSkills, restTemplate);
     }
 
@@ -96,26 +100,26 @@ class MentorDiscoveryServiceTest {
         var response = service.discover("data engineering career");
 
         assertTrue(response.fallbackUsed());
-        assertEquals("Transparent profile keyword overlap (fallback)", response.rankingMethod());
-        assertEquals(List.of(21L, 22L), response.recommendations().stream()
+        assertEquals("Java keyword overlap with profile evidence gate", response.rankingMethod());
+        assertEquals(List.of(21L), response.recommendations().stream()
                 .map(recommendation -> recommendation.id()).toList());
         assertFalse(response.recommendations().getFirst().evidence().isEmpty());
     }
 
     @Test
-    void validAiResponseUsesScoresAndSendsOnlyRankingFields() {
+    void validAiResponseOrdersOnlyRelevantCandidatesAndSendsNoNamesOrEmails() {
         User student = mock(User.class);
         when(student.getRole()).thenReturn("STUDENT");
         when(currentUser.requireUser()).thenReturn(student);
         User relevant = alumni(21L, "Sam PrivateName", "data engineering", "Data Engineer");
-        User unrelated = alumni(22L, "Alex OtherName", "gardening", "Gardener");
+        User otherRelevant = alumni(22L, "Alex OtherName", "data analytics", "Data Scientist");
         when(users.findByRoleAndStatus("ALUMNI", "APPROVED", PageRequest.of(0, 500)))
-                .thenReturn(List.of(relevant, unrelated));
+                .thenReturn(List.of(relevant, otherRelevant));
         when(userSkills.findByUser_IdIn(List.of(21L, 22L))).thenReturn(List.of());
         ReflectionTestUtils.setField(service, "aiEnabled", true);
         ReflectionTestUtils.setField(service, "aiServiceUrl", "http://127.0.0.1:8090");
         doReturn(ResponseEntity.ok(Map.of(
-                "rankedIds", List.of(22L, 21L),
+                "rankedIds", List.of(22, 21),
                 "scores", Map.of("21", 0.85, "22", 0.1))))
                 .when(restTemplate).exchange(anyString(), eq(HttpMethod.POST), any(HttpEntity.class),
                         any(ParameterizedTypeReference.class), any(Object[].class));
@@ -125,8 +129,9 @@ class MentorDiscoveryServiceTest {
         assertFalse(response.fallbackUsed());
         assertEquals(List.of(22L, 21L), response.recommendations().stream()
                 .map(recommendation -> recommendation.id()).toList());
-        assertEquals(10.0, response.recommendations().getFirst().relevanceEstimate());
-        assertEquals(85.0, response.recommendations().get(1).relevanceEstimate());
+        assertEquals(22L, response.recommendations().getFirst().id());
+        assertEquals(50.0, response.recommendations().getFirst().relevanceEstimate());
+        assertEquals(100.0, response.recommendations().get(1).relevanceEstimate());
         org.mockito.ArgumentCaptor<HttpEntity> request = org.mockito.ArgumentCaptor.forClass(HttpEntity.class);
         verify(restTemplate).exchange(anyString(), eq(HttpMethod.POST), request.capture(),
                 any(ParameterizedTypeReference.class), any(Object[].class));
@@ -159,6 +164,187 @@ class MentorDiscoveryServiceTest {
 
         assertTrue(response.fallbackUsed());
         assertTrue(response.recommendations().getFirst().relevanceEstimate() > 0);
+    }
+
+    @Test
+    void pythonVectorizationFailureUsesLocalRankingFallback() {
+        User student = mock(User.class);
+        when(student.getRole()).thenReturn("STUDENT");
+        when(currentUser.requireUser()).thenReturn(student);
+        User relevant = alumni(21L, "Sam Mentor", "data engineering", "Data Engineer");
+        when(users.findByRoleAndStatus("ALUMNI", "APPROVED", PageRequest.of(0, 500)))
+                .thenReturn(List.of(relevant));
+        when(userSkills.findByUser_IdIn(List.of(21L))).thenReturn(List.of());
+        ReflectionTestUtils.setField(service, "aiEnabled", true);
+        ReflectionTestUtils.setField(service, "aiServiceUrl", "http://127.0.0.1:8090");
+        when(restTemplate.exchange(anyString(), eq(HttpMethod.POST), any(HttpEntity.class),
+                any(ParameterizedTypeReference.class), any(Object[].class)))
+                .thenThrow(new org.springframework.web.client.HttpServerErrorException(
+                        HttpStatus.SERVICE_UNAVAILABLE));
+
+        var response = service.discover("data engineering");
+
+        assertTrue(response.fallbackUsed());
+        assertEquals("Java keyword overlap with profile evidence gate", response.rankingMethod());
+        assertEquals(1, response.recommendations().size());
+    }
+
+    @Test
+    void rankingPayloadCapsSkillsWithoutFallingBack() {
+        User student = mock(User.class);
+        when(student.getRole()).thenReturn("STUDENT");
+        when(currentUser.requireUser()).thenReturn(student);
+        String skills = String.join(",", IntStream.range(0, 60)
+                .mapToObj(index -> "s" + index).toList());
+        User relevant = alumni(21L, "Sam Mentor", skills, "Data Engineer");
+        when(users.findByRoleAndStatus("ALUMNI", "APPROVED", PageRequest.of(0, 500)))
+                .thenReturn(List.of(relevant));
+        when(userSkills.findByUser_IdIn(List.of(21L))).thenReturn(List.of());
+        ReflectionTestUtils.setField(service, "aiEnabled", true);
+        ReflectionTestUtils.setField(service, "aiServiceUrl", "http://127.0.0.1:8090");
+        doReturn(ResponseEntity.ok(Map.of(
+                "rankedIds", List.of(21L),
+                "scores", Map.of("21", 0.75))))
+                .when(restTemplate).exchange(anyString(), eq(HttpMethod.POST), any(HttpEntity.class),
+                        any(ParameterizedTypeReference.class), any(Object[].class));
+
+        var response = service.discover("data engineering");
+
+        assertFalse(response.fallbackUsed());
+        assertEquals(60, response.recommendations().getFirst().skills().size());
+        org.mockito.ArgumentCaptor<HttpEntity> request = org.mockito.ArgumentCaptor.forClass(HttpEntity.class);
+        verify(restTemplate).exchange(anyString(), eq(HttpMethod.POST), request.capture(),
+                any(ParameterizedTypeReference.class), any(Object[].class));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> payload = (Map<String, Object>) request.getValue().getBody();
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> candidates = (List<Map<String, Object>>) payload.get("candidates");
+        assertEquals(50, ((List<?>) candidates.getFirst().get("skills")).size());
+    }
+
+    @Test
+    void unrelatedApprovedProfilesAreFilteredBeforeCallingPython() {
+        User student = mock(User.class);
+        when(student.getRole()).thenReturn("STUDENT");
+        when(currentUser.requireUser()).thenReturn(student);
+        User unrelated = alumni(21L, "Sam Mentor", "gardening", "Gardener");
+        when(users.findByRoleAndStatus("ALUMNI", "APPROVED", PageRequest.of(0, 500)))
+                .thenReturn(List.of(unrelated));
+        when(userSkills.findByUser_IdIn(List.of(21L))).thenReturn(List.of());
+        ReflectionTestUtils.setField(service, "aiEnabled", true);
+
+        var response = service.discover("How should I prepare for software engineering internships?");
+
+        assertTrue(response.recommendations().isEmpty());
+        assertTrue(response.message().contains("none had enough matching"));
+        verifyNoInteractions(restTemplate);
+    }
+
+    @Test
+    void configuredMinimumRelevanceCanRequireMoreThanOneMatchedTerm() {
+        User student = mock(User.class);
+        when(student.getRole()).thenReturn("STUDENT");
+        when(currentUser.requireUser()).thenReturn(student);
+        User weak = alumni(21L, "Sam Mentor", "data analytics", "Data Analyst");
+        when(users.findByRoleAndStatus("ALUMNI", "APPROVED", PageRequest.of(0, 500)))
+                .thenReturn(List.of(weak));
+        when(userSkills.findByUser_IdIn(List.of(21L))).thenReturn(List.of());
+        ReflectionTestUtils.setField(service, "minimumRelevance", 0.75);
+
+        var response = service.discover("data engineering");
+
+        assertTrue(response.recommendations().isEmpty());
+        assertTrue(response.message().contains("none had enough matching"));
+        verifyNoInteractions(restTemplate);
+    }
+
+    @Test
+    void knownAiAndMachineLearningTermsCanMatchWithoutAnEmbeddingModel() {
+        User student = mock(User.class);
+        when(student.getRole()).thenReturn("STUDENT");
+        when(currentUser.requireUser()).thenReturn(student);
+        User relevant = alumni(21L, "Sam Mentor", "predictive models, data pipelines",
+                "Machine learning engineer");
+        when(users.findByRoleAndStatus("ALUMNI", "APPROVED", PageRequest.of(0, 500)))
+                .thenReturn(List.of(relevant));
+        when(userSkills.findByUser_IdIn(List.of(21L))).thenReturn(List.of());
+
+        var response = service.discover("I want to work in AI. What should I learn?");
+
+        assertEquals(List.of(21L), response.recommendations().stream()
+                .map(recommendation -> recommendation.id()).toList());
+        assertTrue(response.recommendations().getFirst().relevanceEstimate() > 0);
+    }
+
+    @Test
+    void nonIntegralRankingIdIsRejectedAndFallsBackSafely() {
+        User student = mock(User.class);
+        when(student.getRole()).thenReturn("STUDENT");
+        when(currentUser.requireUser()).thenReturn(student);
+        User relevant = alumni(21L, "Sam Mentor", "data engineering", "Data Engineer");
+        when(users.findByRoleAndStatus("ALUMNI", "APPROVED", PageRequest.of(0, 500)))
+                .thenReturn(List.of(relevant));
+        when(userSkills.findByUser_IdIn(List.of(21L))).thenReturn(List.of());
+        ReflectionTestUtils.setField(service, "aiEnabled", true);
+        ReflectionTestUtils.setField(service, "aiServiceUrl", "http://127.0.0.1:8090");
+        doReturn(ResponseEntity.ok(Map.of(
+                "rankedIds", List.of(21.5),
+                "scores", Map.of("21", 0.75))))
+                .when(restTemplate).exchange(anyString(), eq(HttpMethod.POST), any(HttpEntity.class),
+                        any(ParameterizedTypeReference.class), any(Object[].class));
+
+        var response = service.discover("data engineering");
+
+        assertTrue(response.fallbackUsed());
+        assertEquals(List.of(21L), response.recommendations().stream()
+                .map(recommendation -> recommendation.id()).toList());
+    }
+
+    @Test
+    void duplicateRankingIdsAreRejectedAndFallsBackSafely() {
+        User student = mock(User.class);
+        when(student.getRole()).thenReturn("STUDENT");
+        when(currentUser.requireUser()).thenReturn(student);
+        User relevant = alumni(21L, "Sam Mentor", "data engineering", "Data Engineer");
+        when(users.findByRoleAndStatus("ALUMNI", "APPROVED", PageRequest.of(0, 500)))
+                .thenReturn(List.of(relevant));
+        when(userSkills.findByUser_IdIn(List.of(21L))).thenReturn(List.of());
+        ReflectionTestUtils.setField(service, "aiEnabled", true);
+        ReflectionTestUtils.setField(service, "aiServiceUrl", "http://127.0.0.1:8090");
+        doReturn(ResponseEntity.ok(Map.of(
+                "rankedIds", List.of(21, 21),
+                "scores", Map.of("21", 0.75))))
+                .when(restTemplate).exchange(anyString(), eq(HttpMethod.POST), any(HttpEntity.class),
+                        any(ParameterizedTypeReference.class), any(Object[].class));
+
+        var response = service.discover("data engineering");
+
+        assertTrue(response.fallbackUsed());
+        assertEquals(List.of(21L), response.recommendations().stream()
+                .map(recommendation -> recommendation.id()).toList());
+    }
+
+    @Test
+    void infiniteRankingScoreIsRejectedAndFallsBackSafely() {
+        User student = mock(User.class);
+        when(student.getRole()).thenReturn("STUDENT");
+        when(currentUser.requireUser()).thenReturn(student);
+        User relevant = alumni(21L, "Sam Mentor", "data engineering", "Data Engineer");
+        when(users.findByRoleAndStatus("ALUMNI", "APPROVED", PageRequest.of(0, 500)))
+                .thenReturn(List.of(relevant));
+        when(userSkills.findByUser_IdIn(List.of(21L))).thenReturn(List.of());
+        ReflectionTestUtils.setField(service, "aiEnabled", true);
+        ReflectionTestUtils.setField(service, "aiServiceUrl", "http://127.0.0.1:8090");
+        doReturn(ResponseEntity.ok(Map.of(
+                "rankedIds", List.of(21),
+                "scores", Map.of("21", Double.POSITIVE_INFINITY))))
+                .when(restTemplate).exchange(anyString(), eq(HttpMethod.POST), any(HttpEntity.class),
+                        any(ParameterizedTypeReference.class), any(Object[].class));
+
+        var response = service.discover("data engineering");
+
+        assertTrue(response.fallbackUsed());
+        assertEquals(1, response.recommendations().size());
     }
 
     private User alumni(long id, String name, String skills, String jobRole) {

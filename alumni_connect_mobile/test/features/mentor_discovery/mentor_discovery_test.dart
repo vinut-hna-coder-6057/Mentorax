@@ -81,9 +81,9 @@ void main() {
     });
     await pumpScreen(tester, repository);
 
-    expect(find.text('What would you like to ask a mentor?'), findsOneWidget);
-    expect(find.textContaining('not sent to any alumnus'), findsOneWidget);
-    expect(find.text('Find Relevant Alumni'), findsNWidgets(2));
+    expect(find.text('Ask a career or general question'), findsOneWidget);
+    expect(find.textContaining('Nothing is sent to an alumnus automatically'),
+        findsOneWidget);
     expect(
         find.text('How should I prepare for software engineering internships?'),
         findsOneWidget);
@@ -94,9 +94,9 @@ void main() {
             'What skills should I learn to become a machine learning engineer?'),
         findsOneWidget);
 
-    await tester
-        .ensureVisible(find.byKey(const ValueKey('findRelevantAlumniButton')));
-    await tester.tap(find.byKey(const ValueKey('findRelevantAlumniButton')));
+    await tester.scrollUntilVisible(find.text('Ask Career Assistant'), 100,
+        scrollable: find.byType(Scrollable).first);
+    await tester.tap(find.text('Ask Career Assistant'));
     await tester.pump();
 
     expect(repository.submittedGoals, isEmpty);
@@ -154,7 +154,7 @@ void main() {
       handler.next(options);
     }));
     adapter.onPost(
-      '/ai/mentor-discovery',
+      '/ai/career-assistant',
       (server) => server.reply(200, {
         'recommendations': <Map<String, dynamic>>[],
         'rankingMethod': 'fallback',
@@ -174,9 +174,35 @@ void main() {
     expect(response['fallbackUsed'], isTrue);
     expect(requests, hasLength(1));
     expect(requests.single.uri.toString(),
-        'https://api.example.test/ai/mentor-discovery');
+        'https://api.example.test/ai/career-assistant');
     expect(requests.single.data, {'goal': 'Data engineering'});
     expect(requests.single.headers['Authorization'], 'Bearer test.jwt.value');
+  });
+
+  testWidgets('general questions never render alumni recommendations',
+      (tester) async {
+    final repository = _MentorRepository(response: {
+      'intent': 'GENERAL_KNOWLEDGE',
+      'answer': null,
+      'message':
+          'General factual answering is not configured yet. No alumni were searched.',
+      'recommendations': [recommendation],
+      'rankingMethod': 'No alumni ranking performed',
+      'fallbackUsed': false,
+    });
+    await pumpScreen(tester, repository);
+    await tester.enterText(
+        find.byType(TextField).first, 'Who is the Prime Minister of India?');
+    await tester.scrollUntilVisible(find.text('Ask Career Assistant'), 100,
+        scrollable: find.byType(Scrollable).first);
+    await tester.tap(find.text('Ask Career Assistant'));
+    await tester.pumpAndSettle();
+
+    expect(repository.submittedGoals, ['Who is the Prime Minister of India?']);
+    expect(find.text('General question'), findsOneWidget);
+    expect(find.textContaining('answering is not configured yet'),
+        findsNWidgets(2));
+    expect(find.text('Asha Mentor'), findsNothing);
   });
 
   testWidgets(
@@ -191,9 +217,9 @@ void main() {
 
     await tester.enterText(
         find.byType(TextField).first, 'How can I move into data engineering?');
-    await tester
-        .ensureVisible(find.byKey(const ValueKey('findRelevantAlumniButton')));
-    await tester.tap(find.byKey(const ValueKey('findRelevantAlumniButton')));
+    await tester.scrollUntilVisible(find.text('Ask Career Assistant'), 100,
+        scrollable: find.byType(Scrollable).first);
+    await tester.tap(find.text('Ask Career Assistant'));
     await tester.pumpAndSettle();
 
     expect(
@@ -207,14 +233,40 @@ void main() {
         findsOneWidget);
     expect(find.text('Copy draft'), findsOneWidget);
     expect(find.text('Request connection'), findsOneWidget);
-    expect(
-        find.text('TF-IDF ranking · TF-IDF cosine similarity'), findsOneWidget);
+    expect(find.text('TF-IDF ordering · TF-IDF cosine similarity'),
+        findsOneWidget);
     final draft = find.byType(TextField).last;
     expect(tester.widget<TextField>(draft).controller!.text,
         'Hi Asha, could I ask about your career path?');
     await tester.enterText(draft, 'My reviewed draft');
     expect(
         tester.widget<TextField>(draft).controller!.text, 'My reviewed draft');
+  });
+
+  testWidgets('alumni question shows recipient and draft without sending',
+      (tester) async {
+    final repository = _MentorRepository(response: {
+      'intent': 'ALUMNI_QUESTION',
+      'recommendations': [recommendation],
+      'rankingMethod': 'TF-IDF ordering with Java profile evidence gate',
+      'fallbackUsed': false,
+      'message':
+          'These approved alumni may be relevant. Your question has not been sent.',
+    });
+    await pumpScreen(tester, repository);
+    const question = 'I want to message a mentor about my career options';
+    await tester.enterText(find.byType(TextField).first, question);
+    await tester.scrollUntilVisible(find.text('Ask Career Assistant'), 100,
+        scrollable: find.byType(Scrollable).first);
+    await tester.tap(find.text('Ask Career Assistant'));
+    await tester.pumpAndSettle();
+
+    expect(repository.submittedGoals, [question]);
+    expect(
+        find.textContaining('Your question has not been sent'), findsOneWidget);
+    expect(find.text('Asha Mentor'), findsOneWidget);
+    expect(find.text('Copy draft'), findsOneWidget);
+    expect(find.text('Request connection'), findsOneWidget);
   });
 
   testWidgets(
@@ -224,12 +276,12 @@ void main() {
     final repository = _MentorRepository(pending: pending);
     await pumpScreen(tester, repository);
     await tester.enterText(find.byType(TextField).first, 'Product design');
-    await tester
-        .ensureVisible(find.byKey(const ValueKey('findRelevantAlumniButton')));
-    await tester.tap(find.byKey(const ValueKey('findRelevantAlumniButton')));
+    await tester.scrollUntilVisible(find.text('Ask Career Assistant'), 100,
+        scrollable: find.byType(Scrollable).first);
+    await tester.tap(find.text('Ask Career Assistant'));
     await tester.pump();
 
-    expect(find.text('Finding relevant alumni…'), findsOneWidget);
+    expect(find.text('Routing your question...'), findsOneWidget);
     expect(tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
         isNull);
     expect(repository.submittedGoals, ['Product design']);
@@ -265,8 +317,8 @@ void main() {
     );
     await tester.enterText(find.byType(TextField).first, 'retry goal');
     await tester
-        .ensureVisible(find.byKey(const ValueKey('findRelevantAlumniButton')));
-    await tester.tap(find.byKey(const ValueKey('findRelevantAlumniButton')));
+        .ensureVisible(find.byKey(const ValueKey('submitAssistantQuestion')));
+    await tester.tap(find.byKey(const ValueKey('submitAssistantQuestion')));
     await tester.pumpAndSettle();
 
     expect(find.text('Service unavailable'), findsOneWidget);

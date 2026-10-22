@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
@@ -36,6 +37,16 @@ class MentorRankerApiTests(unittest.TestCase):
             self.assertIsInstance(score, float)
             self.assertGreaterEqual(score, 0.0)
             self.assertLessEqual(score, 1.0)
+
+    def test_vectorization_failure_returns_explicit_service_error(self):
+        with patch("app.TfidfVectorizer.fit_transform", side_effect=ValueError("empty vocabulary")):
+            response = self.client.post("/rank", json={
+                "goal": "the and",
+                "candidates": [{"id": 1, "skills": ["the"]}],
+            })
+
+        self.assertEqual(503, response.status_code)
+        self.assertEqual({"detail": "TF-IDF vectorization failed"}, response.json())
 
     def test_missing_profile_fields_and_unicode_are_safe(self):
         response = self.client.post("/rank", json={
@@ -88,6 +99,9 @@ class MentorRankerApiTests(unittest.TestCase):
         too_many_skills = self.client.post("/rank", json={
             "goal": "design", "candidates": [{"id": 1, "skills": ["skill"] * 51}],
         })
+        max_skills = self.client.post("/rank", json={
+            "goal": "design", "candidates": [{"id": 2, "skills": ["skill"] * 50}],
+        })
 
         for response in (missing_id, invalid_id, oversized_goal, oversized_bio,
                          too_many_candidates, too_many_skills):
@@ -95,6 +109,8 @@ class MentorRankerApiTests(unittest.TestCase):
             self.assertEqual({"detail": "Invalid ranking request"}, response.json())
             self.assertNotIn("Traceback", response.text)
             self.assertNotIn("app.py", response.text)
+        self.assertEqual(200, max_skills.status_code)
+        self.assertEqual([2], max_skills.json()["rankedIds"])
 
     def test_malformed_json_is_a_safe_validation_error(self):
         response = self.client.post("/rank", content="{", headers={"content-type": "application/json"})

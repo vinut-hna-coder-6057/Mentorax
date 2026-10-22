@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
+import jakarta.annotation.PostConstruct;
 import org.springframework.data.domain.PageRequest;
 
 import java.text.Normalizer;
@@ -24,17 +25,26 @@ import java.util.stream.Collectors;
 @Service
 public class MentorDiscoveryService {
     private static final Logger log = LoggerFactory.getLogger(MentorDiscoveryService.class);
+    private static final int MAX_RANKING_SKILLS_PER_CANDIDATE = 50;
     private final UserRepository users;
     private final UserSkillRepository userSkills;
     private final CurrentUserService currentUser;
     private final RestTemplate restTemplate;
     @Value("${app.ai.enabled:false}") private boolean aiEnabled;
     @Value("${app.ai.service-url:http://127.0.0.1:8090}") private String aiServiceUrl;
+    @Value("${app.ai.minimum-relevance:0.0}") private double minimumRelevance;
 
     public MentorDiscoveryService(UserRepository users, UserSkillRepository userSkills,
                                   CurrentUserService currentUser, RestTemplate restTemplate) {
         this.users = users; this.userSkills = userSkills; this.currentUser = currentUser;
         this.restTemplate = restTemplate;
+    }
+
+    @PostConstruct
+    void validateMinimumRelevance() {
+        if (!Double.isFinite(minimumRelevance) || minimumRelevance < 0 || minimumRelevance > 1) {
+            throw new IllegalStateException("app.ai.minimum-relevance must be between 0.0 and 1.0");
+        }
     }
 
     @Transactional(readOnly = true)
@@ -45,7 +55,11 @@ public class MentorDiscoveryService {
                     org.springframework.http.HttpStatus.FORBIDDEN, "Student access required");
         }
         List<User> approved = users.findByRoleAndStatus("ALUMNI", "APPROVED", PageRequest.of(0, 500));
-        if (approved.isEmpty()) return new MentorDiscoveryResponse(List.of(), "No eligible approved alumni found", false);
+        if (approved.isEmpty()) {
+            return new MentorDiscoveryResponse(List.of(), "No approved alumni available", false,
+                    QuestionIntent.CAREER_MENTOR_SEARCH, null, false, null,
+                    "There are currently no approved alumni profiles available to search.", List.of());
+        }
         Map<Long, LinkedHashSet<String>> normalized = new HashMap<>();
         for (UserSkill skill : userSkills.findByUser_IdIn(approved.stream().map(User::getId).toList())) {
             if (skill.getSkill() != null && skill.getSkill().getName() != null) {
@@ -61,20 +75,33 @@ public class MentorDiscoveryService {
                     user.getBio(), List.copyOf(skills), user.getInterests());
         }).toList();
 
+        List<MentorCandidate> relevantCandidates = candidates.stream()
+                .filter(candidate -> {
+                    double relevance = localScore(goal, candidate);
+                    return relevance > 0 && relevance >= minimumRelevance;
+                }).toList();
+        if (relevantCandidates.isEmpty()) {
+            return new MentorDiscoveryResponse(List.of(),
+                    "Local profile evidence gate; no candidate met the configured threshold", false,
+                    QuestionIntent.CAREER_MENTOR_SEARCH, null, false, null,
+                    "Approved alumni exist, but none had enough matching professional-profile evidence. Try a more specific career question.",
+                    List.of());
+        }
+
         List<Long> rankedIds = null;
-        Map<Long, Double> aiScores = Map.of();
         boolean fallback = true;
         if (aiEnabled) {
             try {
                 // Names are not needed for ranking; keep personally identifying data
                 // inside Spring, which owns the candidate records and explanations.
-                List<Map<String, Object>> rankingCandidates = candidates.stream().map(candidate -> {
+                List<Map<String, Object>> rankingCandidates = relevantCandidates.stream().map(candidate -> {
                     Map<String, Object> fields = new LinkedHashMap<>();
                     fields.put("id", candidate.id());
                     fields.put("jobTitle", candidate.jobTitle());
                     fields.put("company", candidate.company());
                     fields.put("bio", candidate.bio());
-                    fields.put("skills", candidate.skills());
+                    fields.put("skills", candidate.skills().stream()
+                            .limit(MAX_RANKING_SKILLS_PER_CANDIDATE).toList());
                     fields.put("interests", candidate.interests());
                     return fields;
                 }).toList();
@@ -82,48 +109,58 @@ public class MentorDiscoveryService {
                 ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
                         aiServiceUrl.replaceAll("/$", "") + "/rank", HttpMethod.POST,
                         new HttpEntity<>(payload, jsonHeaders()), new ParameterizedTypeReference<>() {});
-                Object raw = response.getBody() == null ? null : response.getBody().get("rankedIds");
+                Map<String, Object> responseBody = response.getBody();
+                Object raw = responseBody == null ? null : responseBody.get("rankedIds");
                 if (raw instanceof List<?> ids) {
-                    List<Long> validated = ids.stream().filter(Number.class::isInstance)
-                            .map(Number.class::cast).map(Number::longValue)
-                            .filter(id -> candidates.stream().anyMatch(c -> c.id().equals(id))).distinct().toList();
-                    Set<Long> expectedIds = candidates.stream().map(MentorCandidate::id)
+                    List<Long> validated = ids.stream().map(this::parseRankingId)
+                            .filter(Objects::nonNull)
+                            .filter(id -> relevantCandidates.stream().anyMatch(c -> c.id().equals(id)))
+                            .distinct().toList();
+                    Set<Long> expectedIds = relevantCandidates.stream().map(MentorCandidate::id)
                             .collect(Collectors.toSet());
                     Map<Long, Double> validatedScores = parseScores(
-                            response.getBody().get("scores"), expectedIds);
+                            responseBody.get("scores"), expectedIds);
                     boolean completeRanking = ids.size() == expectedIds.size()
                             && validated.size() == expectedIds.size()
                             && new HashSet<>(validated).equals(expectedIds);
                     if (completeRanking && validatedScores != null) {
                         rankedIds = validated;
-                        aiScores = Map.copyOf(validatedScores);
                         fallback = false;
+                    } else {
+                        log.info("Optional mentor ranking response rejected ({}); using local ranking",
+                                !completeRanking ? "incomplete ranking" : "invalid score map");
                     }
+                } else {
+                    log.info("Optional mentor ranking response rejected ({}); using local ranking",
+                            responseBody == null ? "empty response body" : "invalid rankedIds field");
                 }
             } catch (RuntimeException failure) {
                 log.info("Optional mentor ranking service unavailable ({}); using local ranking",
                         failure.getClass().getSimpleName());
             }
         }
-        if (rankedIds == null) rankedIds = candidates.stream().sorted(Comparator
+        if (rankedIds == null) rankedIds = relevantCandidates.stream().sorted(Comparator
                 .comparingDouble((MentorCandidate c) -> localScore(goal, c)).reversed()
                 .thenComparing(MentorCandidate::id)).map(MentorCandidate::id).toList();
 
-        Map<Long, MentorCandidate> byId = candidates.stream().collect(Collectors.toMap(MentorCandidate::id, c -> c));
+        Map<Long, MentorCandidate> byId = relevantCandidates.stream().collect(Collectors.toMap(MentorCandidate::id, c -> c));
         final boolean usedFallback = fallback;
-        final Map<Long, Double> validatedAiScores = aiScores;
         List<MentorRecommendation> results = rankedIds.stream().map(byId::get).filter(Objects::nonNull)
                 .limit(10).map(candidate -> recommendation(goal, candidate,
-                        usedFallback ? localScore(goal, candidate)
-                                : validatedAiScores.getOrDefault(candidate.id(), 0.0))).toList();
-        String method = fallback ? "Transparent profile keyword overlap (fallback)" : "TF-IDF cosine similarity over goal and public profile";
-        return new MentorDiscoveryResponse(results, method, fallback);
+                        localScore(goal, candidate))).toList();
+        String method = fallback ? "Java keyword overlap with profile evidence gate"
+                : "TF-IDF ordering with Java profile evidence gate";
+        return new MentorDiscoveryResponse(results, method, fallback,
+                QuestionIntent.CAREER_MENTOR_SEARCH, null, false, null,
+                results.isEmpty() ? "No approved alumni met the configured relevance threshold." : null,
+                List.of());
     }
 
     private MentorRecommendation recommendation(String goal, MentorCandidate c, double score) {
         Set<String> terms = terms(goal);
         List<String> evidence = new ArrayList<>();
-        c.skills().stream().filter(s -> terms.contains(normalize(s))).forEach(s -> evidence.add("Skill: " + s));
+        c.skills().stream().filter(skill -> matches(terms, skill))
+                .forEach(skill -> evidence.add("Skill: " + skill));
         if (matches(terms, c.jobTitle())) evidence.add("Current role: " + c.jobTitle());
         if (matches(terms, c.company())) evidence.add("Company: " + c.company());
         if (matches(terms, c.interests())) evidence.add("Career interest: " + c.interests());
@@ -137,6 +174,15 @@ public class MentorDiscoveryService {
                 evidence.isEmpty() ? "No direct profile evidence matched the entered goal; review this profile before reaching out." : "Based only on public professional profile fields; availability and mentoring preference are unknown.",
                 topic, draft);
     }
+
+    private static final Set<String> NON_DISCRIMINATING_TERMS = Set.of(
+            "how", "what", "when", "where", "which", "who", "why", "should", "could",
+            "would", "can", "you", "your", "i", "me", "my", "we", "our",
+            "the", "and", "for", "from", "into", "with", "about", "that", "this",
+            "are", "was", "were", "have", "has", "had", "do", "does", "did", "to",
+            "a", "an", "of", "in", "on", "at", "by", "as", "be", "is", "it",
+            "learn", "learning", "prepare", "preparing", "improve", "improving", "become",
+            "career", "job", "work", "role", "professional", "skills", "skill");
 
     private double localScore(String goal, MentorCandidate c) {
         Set<String> terms = terms(goal);
@@ -167,7 +213,28 @@ public class MentorDiscoveryService {
         return parsed.size() == expectedIds.size() ? parsed : null;
     }
     private boolean matches(Set<String> terms, String value) { return value != null && terms.stream().anyMatch(terms(value)::contains); }
-    private Set<String> terms(String value) { return Arrays.stream(normalize(value).split("\\s+")).filter(s -> s.length() > 2).collect(Collectors.toSet()); }
+    private Set<String> terms(String value) {
+        String expanded = normalize(value).replaceAll("\\bml\\b", "machine learning")
+                .replaceAll("\\bai\\b", "artificial intelligence machine learning")
+                .replaceAll("\\bdsa\\b", "data structures algorithms");
+        return Arrays.stream(expanded.split("\\s+"))
+                .filter(term -> term.length() > 2 && !NON_DISCRIMINATING_TERMS.contains(term))
+                .map(this::canonicalTerm)
+                .collect(Collectors.toSet());
+    }
+    private String canonicalTerm(String term) {
+        if (term.endsWith("engineering")) return term.substring(0, term.length() - 3);
+        if (term.endsWith("ies") && term.length() > 4) return term.substring(0, term.length() - 3) + "y";
+        if (term.endsWith("s") && term.length() > 4) return term.substring(0, term.length() - 1);
+        return term;
+    }
+    private Long parseRankingId(Object value) {
+        if (value instanceof Byte || value instanceof Short
+                || value instanceof Integer || value instanceof Long) {
+            return ((Number) value).longValue();
+        }
+        return null;
+    }
     private String normalize(String value) { return Normalizer.normalize(Objects.toString(value, "").toLowerCase(Locale.ROOT), Normalizer.Form.NFKC).replaceAll("[^\\p{L}\\p{N}]+", " ").trim(); }
     private HttpHeaders jsonHeaders() { HttpHeaders headers = new HttpHeaders(); headers.setContentType(MediaType.APPLICATION_JSON); return headers; }
 }
