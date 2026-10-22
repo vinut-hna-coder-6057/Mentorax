@@ -269,6 +269,12 @@ class HomeScreen extends ConsumerWidget {
                 label: 'Discover people',
                 onTap: () => c.go('/${user?.role.name ?? 'student'}/directory'),
               ),
+            if (user?.role == UserRole.student)
+              _QuickAction(
+                icon: Icons.auto_awesome_outlined,
+                label: 'Find a mentor',
+                onTap: () => c.push('/student/mentor-discovery'),
+              ),
             _QuickAction(
               icon: Icons.chat_bubble_outline,
               label: 'Open messages',

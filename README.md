@@ -74,7 +74,7 @@ Students often struggle to find relevant alumni, discover career events, and mai
 - Bounded process-local rate limits for selected HTTP and STOMP operations.
 - GitHub Actions workflows for backend, Flutter, and Android build checks.
 
-> **Scope note:** Mentorax is a networking and community platform. AI/LLM recommendations and automated mentorship matching are not implemented in the current repository.
+> **AI mentor discovery:** Student-triggered alumni ranking is available through the authenticated Spring API. Its optional local TF-IDF service is separately deployable; the application remains usable with the transparent Java ranking fallback when that service is disabled or unavailable.
 
 ---
 
@@ -290,6 +290,24 @@ flutter build apk --debug
 ```
 
 The project has included backend tests, Flutter analysis/tests, Android build checks, and CI workflows in development. Run them against your current checkout before relying on their result; a previous successful run is not a guarantee that every later change is safe.
+
+## AI Mentor Discovery
+
+Students can open **Find a mentor** from Home and submit a career goal or mentoring question. Only this explicit submit action calls `POST /ai/mentor-discovery`; login, directory browsing, and normal navigation do not invoke ranking. Spring Security requires a student JWT, derives identity from the security context, selects up to 500 approved alumni, and sends only their public professional profile fields with the current goal to the optional ranker. Recommendations and explanations are returned from those same profile records. No migration or prompt storage is used.
+
+The default `AI_MENTOR_ENABLED=false` keeps the Python service optional. Java's keyword-overlap fallback remains available. To run the TF-IDF ranker locally, open PowerShell at the repository root:
+
+```powershell
+cd mentorax-ai
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+uvicorn app:app --host 127.0.0.1 --port 8090
+```
+
+Configure Spring with `AI_MENTOR_ENABLED=true` and `AI_SERVICE_URL=http://127.0.0.1:8090`. Restart Spring after changing environment values. In hosted environments, set the service URL to a private backend-reachable address and restrict ingress to Spring. Set `AI_MENTOR_ENABLED=false` to disable calls; the feature then uses the fallback. Existing Mentorax features do not depend on Python or Ollama. No LLM is used or downloaded.
+
+Each result includes a relevance estimate, evidence, uncertainty, a suggested topic, and an editable message draft. Drafts are never sent by Mentorax; **Copy draft** is optional, and **Request connection** is a separate manual action using the existing connection endpoint. After a connection is accepted, users can continue in the existing chat workflow. The ranking is lexical and does not infer mentor availability, response likelihood, or mentoring preference, which the current schema does not store.
 
 ---
 

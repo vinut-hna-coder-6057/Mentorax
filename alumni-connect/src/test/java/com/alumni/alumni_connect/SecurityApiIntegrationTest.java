@@ -151,6 +151,55 @@ private EmailOutboxCipher emailOutboxCipher;
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
                 .andExpect(content().json("{\"error\":\"Authentication required\"}"));
     }
+
+    @Test
+    void mentorDiscoveryRequiresStudentAccessAndValidatesGoals() throws Exception {
+        User pendingAlumni = users.save(new User("Pending Mentor", "pending-mentor-" + UUID.randomUUID()
+                + "@example.test", "not-used", "ALUMNI", "PENDING"));
+
+        mockMvc.perform(post("/ai/mentor-discovery")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"goal\":\"data engineering\"}"))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(post("/ai/mentor-discovery")
+                        .header("Authorization", "Bearer invalid.token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"goal\":\"data engineering\"}"))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(post("/ai/mentor-discovery")
+                        .header("Authorization", bearer(alumni.getEmail(), "ALUMNI"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"goal\":\"data engineering\"}"))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(post("/ai/mentor-discovery")
+                        .header("Authorization", bearer(admin.getEmail(), "ADMIN"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"goal\":\"data engineering\"}"))
+                .andExpect(status().isForbidden());
+
+        String studentToken = bearer(student.getEmail(), "STUDENT");
+        mockMvc.perform(post("/ai/mentor-discovery")
+                        .header("Authorization", studentToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"goal\":\"   \"}"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(post("/ai/mentor-discovery")
+                        .header("Authorization", studentToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"goal\":\"" + "x".repeat(501) + "\"}"))
+                .andExpect(status().isBadRequest());
+
+        mockMvc.perform(post("/ai/mentor-discovery")
+                        .header("Authorization", studentToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"goal\":\"data engineering\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.fallbackUsed").value(true))
+                .andExpect(jsonPath("$.recommendations[*].id").value(
+                        org.hamcrest.Matchers.hasItem(alumni.getId().intValue())))
+                .andExpect(jsonPath("$.recommendations[*].id").value(
+                        org.hamcrest.Matchers.not(org.hamcrest.Matchers.hasItem(pendingAlumni.getId().intValue()))));
+    }
     @Test
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 void userCanMarkOwnNotificationAsRead() throws Exception {

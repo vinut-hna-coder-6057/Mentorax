@@ -93,6 +93,9 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: '/pending-approval',
             builder: (_, __) => const PendingApprovalScreen()),
         GoRoute(
+            path: '/student/mentor-discovery',
+            builder: (_, __) => const MentorDiscoveryScreen()),
+        GoRoute(
             path: '/student/:tab',
             builder: (_, s) => RoleShell(
                 role: UserRole.student, tab: s.pathParameters['tab']!)),

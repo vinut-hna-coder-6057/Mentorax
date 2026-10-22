@@ -14,6 +14,7 @@ import java.util.List;
 
 public interface UserSkillRepository extends JpaRepository<UserSkill, UserSkillId> {
     List<UserSkill> findByUser_Id(Long userId);
+    List<UserSkill> findByUser_IdIn(List<Long> userIds);
     void deleteByUser_IdAndSkill_Id(Long userId, Long skillId);
 }
 
