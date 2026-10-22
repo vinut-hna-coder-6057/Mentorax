@@ -182,16 +182,22 @@ public class MentorDiscoveryService {
             "are", "was", "were", "have", "has", "had", "do", "does", "did", "to",
             "a", "an", "of", "in", "on", "at", "by", "as", "be", "is", "it",
             "learn", "learning", "prepare", "preparing", "improve", "improving", "become",
-            "career", "job", "work", "role", "professional", "skills", "skill");
+            "preparation", "prep", "career", "job", "work", "role", "professional",
+            "skills", "skill", "computing", "development", "developer", "engineer",
+            "engineering", "software", "technical", "question", "questions", "help",
+            "guide", "someone", "struggle", "combine", "start", "started", "build");
 
     private double localScore(String goal, MentorCandidate c) {
         Set<String> terms = terms(goal);
         if (terms.isEmpty()) return 0;
-        String evidence = String.join(" ", c.skills()) + " " + Objects.toString(c.jobTitle(), "") + " " +
-                Objects.toString(c.company(), "") + " " + Objects.toString(c.bio(), "") + " " + Objects.toString(c.interests(), "");
-        Set<String> matched = terms(evidence);
-        long overlap = terms.stream().filter(matched::contains).count();
-        return (double) overlap / terms.size();
+        String directEvidence = String.join(" ", c.skills()) + " "
+                + Objects.toString(c.jobTitle(), "") + " " + Objects.toString(c.interests(), "");
+        Set<String> directTerms = terms(directEvidence);
+        long directOverlap = terms.stream().filter(directTerms::contains).count();
+        if (directOverlap == 0) return 0;
+        Set<String> bioTerms = terms(Objects.toString(c.bio(), ""));
+        long supportingOverlap = terms.stream().filter(bioTerms::contains).count();
+        return Math.min(1.0, (directOverlap + supportingOverlap * 0.2) / terms.size());
     }
     private Map<Long, Double> parseScores(Object payload, Set<Long> expectedIds) {
         if (!(payload instanceof Map<?, ?> scores) || scores.size() != expectedIds.size()) return null;
@@ -214,9 +220,22 @@ public class MentorDiscoveryService {
     }
     private boolean matches(Set<String> terms, String value) { return value != null && terms.stream().anyMatch(terms(value)::contains); }
     private Set<String> terms(String value) {
-        String expanded = normalize(value).replaceAll("\\bml\\b", "machine learning")
-                .replaceAll("\\bai\\b", "artificial intelligence machine learning")
-                .replaceAll("\\bdsa\\b", "data structures algorithms");
+        String expanded = normalize(value)
+                .replaceAll("\\b(softwear|softare)\\b", "software")
+                .replaceAll("\\b(enginer|engineerng)\\b", "engineer")
+                .replaceAll("\\b(interveiw|intreview)\\b", "interview")
+                .replaceAll("\\b(artificial intelligence|machine learning|\\bml\\b|\\bai\\b)\\b", "machinelearning")
+                .replaceAll("\\b(data structures and algorithms|dsa|algorithms?)\\b", "algorithm")
+                .replaceAll("\\b(coding rounds?|coding interviews?)\\b", "codinginterview")
+                .replaceAll("\\b(problem solving)\\b", "algorithm")
+                .replaceAll("\\b(online assessments?|oas?)\\b", "assessment")
+                .replaceAll("\\bsoftware engineer(?:ing)?\\b", "softwareengineering")
+                .replaceAll("\\bdata engineer(?:ing)?\\b", "dataengineering")
+                .replaceAll("\\b(full stack|fullstack)\\b", "fullstack")
+                .replaceAll("\\b(system design)\\b", "systemdesign")
+                .replaceAll("\\b(cloud computing)\\b", "cloud")
+                .replaceAll("\\b(back end|backend)\\b", "backend")
+                .replaceAll("\\bprep\\b", "preparation");
         return Arrays.stream(expanded.split("\\s+"))
                 .filter(term -> term.length() > 2 && !NON_DISCRIMINATING_TERMS.contains(term))
                 .map(this::canonicalTerm)

@@ -17,13 +17,16 @@ class CareerAssistantServiceTest {
 
     @Test
     void generalQuestionReturnsUnavailableWithoutFallingThroughToRanking() {
-        var response = assistant.respond("Who is the Prime Minister of India?");
+        for (String question : List.of("Who is the Prime Minister of India?", "What is the weather today?",
+                "Who won yesterday's cricket match?", "What is machine learning?")) {
+            var response = assistant.respond(question);
 
-        assertEquals(QuestionIntent.GENERAL_KNOWLEDGE, response.intent());
-        assertTrue(response.recommendations().isEmpty());
-        assertTrue(response.message().contains("not configured yet"));
-        assertTrue(response.message().contains("No alumni were searched"));
-        assertTrue(response.sources().isEmpty());
+            assertEquals(QuestionIntent.GENERAL_KNOWLEDGE, response.intent(), question);
+            assertTrue(response.recommendations().isEmpty(), question);
+            assertTrue(response.message().contains("not configured yet"), question);
+            assertTrue(response.message().contains("No alumni were searched"), question);
+            assertTrue(response.sources().isEmpty(), question);
+        }
         verifyNoInteractions(mentorDiscovery);
     }
 
@@ -46,6 +49,18 @@ class CareerAssistantServiceTest {
         assertTrue(response.needsClarification());
         assertNotNull(response.clarificationQuestion());
         assertTrue(response.recommendations().isEmpty());
+        verifyNoInteractions(mentorDiscovery);
+    }
+
+    @Test
+    void unsupportedAndShortAmbiguousRequestsNeverTriggerMentorDiscovery() {
+        for (String question : List.of("Tell me a joke.", "Write a poem about the moon.",
+                "Java?", "AI?", "DSA?")) {
+            var response = assistant.respond(question);
+
+            assertEquals(QuestionIntent.UNSUPPORTED_OR_UNCLEAR, response.intent(), question);
+            assertTrue(response.recommendations().isEmpty(), question);
+        }
         verifyNoInteractions(mentorDiscovery);
     }
 

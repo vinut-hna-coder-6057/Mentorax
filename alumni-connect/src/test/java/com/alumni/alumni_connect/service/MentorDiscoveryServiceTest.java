@@ -111,7 +111,7 @@ class MentorDiscoveryServiceTest {
         User student = mock(User.class);
         when(student.getRole()).thenReturn("STUDENT");
         when(currentUser.requireUser()).thenReturn(student);
-        User relevant = alumni(21L, "Sam PrivateName", "data engineering", "Data Engineer");
+        User relevant = alumni(21L, "Sam PrivateName", "data engineering analytics", "Data Engineer");
         User otherRelevant = alumni(22L, "Alex OtherName", "data analytics", "Data Scientist");
         when(users.findByRoleAndStatus("ALUMNI", "APPROVED", PageRequest.of(0, 500)))
                 .thenReturn(List.of(relevant, otherRelevant));
@@ -124,7 +124,7 @@ class MentorDiscoveryServiceTest {
                 .when(restTemplate).exchange(anyString(), eq(HttpMethod.POST), any(HttpEntity.class),
                         any(ParameterizedTypeReference.class), any(Object[].class));
 
-        var response = service.discover("data engineering career");
+        var response = service.discover("data engineering analytics career");
 
         assertFalse(response.fallbackUsed());
         assertEquals(List.of(22L, 21L), response.recommendations().stream()
@@ -255,6 +255,55 @@ class MentorDiscoveryServiceTest {
 
         assertTrue(response.recommendations().isEmpty());
         assertTrue(response.message().contains("none had enough matching"));
+        verifyNoInteractions(restTemplate);
+    }
+
+    @Test
+    void quantumComputingDoesNotMatchCloudProfileInAnyPythonMode() {
+        User student = mock(User.class);
+        when(student.getRole()).thenReturn("STUDENT");
+        when(currentUser.requireUser()).thenReturn(student);
+        User cloudAlum = alumni(105L, "Synthetic Cloud Alum", "AWS, Docker, Kubernetes, Terraform",
+                "DevOps Engineer");
+        when(cloudAlum.getInterests()).thenReturn("cloud computing and DevOps");
+        when(cloudAlum.getBio()).thenReturn("Automates cloud infrastructure and deployment pipelines.");
+        when(users.findByRoleAndStatus("ALUMNI", "APPROVED", PageRequest.of(0, 500)))
+                .thenReturn(List.of(cloudAlum));
+        when(userSkills.findByUser_IdIn(List.of(105L))).thenReturn(List.of());
+
+        for (boolean enabled : List.of(false, true)) {
+            ReflectionTestUtils.setField(service, "aiEnabled", enabled);
+            var response = service.discover("How can I get a job in quantum computing?");
+            assertTrue(response.recommendations().isEmpty());
+            assertTrue(response.message().contains("none had enough matching"));
+        }
+        verifyNoInteractions(restTemplate);
+    }
+
+    @Test
+    void localFallbackRanksInterviewParaphrasesAgainstProfileEvidence() {
+        User student = mock(User.class);
+        when(student.getRole()).thenReturn("STUDENT");
+        when(currentUser.requireUser()).thenReturn(student);
+        User interviewAlum = alumni(102L, "Synthetic Interview Alum",
+                "DSA, Algorithms, Coding Interviews, Python, Online Assessments", "Software Engineer");
+        when(interviewAlum.getBio()).thenReturn(
+                "Works on coding rounds, problem solving, and software engineering internship interviews.");
+        when(users.findByRoleAndStatus("ALUMNI", "APPROVED", PageRequest.of(0, 500)))
+                .thenReturn(List.of(interviewAlum));
+        when(userSkills.findByUser_IdIn(List.of(102L))).thenReturn(List.of());
+
+        for (String question : List.of(
+                "I need help with DSA interview preparation.",
+                "How should I prepare for coding rounds?",
+                "I struggle with problem-solving questions in technical interviews.",
+                "Can someone guide me for software engineering OAs?",
+                "How do I prep for a softwear enginer interveiw?")) {
+            var response = service.discover(question);
+            assertEquals(List.of(102L), response.recommendations().stream()
+                    .map(recommendation -> recommendation.id()).toList(), question);
+            assertTrue(response.fallbackUsed(), question);
+        }
         verifyNoInteractions(restTemplate);
     }
 

@@ -3,6 +3,8 @@ package com.alumni.alumni_connect.service;
 import com.alumni.alumni_connect.dto.QuestionIntent;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -22,6 +24,26 @@ class QuestionIntentClassifierTest {
     }
 
     @Test
+    void fixedEvaluationCareerParaphrasesRouteToMentorDiscovery() {
+        for (String question : List.of(
+                "How can I learn Java and backend development?",
+                "How do I learn React for full-stack development?",
+                "How can I learn cloud computing and DevOps?",
+                "How can I improve my system design knowledge?",
+                "How can I get started in cybersecurity?",
+                "How can I build AI and machine-learning projects?",
+                "I need help with DSA interview preparation.",
+                "How should I prepare for coding rounds?",
+                "I struggle with problem-solving questions in technical interviews.",
+                "Can someone guide me for software engineering OAs?",
+                "How do I prep for a softwear enginer interveiw?",
+                "How can I combine Java and React for full-stack work?",
+                "How do I learn Java?")) {
+            assertIntent(question, QuestionIntent.CAREER_MENTOR_SEARCH);
+        }
+    }
+
+    @Test
     void commonTyposAreNormalizedBeforeClassification() {
         assertIntent("How do I prepare for a softwear intership?",
                 QuestionIntent.CAREER_MENTOR_SEARCH);
@@ -33,6 +55,8 @@ class QuestionIntentClassifierTest {
     void generalQuestionsDoNotBecomeMentorSearches() {
         assertIntent("Who is the Prime Minister of India?", QuestionIntent.GENERAL_KNOWLEDGE);
         assertIntent("What is 2 + 2?", QuestionIntent.GENERAL_KNOWLEDGE);
+        assertIntent("What is the weather today?", QuestionIntent.GENERAL_KNOWLEDGE);
+        assertIntent("Who won yesterday's cricket match?", QuestionIntent.GENERAL_KNOWLEDGE);
         assertIntent("What is machine learning?", QuestionIntent.GENERAL_KNOWLEDGE);
     }
 
