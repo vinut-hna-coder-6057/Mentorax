@@ -118,6 +118,7 @@ class MentorDiscoveryServiceTest {
         when(userSkills.findByUser_IdIn(List.of(21L, 22L))).thenReturn(List.of());
         ReflectionTestUtils.setField(service, "aiEnabled", true);
         ReflectionTestUtils.setField(service, "aiServiceUrl", "http://127.0.0.1:8090");
+        ReflectionTestUtils.setField(service, "rankingStrategy", "semantic");
         doReturn(ResponseEntity.ok(Map.of(
                 "rankedIds", List.of(22, 21),
                 "scores", Map.of("21", 0.85, "22", 0.1))))
@@ -127,6 +128,7 @@ class MentorDiscoveryServiceTest {
         var response = service.discover("data engineering analytics career");
 
         assertFalse(response.fallbackUsed());
+        assertEquals("Sentence embedding ordering with Java profile evidence gate", response.rankingMethod());
         assertEquals(List.of(22L, 21L), response.recommendations().stream()
                 .map(recommendation -> recommendation.id()).toList());
         assertEquals(22L, response.recommendations().getFirst().id());
@@ -137,6 +139,7 @@ class MentorDiscoveryServiceTest {
                 any(ParameterizedTypeReference.class), any(Object[].class));
         @SuppressWarnings("unchecked")
         Map<String, Object> payload = (Map<String, Object>) request.getValue().getBody();
+        assertEquals("semantic", payload.get("strategy"));
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> candidates = (List<Map<String, Object>>) payload.get("candidates");
         assertFalse(candidates.getFirst().containsKey("name"));

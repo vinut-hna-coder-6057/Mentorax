@@ -1,8 +1,11 @@
 """Run Python TF-IDF component and Java production fallback evaluations."""
 import argparse
+import ctypes
 import json
+import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from evaluator import materialize_question, ranking_metrics, summarize, validate_dataset, validate_ranking_result
@@ -15,9 +18,32 @@ def load_json(path):
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def python_evaluation(dataset):
+def process_rss_bytes():
+    try:
+        if os.name == "nt":
+            class ProcessMemoryCounters(ctypes.Structure):
+                _fields_ = [("cb", ctypes.c_ulong), ("PageFaultCount", ctypes.c_ulong),
+                            ("PeakWorkingSetSize", ctypes.c_size_t), ("WorkingSetSize", ctypes.c_size_t),
+                            ("QuotaPeakPagedPoolUsage", ctypes.c_size_t), ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                            ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t), ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                            ("PagefileUsage", ctypes.c_size_t), ("PeakPagefileUsage", ctypes.c_size_t)]
+
+            counters = ProcessMemoryCounters()
+            counters.cb = ctypes.sizeof(counters)
+            handle = ctypes.windll.kernel32.GetCurrentProcess()
+            if ctypes.windll.psapi.GetProcessMemoryInfo(handle, ctypes.byref(counters), counters.cb):
+                return int(counters.WorkingSetSize)
+        elif Path("/proc/self/statm").exists():
+            resident_pages = int(Path("/proc/self/statm").read_text().split()[1])
+            return resident_pages * os.sysconf("SC_PAGE_SIZE")
+    except (AttributeError, OSError, ValueError, IndexError):
+        return None
+    return None
+
+
+def python_evaluation(dataset, strategy):
     sys.path.insert(0, str(AI_ROOT))
-    from app import Candidate, RankingRequest, rank
+    from app import Candidate, RankingRequest, rank, semantic_ranker
 
     searchable = [case for case in dataset["questions"] if case["expectedRecommendations"]]
     profiles = dataset["profiles"]
@@ -26,27 +52,51 @@ def python_evaluation(dataset):
                   for p in profiles]
     ranked = {}
     errors = []
+    durations_ms = []
+    rss_before = process_rss_bytes()
+    started = time.perf_counter()
     for case in searchable:
         try:
-            result = rank(RankingRequest(goal=materialize_question(case["question"]), candidates=candidates))
+            question_started = time.perf_counter()
+            result = rank(RankingRequest(goal=materialize_question(case["question"]),
+                                         candidates=candidates, strategy=strategy))
             validate_ranking_result(result, [profile["id"] for profile in profiles])
             ranked[case["id"]] = result["rankedIds"]
-        except Exception as error:  # An error is visible and never scored as a successful ranking.
+            durations_ms.append((time.perf_counter() - question_started) * 1000)
+        except Exception as error:
+            from fastapi import HTTPException
+
+            if isinstance(error, HTTPException) and error.status_code == 503 and strategy in {"semantic", "hybrid"}:
+                return {"status": "NOT_EVALUATED", "strategy": strategy,
+                        "reason": error.detail, "errors": [{"caseId": case["id"], "errorType": type(error).__name__}],
+                        "metrics": None, "careerQualityMetrics": None, "rankedIdsByCase": {}}
             errors.append({"caseId": case["id"], "errorType": type(error).__name__})
+            break
     repeated = {}
     if not errors:
         for case in searchable:
-            result = rank(RankingRequest(goal=materialize_question(case["question"]), candidates=candidates))
+            result = rank(RankingRequest(goal=materialize_question(case["question"]),
+                                         candidates=candidates, strategy=strategy))
             validate_ranking_result(result, [profile["id"] for profile in profiles])
             repeated[case["id"]] = result["rankedIds"]
     deterministic = not errors and ranked == repeated
-    summary = summarize(searchable, ranked)
+    summary = summarize(searchable, ranked) if ranked else None
     quality_cases = [case for case in searchable if any(int(value) > 0 for value in case["relevance"].values())]
-    quality_summary = summarize(quality_cases, ranked)
-    return {"status": "evaluated" if not errors else "failed", "implementation": "mentorax-ai/app.py rank()",
-            "scope": "Raw TF-IDF component over all synthetic profiles; no Java evidence gate or intent routing",
+    quality_summary = summarize(quality_cases, ranked) if ranked else None
+    elapsed = (time.perf_counter() - started) * 1000
+    rss_after = process_rss_bytes()
+    return {"status": "evaluated" if not errors else "failed", "strategy": strategy,
+            "implementation": "mentorax-ai/app.py rank()",
+            "scope": f"Isolated Python {strategy} ranker over all synthetic profiles; no Java evidence gate or intent routing",
             "caseCount": len(searchable), "deterministicRepeatedRun": deterministic,
             "errors": errors, "metrics": summary, "careerQualityMetrics": quality_summary,
+            "runtime": {"totalRankingMilliseconds": round(elapsed, 3),
+                        "meanQuestionLatencyMilliseconds": round(sum(durations_ms) / len(durations_ms), 3) if durations_ms else None,
+                        "firstQuestionLatencyMilliseconds": round(durations_ms[0], 3) if durations_ms else None,
+                        "modelInitializationSeconds": semantic_ranker.model_load_seconds,
+                        "profileEmbeddingCacheEntries": semantic_ranker.cache_entries,
+                        "processRssBytesBefore": rss_before, "processRssBytesAfter": rss_after,
+                        "processRssDeltaBytes": rss_after - rss_before if rss_before is not None and rss_after is not None else None},
             "rankedIdsByCase": ranked}
 
 
@@ -119,7 +169,7 @@ def java_evaluation(dataset, java_raw, cases_key="cases", mode="disabled"):
                       for case in dataset["questions"]]}
 
 
-def acceptance_report(dataset, python_result, java_result, java_unavailable_result, acceptance):
+def acceptance_report(dataset, python_results, java_result, java_unavailable_result, acceptance):
     checks = []
     if java_result is None:
         checks.append({"criterion": "Java hard correctness suite", "status": "NOT_EVALUATED"})
@@ -149,9 +199,15 @@ def acceptance_report(dataset, python_result, java_result, java_unavailable_resu
                 {"criterion": "Python-unavailable repeated-run determinism",
                  "status": "PASS" if java_unavailable_result["deterministicRepeatedRun"] else "FAIL"},
             ])
-    checks.append({"criterion": "Python repeated-run determinism", "status": "PASS" if python_result["deterministicRepeatedRun"] else "FAIL"})
-    if python_result["status"] != "evaluated":
-        checks.append({"criterion": "Python TF-IDF component completed", "status": "FAIL", "errors": python_result["errors"]})
+    for strategy, result in python_results.items():
+        label = {"tfidf": "Python TF-IDF", "semantic": "Python semantic", "hybrid": "Python hybrid"}[strategy]
+        if result["status"] == "NOT_EVALUATED":
+            checks.append({"criterion": f"{label} evaluation", "status": "NOT_EVALUATED", "reason": result["reason"]})
+            continue
+        checks.append({"criterion": f"{label} repeated-run determinism",
+                       "status": "PASS" if result["deterministicRepeatedRun"] else "FAIL"})
+        if result["status"] != "evaluated":
+            checks.append({"criterion": f"{label} component completed", "status": "FAIL", "errors": result["errors"]})
     targets = acceptance["quality_targets"]
     for name, target in targets.items():
         metric_name = {"precision_at_3": "precisionAt3", "recall_at_5": "recallAt5",
@@ -162,20 +218,30 @@ def acceptance_report(dataset, python_result, java_result, java_unavailable_resu
             checks.append({"criterion": f"Quality target {name} ({label})",
                            "status": "WARN" if actual is None or actual < target else "PASS",
                            "actual": actual, "target": target})
-        metric = python_result["careerQualityMetrics"]["overall"].get(metric_name)
-        actual = metric["value"] if metric else None
-        checks.append({"criterion": f"Quality target {name} (Python TF-IDF component)",
-                       "status": "WARN" if actual is None or actual < target else "PASS",
-                       "actual": actual, "target": target})
+        for strategy, result in python_results.items():
+            label = {"tfidf": "Python TF-IDF", "semantic": "Python semantic",
+                     "hybrid": "Python hybrid"}[strategy]
+            if result["status"] != "evaluated":
+                checks.append({"criterion": f"Quality target {name} ({label})",
+                               "status": "NOT_EVALUATED", "target": target})
+                continue
+            metric = result["careerQualityMetrics"]["overall"].get(metric_name)
+            actual = metric["value"] if metric else None
+            checks.append({"criterion": f"Quality target {name} ({label})",
+                           "status": "WARN" if actual is None or actual < target else "PASS",
+                           "actual": actual, "target": target})
     return checks
 
 
 def print_summary(report):
     print(f"Mentorax synthetic evaluation: {report['dataset']['questionCount']} cases, {report['dataset']['profileCount']} profiles")
-    for mode in ("javaFallback", "javaPythonUnavailableFallback", "pythonTfidf"):
+    for mode in ("javaFallback", "javaPythonUnavailableFallback", "pythonTfidf", "pythonSemantic", "pythonHybrid"):
         item = report[mode]
         if item is None:
             print(f"{mode}: NOT EVALUATED")
+            continue
+        if item["status"] == "NOT_EVALUATED":
+            print(f"{mode}: NOT EVALUATED ({item['reason']})")
             continue
         metrics = item["careerQualityMetrics"]["overall"]
         precision = metrics["precisionAt3"]["value"]
@@ -196,7 +262,9 @@ def main():
     dataset = load_json(args.dataset)
     validate_dataset(dataset)
     acceptance = load_json(args.acceptance)
-    python_result = python_evaluation(dataset)
+    python_results = {strategy: python_evaluation(dataset, strategy)
+                      for strategy in ("tfidf", "semantic", "hybrid")}
+    python_result = python_results["tfidf"]
     java_result = None
     java_unavailable_result = None
     java_raw = None
@@ -210,6 +278,8 @@ def main():
     per_question = []
     for case in dataset["questions"]:
         python_ids = python_result["rankedIdsByCase"].get(case["id"], [])
+        semantic_ids = python_results["semantic"]["rankedIdsByCase"].get(case["id"], [])
+        hybrid_ids = python_results["hybrid"]["rankedIdsByCase"].get(case["id"], [])
         java_case = java_cases.get(case["id"])
         unavailable_case = unavailable_cases.get(case["id"])
         per_question.append({"id": case["id"], "category": case["category"],
@@ -218,6 +288,8 @@ def main():
                              "predictedIntent": java_case["predictedIntent"] if java_case else None,
                              "relevance": case["relevance"], "rationale": case["rationale"],
                              "pythonRankedIds": python_ids,
+                             "pythonSemanticRankedIds": semantic_ids,
+                             "pythonHybridRankedIds": hybrid_ids,
                              "pythonRankingMetrics": ranking_metrics(python_ids, case["relevance"]) if python_ids else None,
                              "javaRecommendedIds": java_case["recommendedIds"] if java_case else None,
                              "javaUnavailableRecommendedIds": unavailable_case["recommendedIds"] if unavailable_case else None,
@@ -230,11 +302,12 @@ def main():
                           "questionCount": len(dataset["questions"]),
                           "categoryCounts": {category: sum(q["category"] == category for q in dataset["questions"])
                                              for category in sorted({q["category"] for q in dataset["questions"]})}},
-              "pythonTfidf": python_result, "javaFallback": java_result,
+              "pythonTfidf": python_result, "pythonSemantic": python_results["semantic"],
+              "pythonHybrid": python_results["hybrid"], "javaFallback": java_result,
               "perQuestion": per_question,
               "javaPythonUnavailableFallback": java_unavailable_result,
               "livePythonOutageIntegration": {"status": "NOT_EVALUATED", "reason": "The suite injects a transport failure into the Java client; it does not start a live Python service or induce a network outage."},
-              "acceptance": acceptance_report(dataset, python_result, java_result,
+              "acceptance": acceptance_report(dataset, python_results, java_result,
                                                java_unavailable_result, acceptance)}
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")

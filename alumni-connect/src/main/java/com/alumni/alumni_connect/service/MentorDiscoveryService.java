@@ -33,6 +33,7 @@ public class MentorDiscoveryService {
     @Value("${app.ai.enabled:false}") private boolean aiEnabled;
     @Value("${app.ai.service-url:http://127.0.0.1:8090}") private String aiServiceUrl;
     @Value("${app.ai.minimum-relevance:0.0}") private double minimumRelevance;
+    @Value("${app.ai.ranking-strategy:tfidf}") private String rankingStrategy = "tfidf";
 
     public MentorDiscoveryService(UserRepository users, UserSkillRepository userSkills,
                                   CurrentUserService currentUser, RestTemplate restTemplate) {
@@ -44,6 +45,10 @@ public class MentorDiscoveryService {
     void validateMinimumRelevance() {
         if (!Double.isFinite(minimumRelevance) || minimumRelevance < 0 || minimumRelevance > 1) {
             throw new IllegalStateException("app.ai.minimum-relevance must be between 0.0 and 1.0");
+        }
+        rankingStrategy = rankingStrategy.toLowerCase(Locale.ROOT);
+        if (!Set.of("tfidf", "semantic", "hybrid").contains(rankingStrategy)) {
+            throw new IllegalStateException("app.ai.ranking-strategy must be tfidf, semantic, or hybrid");
         }
     }
 
@@ -105,7 +110,8 @@ public class MentorDiscoveryService {
                     fields.put("interests", candidate.interests());
                     return fields;
                 }).toList();
-                Map<String, Object> payload = Map.of("goal", goal, "candidates", rankingCandidates);
+                Map<String, Object> payload = Map.of("goal", goal, "candidates", rankingCandidates,
+                        "strategy", rankingStrategy);
                 ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
                         aiServiceUrl.replaceAll("/$", "") + "/rank", HttpMethod.POST,
                         new HttpEntity<>(payload, jsonHeaders()), new ParameterizedTypeReference<>() {});
@@ -149,7 +155,11 @@ public class MentorDiscoveryService {
                 .limit(10).map(candidate -> recommendation(goal, candidate,
                         localScore(goal, candidate))).toList();
         String method = fallback ? "Java keyword overlap with profile evidence gate"
-                : "TF-IDF ordering with Java profile evidence gate";
+                : switch (rankingStrategy) {
+                    case "semantic" -> "Sentence embedding ordering with Java profile evidence gate";
+                    case "hybrid" -> "Hybrid rank-percentile ordering with Java profile evidence gate";
+                    default -> "TF-IDF ordering with Java profile evidence gate";
+                };
         return new MentorDiscoveryResponse(results, method, fallback,
                 QuestionIntent.CAREER_MENTOR_SEARCH, null, false, null,
                 results.isEmpty() ? "No approved alumni met the configured relevance threshold." : null,

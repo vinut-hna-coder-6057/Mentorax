@@ -4,6 +4,7 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 from app import MAX_REQUEST_BYTES, app
+from semantic_ranker import SemanticEmbeddingError
 
 
 class MentorRankerApiTests(unittest.TestCase):
@@ -32,11 +33,57 @@ class MentorRankerApiTests(unittest.TestCase):
         self.assertEqual(200, response.status_code)
         result = response.json()
         self.assertEqual([3, 7], result["rankedIds"])
+        self.assertEqual("TF-IDF cosine similarity", result["rankingMethod"])
         self.assertEqual({"3", "7"}, set(result["scores"]))
         for score in result["scores"].values():
             self.assertIsInstance(score, float)
             self.assertGreaterEqual(score, 0.0)
             self.assertLessEqual(score, 1.0)
+
+    def test_semantic_strategy_is_selected_and_model_failure_is_explicit(self):
+        with patch("app.semantic_ranker.rank", return_value=[0.2, 0.9]) as ranker:
+            response = self.client.post("/rank", json={
+                "goal": "How can I prepare for software engineering interviews?",
+                "strategy": "semantic",
+                "candidates": [{"id": 5}, {"id": 2}],
+            })
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual([2, 5], response.json()["rankedIds"])
+        self.assertEqual("Sentence embedding cosine similarity", response.json()["rankingMethod"])
+        ranker.assert_called_once()
+
+        with patch("app.semantic_ranker.rank", side_effect=SemanticEmbeddingError("model unavailable")):
+            unavailable = self.client.post("/rank", json={
+                "goal": "software engineering interviews", "strategy": "semantic",
+                "candidates": [{"id": 1, "skills": ["software engineering"]}],
+            })
+
+        self.assertEqual(503, unavailable.status_code)
+        self.assertEqual({"detail": "Semantic ranking unavailable"}, unavailable.json())
+
+    def test_hybrid_strategy_combines_rank_percentiles_not_raw_scores(self):
+        with patch("app.tfidf_scores", return_value=[0.9, 0.3]), \
+                patch("app.semantic_ranker.rank", return_value=[0.2, 0.8]), \
+                patch.dict("os.environ", {"MENTOR_HYBRID_TFIDF_WEIGHT": "0.75"}):
+            response = self.client.post("/rank", json={
+                "goal": "software engineering interviews", "strategy": "hybrid",
+                "candidates": [{"id": 8}, {"id": 3}],
+            })
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual([8, 3], response.json()["rankedIds"])
+        self.assertEqual("Hybrid rank-percentile fusion", response.json()["rankingMethod"])
+        self.assertAlmostEqual(0.75, response.json()["scores"]["8"])
+        self.assertAlmostEqual(0.25, response.json()["scores"]["3"])
+
+    def test_unknown_strategy_is_rejected_safely(self):
+        response = self.client.post("/rank", json={
+            "goal": "career advice", "strategy": "unknown", "candidates": [{"id": 1}],
+        })
+
+        self.assertEqual(422, response.status_code)
+        self.assertEqual({"detail": "Invalid ranking request"}, response.json())
 
     def test_vectorization_failure_returns_explicit_service_error(self):
         with patch("app.TfidfVectorizer.fit_transform", side_effect=ValueError("empty vocabulary")):
