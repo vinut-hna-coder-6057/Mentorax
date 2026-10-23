@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "sourceDatasetPath": "mentorax-ai/evaluation/dataset.json",
+  "sourceDatasetSha256": "39c2b2de34163acf1966d98fdd3767f2cf547513752d9707e93161804a899b7b",
+  "annotationStatus": "existing_synthetic_grades_provenance_incomplete",
+  "labelDescription": "The checked-in evaluation README describes the relevance grades as fixed ground truth and requires rationales for positive grades. The repository does not record annotator identities, adjudication records, or a label-generation tool/version.",
+  "labelGeneratorVersion": null,
+  "annotatorIdentityRecorded": false,
+  "unresolvedJudgmentsRepresented": false,
+  "omittedRelevanceSemantics": "The existing evaluation specification treats omitted grades as irrelevant; the freeze preserves sparse maps without filling or relabeling them.",
+  "heldoutLabelsIncluded": false
+}

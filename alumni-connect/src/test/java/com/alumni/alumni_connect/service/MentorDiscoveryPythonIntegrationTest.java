@@ -67,7 +67,8 @@ class MentorDiscoveryPythonIntegrationTest {
         User secondRelevant = alumni(22L, "Private Mentor Two", "data analytics", "Data Scientist");
         User irrelevantApproved = alumni(99L, "Other Approved Person", "gardening", "Gardener");
         approvedProfiles = List.of(relevant, secondRelevant, irrelevantApproved);
-        when(users.findByRoleAndStatus(eq("ALUMNI"), eq("APPROVED"), any()))
+        when(users.findTop500ByRoleAndStatusAndIdGreaterThanOrderByIdAsc(
+                eq("ALUMNI"), eq("APPROVED"), any(Long.class)))
                 .thenReturn(approvedProfiles);
         when(userSkills.findByUser_IdIn(anyList())).thenReturn(List.of());
 
@@ -140,6 +141,18 @@ class MentorDiscoveryPythonIntegrationTest {
     }
 
     @Test
+    void semanticModelWarmingResponseUsesTheExistingSafeFallback() {
+        ReflectionTestUtils.setField(service, "rankingStrategy", "semantic");
+        nextResponse.set(new StubResponse(503,
+                "{\"status\":\"not_ready\",\"strategy\":\"semantic\",\"semanticModel\":\"warming\"}", 0));
+
+        var response = service.discover(GOAL);
+
+        assertSafeFallback(response);
+        assertTrue(response.message() == null || !response.message().contains("warming"));
+    }
+
+    @Test
     void malformedJsonFallsBackWithoutExposingParserDetails() {
         nextResponse.set(new StubResponse(200, "{not-json", 0));
 
@@ -173,7 +186,8 @@ class MentorDiscoveryPythonIntegrationTest {
     @Test
     void weakAndNoMatchQueriesDoNotCallPythonWhenJavaEvidenceGateRejectsThem() {
         User weak = alumni(31L, "Weak Profile", "data analytics", "Data Analyst");
-        when(users.findByRoleAndStatus(eq("ALUMNI"), eq("APPROVED"), any())).thenReturn(List.of(weak));
+        when(users.findTop500ByRoleAndStatusAndIdGreaterThanOrderByIdAsc(
+                eq("ALUMNI"), eq("APPROVED"), any(Long.class))).thenReturn(List.of(weak));
         ReflectionTestUtils.setField(service, "minimumRelevance", 0.75);
 
         // This profile matches one of two meaningful terms (analytics), so it
@@ -225,7 +239,7 @@ class MentorDiscoveryPythonIntegrationTest {
     }
 
     private static String successBody() {
-        return "{\"rankedIds\":[22,21],\"scores\":{\"21\":0.9,\"22\":0.8},"
+        return "{\"rankedIds\":[22,21],\"scores\":{\"21\":0.8,\"22\":0.9},"
                 + "\"rankingMethod\":\"TF-IDF cosine similarity\"}";
     }
 

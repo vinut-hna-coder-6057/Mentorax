@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "description": "TEMPLATE ONLY. No labeled queries or profiles are included.",
+  "datasetStatus": "NOT_ANNOTATED_NOT_EVALUATED",
+  "coverageCategories": [
+    "exact_match",
+    "paraphrased_question",
+    "company_specific",
+    "role_specific",
+    "skill_or_domain",
+    "ambiguous",
+    "unrelated",
+    "no_suitable_alumnus",
+    "beyond_500_record_boundary",
+    "semantic_relevance_with_weak_lexical_overlap",
+    "false_positive_challenge"
+  ],
+  "profiles": [],
+  "profileRationales": {},
+  "questions": []
+}

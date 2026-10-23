@@ -1,0 +1,362 @@
+{
+  "schemaVersion": 1,
+  "sourceDatasetSha256": "39c2b2de34163acf1966d98fdd3767f2cf547513752d9707e93161804a899b7b",
+  "questions": [
+    {
+      "id": "career_dsa",
+      "category": "career_core",
+      "expectedIntent": "CAREER_MENTOR_SEARCH",
+      "expectedRecommendations": true,
+      "relevance": {
+        "102": 2
+      },
+      "rationale": {
+        "102": "Direct DSA and technical interview practice."
+      }
+    },
+    {
+      "id": "career_java_backend",
+      "category": "career_core",
+      "expectedIntent": "CAREER_MENTOR_SEARCH",
+      "expectedRecommendations": true,
+      "relevance": {
+        "101": 2,
+        "109": 1
+      },
+      "rationale": {
+        "101": "Direct Java backend development experience.",
+        "109": "Java and backend test automation provide partial adjacent guidance."
+      }
+    },
+    {
+      "id": "career_ml_engineer",
+      "category": "career_core",
+      "expectedIntent": "CAREER_MENTOR_SEARCH",
+      "expectedRecommendations": true,
+      "relevance": {
+        "103": 2
+      },
+      "rationale": {
+        "103": "The profile is a machine-learning engineer with relevant skills."
+      }
+    },
+    {
+      "id": "career_react_fullstack",
+      "category": "career_core",
+      "expectedIntent": "CAREER_MENTOR_SEARCH",
+      "expectedRecommendations": true,
+      "relevance": {
+        "104": 2
+      },
+      "rationale": {
+        "104": "Direct React and Node.js full-stack experience."
+      }
+    },
+    {
+      "id": "career_internships",
+      "category": "career_core",
+      "expectedIntent": "CAREER_MENTOR_SEARCH",
+      "expectedRecommendations": true,
+      "relevance": {
+        "102": 2,
+        "101": 1,
+        "109": 1
+      },
+      "rationale": {
+        "102": "Direct internship interview and coding-round experience.",
+        "101": "Backend software engineering is partially relevant.",
+        "109": "Software test engineering provides adjacent internship preparation."
+      }
+    },
+    {
+      "id": "career_cloud_devops",
+      "category": "career_core",
+      "expectedIntent": "CAREER_MENTOR_SEARCH",
+      "expectedRecommendations": true,
+      "relevance": {
+        "105": 2
+      },
+      "rationale": {
+        "105": "Direct cloud infrastructure and DevOps experience."
+      }
+    },
+    {
+      "id": "career_system_design",
+      "category": "career_core",
+      "expectedIntent": "CAREER_MENTOR_SEARCH",
+      "expectedRecommendations": true,
+      "relevance": {
+        "106": 2
+      },
+      "rationale": {
+        "106": "Specializes in system design and scalable architecture."
+      }
+    },
+    {
+      "id": "career_data_engineering",
+      "category": "career_core",
+      "expectedIntent": "CAREER_MENTOR_SEARCH",
+      "expectedRecommendations": true,
+      "relevance": {
+        "107": 2,
+        "101": 1
+      },
+      "rationale": {
+        "107": "Direct data engineering and pipeline experience.",
+        "101": "SQL and backend service work are partially transferable."
+      }
+    },
+    {
+      "id": "career_cybersecurity",
+      "category": "career_core",
+      "expectedIntent": "CAREER_MENTOR_SEARCH",
+      "expectedRecommendations": true,
+      "relevance": {
+        "108": 2
+      },
+      "rationale": {
+        "108": "Direct cybersecurity and network security experience."
+      }
+    },
+    {
+      "id": "career_ai_projects",
+      "category": "career_core",
+      "expectedIntent": "CAREER_MENTOR_SEARCH",
+      "expectedRecommendations": true,
+      "relevance": {
+        "103": 2
+      },
+      "rationale": {
+        "103": "Builds machine-learning systems and AI projects."
+      }
+    },
+    {
+      "id": "paraphrase_dsa_help",
+      "category": "paraphrase",
+      "expectedIntent": "CAREER_MENTOR_SEARCH",
+      "expectedRecommendations": true,
+      "relevance": {
+        "102": 2
+      },
+      "rationale": {
+        "102": "Direct DSA and interview preparation match."
+      }
+    },
+    {
+      "id": "paraphrase_coding_rounds",
+      "category": "paraphrase",
+      "expectedIntent": "CAREER_MENTOR_SEARCH",
+      "expectedRecommendations": true,
+      "relevance": {
+        "102": 2
+      },
+      "rationale": {
+        "102": "The profile explicitly covers coding rounds and algorithms."
+      }
+    },
+    {
+      "id": "paraphrase_problem_solving",
+      "category": "paraphrase",
+      "expectedIntent": "CAREER_MENTOR_SEARCH",
+      "expectedRecommendations": true,
+      "relevance": {
+        "102": 2
+      },
+      "rationale": {
+        "102": "Direct problem-solving and technical interview experience."
+      }
+    },
+    {
+      "id": "paraphrase_software_oa",
+      "category": "paraphrase",
+      "expectedIntent": "CAREER_MENTOR_SEARCH",
+      "expectedRecommendations": true,
+      "relevance": {
+        "102": 2
+      },
+      "rationale": {
+        "102": "The profile covers software engineering online assessments and coding rounds."
+      }
+    },
+    {
+      "id": "typo_informal",
+      "category": "misspelling",
+      "expectedIntent": "CAREER_MENTOR_SEARCH",
+      "expectedRecommendations": true,
+      "relevance": {
+        "102": 2
+      },
+      "rationale": {
+        "102": "Typos retain the intended software engineering interview question."
+      }
+    },
+    {
+      "id": "multi_skill",
+      "category": "multi_skill",
+      "expectedIntent": "CAREER_MENTOR_SEARCH",
+      "expectedRecommendations": true,
+      "relevance": {
+        "104": 2,
+        "101": 1
+      },
+      "rationale": {
+        "104": "Direct React full-stack experience.",
+        "101": "Java backend experience is partially relevant."
+      }
+    },
+    {
+      "id": "explicit_alumni_question",
+      "category": "alumni_question",
+      "expectedIntent": "ALUMNI_QUESTION",
+      "expectedRecommendations": true,
+      "relevance": {
+        "102": 2
+      },
+      "rationale": {
+        "102": "The intended recipient can advise on DSA interview preparation."
+      }
+    },
+    {
+      "id": "weak_generic_java",
+      "category": "weak_match",
+      "expectedIntent": "CAREER_MENTOR_SEARCH",
+      "expectedRecommendations": true,
+      "relevance": {
+        "101": 2,
+        "109": 1
+      },
+      "rationale": {
+        "101": "Direct Java backend experience.",
+        "109": "Java is relevant, but the role focuses on test automation."
+      }
+    },
+    {
+      "id": "misleading_java_island",
+      "category": "misleading_context",
+      "expectedIntent": "UNSUPPORTED_OR_UNCLEAR",
+      "expectedRecommendations": false,
+      "relevance": {},
+      "rationale": {}
+    },
+    {
+      "id": "no_match_quantum",
+      "category": "no_match",
+      "expectedIntent": "CAREER_MENTOR_SEARCH",
+      "expectedRecommendations": false,
+      "relevance": {},
+      "rationale": {}
+    },
+    {
+      "id": "general_prime_minister",
+      "category": "general_question",
+      "expectedIntent": "GENERAL_KNOWLEDGE",
+      "expectedRecommendations": false,
+      "relevance": {},
+      "rationale": {}
+    },
+    {
+      "id": "general_arithmetic",
+      "category": "general_question",
+      "expectedIntent": "GENERAL_KNOWLEDGE",
+      "expectedRecommendations": false,
+      "relevance": {},
+      "rationale": {}
+    },
+    {
+      "id": "general_weather",
+      "category": "general_question",
+      "expectedIntent": "GENERAL_KNOWLEDGE",
+      "expectedRecommendations": false,
+      "relevance": {},
+      "rationale": {}
+    },
+    {
+      "id": "general_cricket",
+      "category": "general_question",
+      "expectedIntent": "GENERAL_KNOWLEDGE",
+      "expectedRecommendations": false,
+      "relevance": {},
+      "rationale": {}
+    },
+    {
+      "id": "unsupported_joke",
+      "category": "unsupported",
+      "expectedIntent": "UNSUPPORTED_OR_UNCLEAR",
+      "expectedRecommendations": false,
+      "relevance": {},
+      "rationale": {}
+    },
+    {
+      "id": "unsupported_poem",
+      "category": "unsupported",
+      "expectedIntent": "UNSUPPORTED_OR_UNCLEAR",
+      "expectedRecommendations": false,
+      "relevance": {},
+      "rationale": {}
+    },
+    {
+      "id": "greeting",
+      "category": "greeting",
+      "expectedIntent": "GREETING_OR_SMALLTALK",
+      "expectedRecommendations": false,
+      "relevance": {},
+      "rationale": {}
+    },
+    {
+      "id": "ambiguous_java",
+      "category": "ambiguous",
+      "expectedIntent": "UNSUPPORTED_OR_UNCLEAR",
+      "expectedRecommendations": false,
+      "relevance": {},
+      "rationale": {}
+    },
+    {
+      "id": "ambiguous_ai",
+      "category": "ambiguous",
+      "expectedIntent": "UNSUPPORTED_OR_UNCLEAR",
+      "expectedRecommendations": false,
+      "relevance": {},
+      "rationale": {}
+    },
+    {
+      "id": "ambiguous_dsa",
+      "category": "ambiguous",
+      "expectedIntent": "UNSUPPORTED_OR_UNCLEAR",
+      "expectedRecommendations": false,
+      "relevance": {},
+      "rationale": {}
+    },
+    {
+      "id": "ambiguous_vague",
+      "category": "ambiguous",
+      "expectedIntent": "UNSUPPORTED_OR_UNCLEAR",
+      "expectedRecommendations": false,
+      "relevance": {},
+      "rationale": {}
+    },
+    {
+      "id": "validation_empty",
+      "category": "validation",
+      "expectedIntent": "VALIDATION_ERROR",
+      "expectedRecommendations": false,
+      "relevance": {},
+      "rationale": {}
+    },
+    {
+      "id": "validation_whitespace",
+      "category": "validation",
+      "expectedIntent": "VALIDATION_ERROR",
+      "expectedRecommendations": false,
+      "relevance": {},
+      "rationale": {}
+    },
+    {
+      "id": "validation_oversized",
+      "category": "validation",
+      "expectedIntent": "VALIDATION_ERROR",
+      "expectedRecommendations": false,
+      "relevance": {},
+      "rationale": {}
+    }
+  ]
+}

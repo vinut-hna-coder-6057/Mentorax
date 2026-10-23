@@ -268,6 +268,136 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
   }
 
+  Future<void> _showInboxAssistant(ChatMessage message) async {
+    if (message.id == null) return;
+    var loading = true;
+    var started = false;
+    String? error;
+    Map<String, dynamic>? result;
+    TextEditingController? draftController;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, update) {
+          Future<void> load() async {
+            update(() {
+              loading = true;
+              error = null;
+            });
+            try {
+              final response = await ref
+                  .read(appRepositoryProvider)
+                  .inboxAssistant(message.id!);
+              if (!sheetContext.mounted) return;
+              draftController?.dispose();
+              result = response;
+              draftController = TextEditingController(
+                text: response['draft'] as String? ?? '',
+              );
+            } catch (_) {
+              if (!sheetContext.mounted) return;
+              error = 'Assistant could not analyze this message.';
+            } finally {
+              if (sheetContext.mounted) {
+                loading = false;
+                update(() {});
+              }
+            }
+          }
+
+          if (loading && result == null && error == null && !started) {
+            started = true;
+            WidgetsBinding.instance.addPostFrameCallback((_) => load());
+          }
+          final unavailable = result?['available'] != true;
+          return SafeArea(
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(
+                AppSpacing.lg,
+                AppSpacing.lg,
+                AppSpacing.lg,
+                MediaQuery.viewInsetsOf(context).bottom + AppSpacing.lg,
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Inbox assistant',
+                        style: Theme.of(context).textTheme.titleLarge),
+                    const SizedBox(height: AppSpacing.md),
+                    Text('Original message',
+                        style: Theme.of(context).textTheme.titleSmall),
+                    Text(message.content),
+                    if (loading) ...[
+                      const SizedBox(height: AppSpacing.lg),
+                      const Center(child: CircularProgressIndicator()),
+                    ] else if (error != null || unavailable) ...[
+                      const SizedBox(height: AppSpacing.md),
+                      Text(error ??
+                          (result?['message'] as String? ??
+                              'AI assistance is unavailable.')),
+                      TextButton.icon(
+                        onPressed: load,
+                        icon: const Icon(Icons.refresh),
+                        label: const Text('Retry'),
+                      ),
+                    ] else ...[
+                      const SizedBox(height: AppSpacing.md),
+                      Text('Category: ${result!['categoryLabel']}'),
+                      Text(
+                          'Confidence: ${result!['confidence']}${result!['uncertain'] == true ? ' · uncertain; review manually' : ''}'),
+                      if ((result!['categoryEvidence'] as List? ?? const [])
+                          .isNotEmpty)
+                        Text(
+                            'Evidence: ${(result!['categoryEvidence'] as List).join(', ')}'),
+                      Text(
+                          'Suggested priority: ${result!['prioritySuggestion']} · ${result!['urgencyKind']}'),
+                      if (result!['urgencyEvidence'] != null)
+                        Text('Urgency evidence: ${result!['urgencyEvidence']}'),
+                      const SizedBox(height: AppSpacing.sm),
+                      Text('Summary',
+                          style: Theme.of(context).textTheme.titleSmall),
+                      Text(result!['summary'] as String? ?? ''),
+                      Text(result!['missingInformation'] as String? ?? ''),
+                      const SizedBox(height: AppSpacing.sm),
+                      Text('Suggested reply draft · review before use',
+                          style: Theme.of(context).textTheme.titleSmall),
+                      TextField(
+                          controller: draftController,
+                          minLines: 2,
+                          maxLines: 5),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton.icon(
+                          onPressed: () async {
+                            await Clipboard.setData(ClipboardData(
+                                text: draftController?.text ?? ''));
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                    content:
+                                        Text('Draft copied. It was not sent.')),
+                              );
+                            }
+                          },
+                          icon: const Icon(Icons.copy),
+                          label: const Text('Copy draft'),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+    draftController?.dispose();
+  }
+
   @override
   void dispose() {
     _sub?.cancel();
@@ -463,6 +593,23 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                               CrossAxisAlignment.end,
                                           children: [
                                             Text(message.content),
+                                            if (!mine &&
+                                                ref
+                                                        .read(authProvider)
+                                                        .valueOrNull
+                                                        ?.role ==
+                                                    UserRole.alumni &&
+                                                message.id != null)
+                                              TextButton.icon(
+                                                onPressed: () =>
+                                                    _showInboxAssistant(
+                                                        message),
+                                                icon: const Icon(
+                                                    Icons.auto_awesome_outlined,
+                                                    size: 16),
+                                                label: const Text(
+                                                    'Inbox assistant'),
+                                              ),
                                             if (message.timestamp?.isNotEmpty ==
                                                 true) ...[
                                               const SizedBox(

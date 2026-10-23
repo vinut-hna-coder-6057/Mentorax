@@ -1,6 +1,7 @@
 """Run Python TF-IDF component and Java production fallback evaluations."""
 import argparse
 import ctypes
+import hashlib
 import json
 import os
 import subprocess
@@ -44,6 +45,12 @@ def process_rss_bytes():
 def python_evaluation(dataset, strategy):
     sys.path.insert(0, str(AI_ROOT))
     from app import Candidate, RankingRequest, rank, semantic_ranker
+
+    # The API intentionally returns 503 while the model warms in the
+    # background. Evaluation is not serving an HTTP request, so wait for that
+    # same single-flight initialization before measuring semantic rankings.
+    if strategy in {"semantic", "hybrid"}:
+        semantic_ranker.start_model_initialization().result(timeout=300)
 
     searchable = [case for case in dataset["questions"] if case["expectedRecommendations"]]
     profiles = dataset["profiles"]
@@ -94,6 +101,7 @@ def python_evaluation(dataset, strategy):
                         "meanQuestionLatencyMilliseconds": round(sum(durations_ms) / len(durations_ms), 3) if durations_ms else None,
                         "firstQuestionLatencyMilliseconds": round(durations_ms[0], 3) if durations_ms else None,
                         "modelInitializationSeconds": semantic_ranker.model_load_seconds,
+                        "modelWarmupSeconds": semantic_ranker.model_warmup_seconds,
                         "profileEmbeddingCacheEntries": semantic_ranker.cache_entries,
                         "processRssBytesBefore": rss_before, "processRssBytesAfter": rss_after,
                         "processRssDeltaBytes": rss_after - rss_before if rss_before is not None and rss_after is not None else None},
@@ -299,6 +307,7 @@ def main():
                              "fallbackUsed": java_case["fallbackUsed"] if java_case else None})
     report = {"schemaVersion": 1,
               "dataset": {"name": dataset.get("description"), "profileCount": len(dataset["profiles"]),
+                          "sha256": hashlib.sha256(args.dataset.read_bytes()).hexdigest(),
                           "questionCount": len(dataset["questions"]),
                           "categoryCounts": {category: sum(q["category"] == category for q in dataset["questions"])
                                              for category in sorted({q["category"] for q in dataset["questions"]})}},

@@ -1,0 +1,189 @@
+{
+  "schemaVersion": 1,
+  "sourceDatasetSha256": "39c2b2de34163acf1966d98fdd3767f2cf547513752d9707e93161804a899b7b",
+  "profiles": [
+    {
+      "id": 101,
+      "key": "java_backend",
+      "jobTitle": "Backend Software Engineer",
+      "company": "Example Systems",
+      "skills": [
+        "Java",
+        "Spring Boot",
+        "REST APIs",
+        "SQL",
+        "Microservices",
+        "JUnit"
+      ],
+      "bio": "Builds Java backend services and REST APIs for fictional products.",
+      "interests": "backend engineering and service design"
+    },
+    {
+      "id": 102,
+      "key": "interview_engineer",
+      "jobTitle": "Software Engineer",
+      "company": "Sample Labs",
+      "skills": [
+        "DSA",
+        "Algorithms",
+        "Coding Interviews",
+        "Python",
+        "Online Assessments"
+      ],
+      "bio": "Works on coding rounds, problem solving, and software engineering internship interviews.",
+      "interests": "technical interviews and algorithm practice"
+    },
+    {
+      "id": 103,
+      "key": "machine_learning",
+      "jobTitle": "Machine Learning Engineer",
+      "company": "Fictional AI",
+      "skills": [
+        "Python",
+        "Machine Learning",
+        "TensorFlow",
+        "Predictive Modeling",
+        "Data Pipelines"
+      ],
+      "bio": "Builds predictive models and practical AI projects.",
+      "interests": "machine learning applications"
+    },
+    {
+      "id": 104,
+      "key": "full_stack",
+      "jobTitle": "Full Stack Developer",
+      "company": "Example Web",
+      "skills": [
+        "React",
+        "JavaScript",
+        "TypeScript",
+        "Node.js",
+        "HTML",
+        "CSS"
+      ],
+      "bio": "Creates full-stack web applications with React and Node.js.",
+      "interests": "frontend and web development"
+    },
+    {
+      "id": 105,
+      "key": "cloud_devops",
+      "jobTitle": "DevOps Engineer",
+      "company": "Sample Cloud",
+      "skills": [
+        "AWS",
+        "Docker",
+        "Kubernetes",
+        "CI/CD",
+        "Linux",
+        "Terraform"
+      ],
+      "bio": "Automates cloud infrastructure and deployment pipelines.",
+      "interests": "cloud computing, reliability, and DevOps"
+    },
+    {
+      "id": 106,
+      "key": "system_architect",
+      "jobTitle": "Software Architect",
+      "company": "Fictional Scale",
+      "skills": [
+        "System Design",
+        "Distributed Systems",
+        "Scalability",
+        "Architecture",
+        "Java",
+        "Microservices"
+      ],
+      "bio": "Designs scalable distributed software systems.",
+      "interests": "system design and architecture"
+    },
+    {
+      "id": 107,
+      "key": "data_engineer",
+      "jobTitle": "Data Engineer",
+      "company": "Example Data",
+      "skills": [
+        "Apache Spark",
+        "Kafka",
+        "SQL",
+        "Airflow",
+        "ETL",
+        "Python"
+      ],
+      "bio": "Builds data engineering pipelines and analytics platforms.",
+      "interests": "data platforms and distributed processing"
+    },
+    {
+      "id": 108,
+      "key": "cybersecurity",
+      "jobTitle": "Cybersecurity Analyst",
+      "company": "Sample Security",
+      "skills": [
+        "Network Security",
+        "Penetration Testing",
+        "OWASP",
+        "SIEM",
+        "Linux"
+      ],
+      "bio": "Assesses application and network security for fictional organizations.",
+      "interests": "cybersecurity and defensive security"
+    },
+    {
+      "id": 109,
+      "key": "quality_engineer",
+      "jobTitle": "Quality Automation Engineer",
+      "company": "Example Quality",
+      "skills": [
+        "Java",
+        "Selenium",
+        "Test Automation",
+        "CI Pipelines",
+        "API Testing"
+      ],
+      "bio": "Builds automated tests for backend services and web applications.",
+      "interests": "software quality and test engineering"
+    },
+    {
+      "id": 110,
+      "key": "ux_designer",
+      "jobTitle": "UX Designer",
+      "company": "Sample Design",
+      "skills": [
+        "Figma",
+        "User Research",
+        "Accessibility",
+        "Prototyping",
+        "Design Systems"
+      ],
+      "bio": "Designs accessible digital experiences using user research.",
+      "interests": "product and interaction design"
+    },
+    {
+      "id": 111,
+      "key": "marine_ecologist",
+      "jobTitle": "Marine Ecologist",
+      "company": "Fictional Oceans",
+      "skills": [
+        "Marine Biology",
+        "Oceanography",
+        "GIS",
+        "Ecology"
+      ],
+      "bio": "Studies marine ecosystems and coral reef ecology; once worked on Java island.",
+      "interests": "ocean conservation"
+    },
+    {
+      "id": 112,
+      "key": "sports_analyst",
+      "jobTitle": "Sports Data Analyst",
+      "company": "Example Sports",
+      "skills": [
+        "Cricket Statistics",
+        "SQL",
+        "Data Visualization",
+        "Python"
+      ],
+      "bio": "Analyzes fictional cricket match data and player statistics.",
+      "interests": "sports analytics"
+    }
+  ]
+}

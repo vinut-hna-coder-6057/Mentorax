@@ -1,6 +1,7 @@
 """Optional local ranker. Keep this service on a private network."""
 import logging
 import os
+from contextlib import asynccontextmanager
 from typing import List
 
 from fastapi import FastAPI, HTTPException, Request
@@ -13,10 +14,24 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 MAX_REQUEST_BYTES = 8 * 1024 * 1024
 
-app = FastAPI(title="Mentorax local ranking service", docs_url=None, redoc_url=None)
 log = logging.getLogger(__name__)
 semantic_ranker = SentenceEmbeddingRanker(
     model_name=os.getenv("MENTOR_EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2"))
+
+
+def configured_strategy() -> str:
+    return os.getenv("MENTOR_RANKING_STRATEGY", "tfidf").strip().lower()
+
+
+@asynccontextmanager
+async def lifespan(_application):
+    if configured_strategy() in {"semantic", "hybrid"}:
+        semantic_ranker.start_model_initialization()
+    yield
+
+
+app = FastAPI(title="Mentorax local ranking service", docs_url=None, redoc_url=None,
+              lifespan=lifespan)
 
 
 class Candidate(BaseModel):
@@ -61,16 +76,67 @@ class RankingRequest(BaseModel):
         return candidates
 
 
-@app.middleware("http")
-async def reject_oversized_request(request: Request, call_next):
-    content_length = request.headers.get("content-length")
-    if content_length is not None:
-        try:
-            if int(content_length) > MAX_REQUEST_BYTES:
-                return JSONResponse(status_code=413, content={"detail": "Request body too large"})
-        except ValueError:
-            return JSONResponse(status_code=400, content={"detail": "Invalid Content-Length"})
-    return await call_next(request)
+class RankingBatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    requests: List[RankingRequest] = Field(min_length=1, max_length=5)
+
+
+class RequestBodyLimitMiddleware:
+    """Enforce the body limit for both declared and streamed request bodies."""
+
+    def __init__(self, application):
+        self.application = application
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.application(scope, receive, send)
+            return
+
+        content_length = next((value for key, value in scope.get("headers", [])
+                               if key.lower() == b"content-length"), None)
+        if content_length is not None:
+            try:
+                if int(content_length) > MAX_REQUEST_BYTES:
+                    await self._reject(send, 413, "Request body too large")
+                    return
+            except ValueError:
+                await self._reject(send, 400, "Invalid Content-Length")
+                return
+
+        body = bytearray()
+        while True:
+            message = await receive()
+            if message["type"] == "http.disconnect":
+                return
+            body.extend(message.get("body", b""))
+            if len(body) > MAX_REQUEST_BYTES:
+                await self._reject(send, 413, "Request body too large")
+                return
+            if not message.get("more_body", False):
+                break
+
+        replay_pending = True
+
+        async def replay_receive():
+            nonlocal replay_pending
+            if replay_pending:
+                replay_pending = False
+                return {"type": "http.request", "body": bytes(body), "more_body": False}
+            return await receive()
+
+        await self.application(scope, replay_receive, send)
+
+    @staticmethod
+    async def _reject(send, status_code, detail):
+        body = (f'{{"detail":"{detail}"}}').encode("utf-8")
+        await send({"type": "http.response.start", "status": status_code,
+                    "headers": [(b"content-type", b"application/json"),
+                                (b"content-length", str(len(body)).encode("ascii"))]})
+        await send({"type": "http.response.body", "body": body})
+
+
+app.add_middleware(RequestBodyLimitMiddleware)
 
 
 @app.exception_handler(RequestValidationError)
@@ -81,7 +147,37 @@ async def safe_validation_error(_request: Request, _exception: RequestValidation
 
 @app.get("/health")
 def health():
+    """Basic process liveness; optional model readiness is reported separately."""
     return {"status": "ok"}
+
+
+@app.get("/ready")
+def readiness(strategy: str | None = None):
+    selected_strategy = (strategy or configured_strategy()).strip().lower()
+    if selected_strategy not in {"tfidf", "semantic", "hybrid"}:
+        raise HTTPException(status_code=422, detail="Invalid ranking strategy")
+    if selected_strategy == "tfidf":
+        return {"status": "ready", "strategy": selected_strategy, "semanticModel": "not_required"}
+
+    if semantic_ranker.model_state == "not_loaded":
+        semantic_ranker.start_model_initialization()
+    model_state = semantic_ranker.model_state
+    if model_state == "ready":
+        return {"status": "ready", "strategy": selected_strategy, "semanticModel": "ready"}
+
+    public_model_state = "warming" if model_state in {"not_loaded", "loading"} else "unavailable"
+    return JSONResponse(status_code=503, content={
+        "status": "not_ready", "strategy": selected_strategy, "semanticModel": public_model_state,
+    })
+
+
+def ensure_semantic_model_ready() -> None:
+    state = semantic_ranker.model_state
+    if state == "not_loaded":
+        semantic_ranker.start_model_initialization()
+        state = semantic_ranker.model_state
+    if state != "ready":
+        raise SemanticEmbeddingError("Semantic embedding model is warming up or unavailable")
 
 
 def profile_text(candidate: Candidate) -> str:
@@ -125,15 +221,21 @@ def rank(request: RankingRequest, strategy: str | None = None):
         raise HTTPException(status_code=422, detail="Invalid ranking strategy")
 
     try:
+        semantic_scores = None
         if selected_strategy == "tfidf":
             scores = tfidf_scores(request)
             method = "TF-IDF cosine similarity"
         elif selected_strategy == "semantic":
-            scores = semantic_ranker.rank(request.goal, [profile_text(candidate) for candidate in request.candidates])
+            ensure_semantic_model_ready()
+            semantic_scores = semantic_ranker.rank(
+                request.goal, [profile_text(candidate) for candidate in request.candidates])
+            scores = semantic_scores
             method = "Sentence embedding cosine similarity"
         else:
             lexical = tfidf_scores(request)
-            semantic = semantic_ranker.rank(request.goal, [profile_text(candidate) for candidate in request.candidates])
+            ensure_semantic_model_ready()
+            semantic_scores = semantic_ranker.rank(
+                request.goal, [profile_text(candidate) for candidate in request.candidates])
             try:
                 lexical_weight = float(os.getenv("MENTOR_HYBRID_TFIDF_WEIGHT", "0.5"))
             except ValueError:
@@ -141,7 +243,7 @@ def rank(request: RankingRequest, strategy: str | None = None):
             if not 0.0 <= lexical_weight <= 1.0:
                 raise HTTPException(status_code=503, detail="Hybrid ranking configuration is invalid")
             lexical_percentiles = percentile_scores(lexical)
-            semantic_percentiles = percentile_scores(semantic)
+            semantic_percentiles = percentile_scores(semantic_scores)
             scores = [lexical_weight * left + (1.0 - lexical_weight) * right
                       for left, right in zip(lexical_percentiles, semantic_percentiles)]
             method = "Hybrid rank-percentile fusion"
@@ -150,8 +252,31 @@ def rank(request: RankingRequest, strategy: str | None = None):
         raise HTTPException(status_code=503, detail="Semantic ranking unavailable") from None
 
     ranked = sorted(zip(request.candidates, scores), key=lambda pair: (-float(pair[1]), pair[0].id))
-    return {
+    result = {
         "rankedIds": [candidate.id for candidate, _ in ranked],
         "scores": {str(candidate.id): float(score) for candidate, score in ranked},
         "rankingMethod": method,
     }
+    if semantic_scores is not None:
+        result["semanticScores"] = {
+            str(candidate.id): float(score)
+            for candidate, score in zip(request.candidates, semantic_scores)
+        }
+    return result
+
+
+@app.post("/rank/batch")
+def rank_batch(batch: RankingBatch):
+    """Rank up to five independent pages in one bounded HTTP request."""
+    results = []
+    for request in batch.requests:
+        try:
+            results.append({"result": rank(request)})
+        except HTTPException:
+            # Keep failures isolated to their page and avoid returning request data.
+            results.append({"available": False})
+        except Exception as error:
+            # A page-level unexpected failure must not discard successful peers.
+            log.warning("Batch ranking page unavailable (%s)", type(error).__name__)
+            results.append({"available": False})
+    return {"results": results}

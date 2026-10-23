@@ -16,11 +16,11 @@ public class QuestionIntentClassifier {
             "\\b(ask|message|send|contact|reach out to|write to)\\b.{0,60}\\b(alumni|alumnus|alumna|mentor|graduate)\\b"
                     + "|\\b(alumni|alumnus|alumna|mentor|graduate)\\b.{0,60}\\b(message|ask|send)\\b");
     private static final Pattern CAREER_CONTEXT = Pattern.compile(
-            "\\b(career|internship|internships|intern|job|jobs|interview|interviews|dsa|resume|cv|promotion|salary|leadership|professional development|software engineering|software developer|machine learning|data engineer|data engineering|data science|data analyst|designer|developer|engineer|roles?|industry|work in)\\b");
+            "\\b(careers?|career change|career switch|internships?|intern|jobs?|job search|interviews?|referrals?|dsa|resume|cv|portfolio|placements?|placement preparation|promotion|salary|leadership|professional development|software engineering|software developer|machine learning|data engineer|data engineering|data science|data analyst|product management|product manager|designer|developer|engineer|roles?|industry|work in|join|hiring)\\b");
     private static final Pattern TECHNICAL_CAREER_TOPIC = Pattern.compile(
             "\\b(java|python|javascript|typescript|react|node(?:\\.js)?|backend|back end|full stack|fullstack|cloud|devops|system design|cybersecurity|cyber security|artificial intelligence|machine learning|\\bai\\b|\\bml\\b|dsa|data structures|algorithms?|coding rounds?|problem solving|online assessments?|\\boas?\\b)\\b");
     private static final Pattern LEARNING_ACTION = Pattern.compile(
-            "\\b(prepare|preparing|preparation|prep|improve|improving|learn|become|becoming|switch|transition|move into|break into|enter|grow|advance|apply|applying|write|review|practice|study|choose|negotiate|get|find|build|guide|help|struggle|combine|start|starting)\\b");
+            "\\b(prepare|preparing|preparation|prep|improve|improving|learn|become|becoming|switch|switching|transition|transitioning|move into|break into|enter|grow|advance|apply|applying|write|review|feedback|practice|study|choose|negotiate|ask|request|need|get|find|build|guide|help|struggle|combine|start|starting|looking)\\b");
     private static final Pattern MENTORSHIP_CONTEXT = Pattern.compile(
             "\\b(mentor|mentorship|guidance|career advice|professional advice|career path)\\b");
     private static final Pattern GENERAL_QUESTION = Pattern.compile(

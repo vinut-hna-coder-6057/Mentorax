@@ -27,6 +27,10 @@ class AppRepository {
         data: {'goal': goal},
         decode: (d) => Map<String, dynamic>.from(d as Map),
       );
+  Future<Map<String, dynamic>> inboxAssistant(int messageId) => api.post(
+        '/messages/$messageId/assistant',
+        decode: (d) => Map<String, dynamic>.from(d as Map),
+      );
   Future<void> approveAlumni(int id) async {
     await api.put(
       '/alumni/approve/$id',

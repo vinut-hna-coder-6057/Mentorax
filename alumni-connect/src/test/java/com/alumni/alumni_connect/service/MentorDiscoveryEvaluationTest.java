@@ -11,7 +11,6 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import jakarta.validation.Validation;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.ParameterizedTypeReference;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpMethod;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -61,7 +60,7 @@ class MentorDiscoveryEvaluationTest {
             when(user.getSkills()).thenReturn(String.join(",", profileSkills));
             alumni.add(user);
         }
-        when(users.findByRoleAndStatus("ALUMNI", "APPROVED", PageRequest.of(0, 500))).thenReturn(alumni);
+        when(users.findTop500ByRoleAndStatusAndIdGreaterThanOrderByIdAsc("ALUMNI", "APPROVED", 0L)).thenReturn(alumni);
         when(skills.findByUser_IdIn(anyList())).thenReturn(List.of());
 
         MentorDiscoveryService discovery = new MentorDiscoveryService(users, skills, currentUser, restTemplate);

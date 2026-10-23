@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "sourceDatasetSha256": "39c2b2de34163acf1966d98fdd3767f2cf547513752d9707e93161804a899b7b",
+  "contextDefinition": "mentorax-ai/app.py::profile_text",
+  "profiles": [
+    {
+      "candidateId": 101,
+      "profileText": "Java Spring Boot REST APIs SQL Microservices JUnit Backend Software Engineer Example Systems Builds Java backend services and REST APIs for fictional products. backend engineering and service design"
+    },
+    {
+      "candidateId": 102,
+      "profileText": "DSA Algorithms Coding Interviews Python Online Assessments Software Engineer Sample Labs Works on coding rounds, problem solving, and software engineering internship interviews. technical interviews and algorithm practice"
+    },
+    {
+      "candidateId": 103,
+      "profileText": "Python Machine Learning TensorFlow Predictive Modeling Data Pipelines Machine Learning Engineer Fictional AI Builds predictive models and practical AI projects. machine learning applications"
+    },
+    {
+      "candidateId": 104,
+      "profileText": "React JavaScript TypeScript Node.js HTML CSS Full Stack Developer Example Web Creates full-stack web applications with React and Node.js. frontend and web development"
+    },
+    {
+      "candidateId": 105,
+      "profileText": "AWS Docker Kubernetes CI/CD Linux Terraform DevOps Engineer Sample Cloud Automates cloud infrastructure and deployment pipelines. cloud computing, reliability, and DevOps"
+    },
+    {
+      "candidateId": 106,
+      "profileText": "System Design Distributed Systems Scalability Architecture Java Microservices Software Architect Fictional Scale Designs scalable distributed software systems. system design and architecture"
+    },
+    {
+      "candidateId": 107,
+      "profileText": "Apache Spark Kafka SQL Airflow ETL Python Data Engineer Example Data Builds data engineering pipelines and analytics platforms. data platforms and distributed processing"
+    },
+    {
+      "candidateId": 108,
+      "profileText": "Network Security Penetration Testing OWASP SIEM Linux Cybersecurity Analyst Sample Security Assesses application and network security for fictional organizations. cybersecurity and defensive security"
+    },
+    {
+      "candidateId": 109,
+      "profileText": "Java Selenium Test Automation CI Pipelines API Testing Quality Automation Engineer Example Quality Builds automated tests for backend services and web applications. software quality and test engineering"
+    },
+    {
+      "candidateId": 110,
+      "profileText": "Figma User Research Accessibility Prototyping Design Systems UX Designer Sample Design Designs accessible digital experiences using user research. product and interaction design"
+    },
+    {
+      "candidateId": 111,
+      "profileText": "Marine Biology Oceanography GIS Ecology Marine Ecologist Fictional Oceans Studies marine ecosystems and coral reef ecology; once worked on Java island. ocean conservation"
+    },
+    {
+      "candidateId": 112,
+      "profileText": "Cricket Statistics SQL Data Visualization Python Sports Data Analyst Example Sports Analyzes fictional cricket match data and player statistics. sports analytics"
+    }
+  ]
+}

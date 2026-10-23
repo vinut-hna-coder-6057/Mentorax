@@ -27,8 +27,8 @@ class FreshMySqlMigrationTest {
             "users", "student_profiles", "alumni_profiles", "skills", "user_skills", "events",
             "event_registrations", "connections", "conversations", "conversation_participants",
             "messages", "notifications", "otp_verifications", "email_outbox");
-    private static final List<String> FRESH_HISTORY = List.of("1", "2", "3", "10", "11", "12", "13");
-    private static final List<String> NORMALIZED_HISTORY = List.of("1", "2", "3", "4", "10", "11", "12", "13");
+    private static final List<String> FRESH_HISTORY = List.of("1", "2", "3", "10", "11", "12", "13", "14");
+    private static final List<String> NORMALIZED_HISTORY = List.of("1", "2", "3", "4", "10", "11", "12", "13", "14");
 
     @Test
     void freshMySqlSchemaMigratesAndPassesHibernateValidation() throws Exception {
@@ -200,6 +200,7 @@ class FreshMySqlMigrationTest {
         assertTrue(hasUniqueIndex(connection, "conversations", "direct_user_low_id", "direct_user_high_id"));
         assertTrue(hasUniqueIndex(connection, "otp_verifications", "reset_token_hash"));
 
+        assertTrue(hasIndex(connection, "users", "idx_users_role_status_id"));
         assertTrue(hasIndex(connection, "email_outbox", "idx_email_outbox_due"));
         assertTrue(hasIndex(connection, "email_outbox", "idx_email_outbox_expiry"));
         assertTrue(hasIndex(connection, "email_outbox", "idx_email_outbox_recipient_purpose"));

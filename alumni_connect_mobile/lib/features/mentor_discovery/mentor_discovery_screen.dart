@@ -317,7 +317,7 @@ class _MentorDiscoveryScreenState extends ConsumerState<MentorDiscoveryScreen> {
             ),
           Text(result.fallbackUsed
               ? 'Local fallback · ${result.rankingMethod}'
-              : 'TF-IDF ordering · ${result.rankingMethod}'),
+              : result.rankingMethod),
           const SizedBox(height: AppSpacing.sm),
           for (final match in result.matches) _mentorCard(context, match),
         ],
@@ -380,7 +380,7 @@ class _MentorDiscoveryScreenState extends ConsumerState<MentorDiscoveryScreen> {
                     .join(' · ')),
               const SizedBox(height: AppSpacing.sm),
               Text(
-                  'Profile keyword overlap (estimate, not probability): ${match.relevanceEstimate.toStringAsFixed(1)}%'),
+                  'Lexical profile overlap (not match confidence): ${match.relevanceEstimate.toStringAsFixed(1)}%'),
               if (match.skills.isNotEmpty) ...[
                 const SizedBox(height: AppSpacing.xs),
                 Text('Profile skills: ${match.skills.join(', ')}'),

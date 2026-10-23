@@ -182,4 +182,140 @@ void main() {
       findsOneWidget,
     );
   });
+
+  testWidgets('alumni can review and edit assistant draft without sending it',
+      (tester) async {
+    Map<String, dynamic>? copiedClipboardData;
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'Clipboard.setData') {
+          copiedClipboardData = Map<String, dynamic>.from(
+            call.arguments as Map,
+          );
+        }
+        return null;
+      },
+    );
+    addTearDown(() {
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      );
+    });
+    const me = User(
+      id: 2,
+      name: 'Alumni',
+      email: 'alumni@example.test',
+      role: UserRole.alumni,
+      status: 'APPROVED',
+    );
+    const studentEmail = 'student@example.test';
+    final dio = Dio(BaseOptions(
+      baseUrl: 'https://api.example.test',
+      responseType: ResponseType.plain,
+    ));
+    final adapter = DioAdapter(dio: dio);
+    dio.httpClientAdapter = adapter;
+    adapter.onGet(
+      '/messages/conversation',
+      (server) => server.reply(200, [
+        {
+          'id': 44,
+          'senderEmail': studentEmail,
+          'receiverEmail': me.email,
+          'content': 'Could you help me prepare for my interview?',
+          'timestamp': '2026-10-20T10:00:00',
+          'conversationId': 12,
+        }
+      ]),
+      queryParameters: {
+        'sender': me.email,
+        'receiver': studentEmail,
+        'page': 0,
+        'size': 50,
+      },
+    );
+    final assistantSuccess = {
+      'schemaVersion': 'mentorax-inbox-assistant-v1',
+      'available': true,
+      'category': 'INTERVIEW_PREPARATION',
+      'categoryLabel': 'Interview preparation',
+      'confidence': 'moderate',
+      'uncertain': false,
+      'categoryEvidence': ['interview'],
+      'prioritySuggestion': 'normal',
+      'urgencyKind': 'none',
+      'urgencyEvidence': null,
+      'deadlineEvidence': null,
+      'summary': 'Could you help me prepare for my interview?',
+      'missingInformation':
+          'Review the original message for details that may need clarification.',
+      'draft':
+          'Hi, thanks for reaching out. Could you share any additional context that would help me understand your request?',
+      'draftKind': 'deterministic_template',
+      'modelMetadata': {
+        'strategy':
+            'TF-IDF category-description similarity plus deterministic urgency rules',
+        'trainedForMentorax': false,
+        'scoresAreCalibratedProbabilities': false,
+        'transformer': 'not_configured',
+      },
+      'message': null,
+    };
+    adapter.onPost(
+      '/messages/44/assistant',
+      (server) => server.reply(200, {
+        'schemaVersion': 'mentorax-inbox-assistant-v1',
+        'available': false,
+        'message': 'AI assistance is unavailable.',
+      }),
+    );
+    final storage = SecureStorageService(const FlutterSecureStorage());
+    final repository = AppRepository(ApiClient(storage, dio: dio));
+    final realtime = _TestRealtimeService();
+    addTearDown(realtime.dispose);
+    await tester.pumpWidget(ProviderScope(
+      overrides: [
+        appRepositoryProvider.overrideWithValue(repository),
+        realtimeServiceProvider.overrideWithValue(realtime),
+        authProvider.overrideWith((ref) {
+          final notifier = AuthNotifier(repository, storage, realtime);
+          notifier.setUser(me);
+          return notifier;
+        }),
+      ],
+      child: const MaterialApp(home: ChatScreen(email: studentEmail)),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Inbox assistant'));
+    await tester.pumpAndSettle();
+    expect(find.text('AI assistance is unavailable.'), findsOneWidget);
+    expect(find.text('Retry'), findsOneWidget);
+    adapter.onPost(
+      '/messages/44/assistant',
+      (server) => server.reply(200, assistantSuccess),
+    );
+    await tester.tap(find.text('Retry'));
+    await tester.pump();
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    await tester.pumpAndSettle();
+    expect(find.text('Category: Interview preparation'), findsOneWidget);
+    expect(find.text('Confidence: moderate'), findsOneWidget);
+    expect(find.text('Evidence: interview'), findsOneWidget);
+    expect(find.text('Suggested priority: normal · none'), findsOneWidget);
+    expect(
+      find.text('Could you help me prepare for my interview?'),
+      findsNWidgets(3),
+    );
+    expect(
+        find.text('Suggested reply draft · review before use'), findsOneWidget);
+    final draft = tester.widgetList<TextField>(find.byType(TextField)).last;
+    await tester.enterText(find.byWidget(draft), 'Edited draft for review');
+    await tester.tap(find.text('Copy draft'));
+    await tester.pumpAndSettle();
+    expect(realtime.sentMessages, isEmpty);
+    expect(copiedClipboardData?['text'], 'Edited draft for review');
+    expect(find.text('Draft copied. It was not sent.'), findsOneWidget);
+  });
 }

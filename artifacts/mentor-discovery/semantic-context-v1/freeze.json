@@ -1,0 +1,223 @@
+{
+  "experimentSchemaVersion": 1,
+  "rankerId": "mentorax-semantic-profile-context-v1-7f53772fb6cf35ec2e5f",
+  "createdAtUtc": "2026-10-23T17:37:16+00:00",
+  "status": "development_freeze_heldout_pending",
+  "configuration": {
+    "experimentStrategy": "semantic",
+    "pythonConfiguredDefaultStrategy": "tfidf",
+    "python": {
+      "modelId": "sentence-transformers/all-MiniLM-L6-v2",
+      "resolvedRevision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
+      "device": "cpu",
+      "encode": {
+        "normalize_embeddings": false,
+        "convert_to_numpy": true,
+        "show_progress_bar": false
+      },
+      "textNormalization": {
+        "query": "Pydantic strips surrounding whitespace; otherwise original casing/punctuation",
+        "profile": "skills joined with spaces, then jobTitle, company, bio, interests; empty values omitted; final strip",
+        "embeddingInput": "exact profile string after strip; cache key SHA-256 of stripped UTF-8 text",
+        "noLowercasingOrContextualQueryRewrite": true
+      },
+      "similarity": "float64 cosine(query, profile), finite/nonzero vectors required, clamped to [0,1]",
+      "ordering": "descending score, then ascending candidate integer ID",
+      "profileCacheMaxEntries": 512
+    },
+    "contextEnrichment": {
+      "side": "candidate profile only",
+      "fieldsInOrder": [
+        "skills",
+        "jobTitle",
+        "company",
+        "bio",
+        "interests"
+      ],
+      "queryContextSnapshot": "none; query text is passed through after surrounding trim"
+    },
+    "javaProductionGate": {
+      "approvedCandidateFilter": "role=ALUMNI AND status=APPROVED, keyset ordered by id",
+      "pythonSemanticCandidatePrefilter": "none; all candidates in each approved page are sent to Python",
+      "recommendationAcceptance": "semantic score >= AI_MENTOR_MIN_SEMANTIC_RELEVANCE AND substantive profile field; OR positive lexical evidence >= AI_MENTOR_MIN_RELEVANCE",
+      "configuration": {
+        "AI_MENTOR_ENABLED": "false",
+        "AI_MENTOR_MIN_RELEVANCE": 0.0,
+        "AI_MENTOR_MIN_SEMANTIC_RELEVANCE": 0.72,
+        "AI_MENTOR_RANKING_STRATEGY": "tfidf"
+      },
+      "pageSize": 500,
+      "maxPagesPerPythonBatch": 2,
+      "topK": 10,
+      "evidenceScore": "min(1.0, (unique direct query-term overlap + 0.2 * unique bio-term overlap) / unique normalized query-term count); direct fields are skills, jobTitle, interests",
+      "normalization": "NFKC, lowercase, Unicode letters/numbers retained, punctuation mapped to spaces; stop-term removal, typo/synonym expansions, and canonical suffix rules are pinned by MentorDiscoveryService.java hash",
+      "substantiveFields": [
+        "jobTitle",
+        "skills",
+        "interests",
+        "bio"
+      ],
+      "inputLimits": {
+        "goalCharacters": 500,
+        "candidatePageSize": 500,
+        "skillsPerCandidate": 50,
+        "batchPages": 5,
+        "pythonRequestBodyBytes": 8388608,
+        "javaBatchBodyBytes": 7340032
+      },
+      "fallback": "Java evidence ordering on Python unavailable/invalid; cross-page Python semantic ordering only when all pages succeed",
+      "returnedRelevanceDisplay": "Java lexical profile evidence score; not raw semantic cosine"
+    },
+    "hybrid": {
+      "method": "average of within-request rank percentiles",
+      "tfidfWeight": 0.5,
+      "tieBreak": "descending final score, then ascending candidate integer ID"
+    },
+    "tfidfBaseline": {
+      "vectorizer": "scikit-learn TfidfVectorizer(ngram_range=(1,2), stop_words='english')",
+      "similarity": "cosine_similarity(query row, profile rows)",
+      "ordering": "descending score, then ascending candidate integer ID"
+    },
+    "evaluationScope": {
+      "comparedConditions": [
+        "Python TF-IDF baseline",
+        "Python semantic profile-context ranker"
+      ],
+      "inputUniverse": "all synthetic profiles in development corpus; Java approved-alumni/evidence gates and intent routing excluded from Python component metrics",
+      "pairedQuerySet": "development questions expected to request recommendations and containing at least one positive relevance grade"
+    }
+  },
+  "sourceSha256": {
+    "mentorax-ai/app.py": "dc143175eb6d521deacbc2357bda66d31107135616ed979936c2df5b450d8a4b",
+    "mentorax-ai/semantic_ranker.py": "9989fe57f1990f58df69e3b2983553e3ae21ce3fdf51844b25ad1e24f7bd8447",
+    "mentorax-ai/evaluation/evaluator.py": "5936c5492667fe6ae3247f1e83a10c3e086728e2079778a0974d0b43cc264aa4",
+    "mentorax-ai/evaluation/run_evaluation.py": "f092ebc9ae87244f426be618bea4b5ddb902b65b93c1ec3b771cf21188082c85",
+    "mentorax-ai/evaluation/run_frozen_evaluation.py": "2c139e606ac1d97b9af7a76f7451bd25abd0df76b76b50c9deba493b5689b31a",
+    "mentorax-ai/evaluation/freeze_experiment.py": "90ec8c52b5264f46d12bfaf5fc91423bf439752df0c70be69a0e5690f12772f4",
+    "mentorax-ai/requirements.txt": "2814c8016ea5c25b3bb02552f44a88f4bca0e4d5ce7b9db65a76012a8c41351d",
+    "mentorax-ai/requirements-semantic.txt": "1399050ef2aa27a0573f5a9c065e8b228a9f0f5e20fc0d0a34fb7a12cf5d78fe",
+    "mentorax-ai/requirements-test.txt": "d7782d151a26685f096123e87d1979316a32e9ff7b8d4614d7469722bd4df61d",
+    "alumni-connect/src/main/java/com/alumni/alumni_connect/service/MentorDiscoveryService.java": "493830b20f36a97d0bcfa4fd05df7fb5c15536ced96291ce62a22dc24ad8a2ba",
+    "alumni-connect/src/main/java/com/alumni/alumni_connect/service/QuestionIntentClassifier.java": "771238a91f7b09eaa56861f555577ea45726e0aeca964a1a03bd115f2afec1c8",
+    "alumni-connect/src/main/java/com/alumni/alumni_connect/repository/UserRepository.java": "aa851c0409410f4d6b4cce18653ee86e6ee5d10b39e153bf761eaf5e314f5c52",
+    "alumni-connect/src/main/java/com/alumni/alumni_connect/repository/UserSkillRepository.java": "c53bc7c54f6a0522b33f56bdfba921fb399dd4c1ef55c23c4302a203c6b8259d",
+    "alumni-connect/src/main/resources/application.properties": "d55e7f54ac7d52a44db06cd07faf8ba43768e22a454a5008248447bedec39648"
+  },
+  "assets": {
+    "developmentDataset": {
+      "path": "mentorax-ai/evaluation/dataset.json",
+      "sha256": "39c2b2de34163acf1966d98fdd3767f2cf547513752d9707e93161804a899b7b"
+    },
+    "developmentProxyLabels": {
+      "path": "artifacts/mentor-discovery/semantic-context-v1/development-proxy-labels.json",
+      "sha256": "96419df18adc256065e721862f607d383d96abdf6edc9c1a6af08cf9f03f9a69"
+    },
+    "candidateManifest": {
+      "path": "artifacts/mentor-discovery/semantic-context-v1/candidate-manifest.json",
+      "sha256": "52e2e80f0bc3d0ce3ce82d488c0c83ac5032ce6d9a5da5f7db229cd833a01e8b"
+    },
+    "developmentContextSnapshots": {
+      "path": "artifacts/mentor-discovery/semantic-context-v1/development-context-snapshots.json",
+      "sha256": "9eb047ca0e4c4f52af9496e78b57c35fe2cb18e032960f4c6f6d0d9405a3bd3b"
+    },
+    "developmentLabelProvenance": {
+      "path": "mentorax-ai/evaluation/label-provenance.json",
+      "sha256": "1f14fe4588198373276e86ab873e6d4e2b5e72c8580852da09fa14bfd8aaf6bf"
+    },
+    "heldoutTemplate": {
+      "path": "mentorax-ai/evaluation/heldout/dataset.template.json",
+      "sha256": "1522c338a2c2ef0e0c2989da5091dfae01ae473c20490488af54df80e8b27943"
+    }
+  },
+  "model": {
+    "id": "sentence-transformers/all-MiniLM-L6-v2",
+    "configuredRevision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
+    "resolvedRevision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
+    "revisionSource": "pinned model revision in semantic_ranker.py / environment override frozen in configuration"
+  },
+  "versions": {
+    "labelGeneratorVersion": null,
+    "labelProvenanceStatus": "existing_synthetic_grades_provenance_incomplete",
+    "python": "3.14.3",
+    "packages": {
+      "numpy": "2.4.3",
+      "scikit-learn": "1.8.0",
+      "sentence-transformers": "5.5.0",
+      "transformers": "5.8.1",
+      "torch": "2.11.0",
+      "fastapi": "0.136.1",
+      "pydantic": "2.13.3"
+    }
+  },
+  "developmentReport": {
+    "reportPath": "artifacts/mentor-discovery/semantic-context-v1/development-report.json",
+    "reportSha256": "386a703344f0b79bfd3d11defffd77489b6b790cb73127e00ee37f45f87fcd00",
+    "metricDefinitions": {
+      "precisionAt3": "mean Precision@3",
+      "recallAt5": "mean Recall@5",
+      "mrrAt5": "mean reciprocal rank truncated at 5",
+      "ndcgAt5": "mean graded NDCG@5"
+    },
+    "pairedQueryCount": 18,
+    "baseline": {
+      "precisionAt3": 0.3888888888888889,
+      "recallAt5": 0.9722222222222222,
+      "mrrAt5": 0.9444444444444444,
+      "ndcgAt5": 0.9435814209681676,
+      "caseCount": 18
+    },
+    "contextAware": {
+      "precisionAt3": 0.3888888888888889,
+      "recallAt5": 0.9537037037037037,
+      "mrrAt5": 0.9583333333333334,
+      "ndcgAt5": 0.9479863308260755,
+      "caseCount": 18
+    },
+    "pairedDeltas": {
+      "precisionAt3": {
+        "mean": 0.0,
+        "caseCount": 18
+      },
+      "recallAt5": {
+        "mean": -0.01851851851851852,
+        "caseCount": 18
+      },
+      "mrrAt5": {
+        "mean": 0.013888888888888888,
+        "caseCount": 18
+      },
+      "ndcgAt5": {
+        "mean": 0.0044049098579078926,
+        "caseCount": 18
+      }
+    },
+    "excluded": {
+      "non_recommendation_intent_or_expectation": 15,
+      "no_positive_relevance_grade": 1,
+      "unresolved_labels": "not represented by the current development schema; not inferred or converted"
+    }
+  },
+  "labelCoverage": {
+    "profiles": 12,
+    "questions": 34,
+    "possibleQuestionProfilePairs": 408,
+    "explicitlyPresentGrades": 24,
+    "sparseOmittedPairs": 384,
+    "sparseOmissionMeaning": "Existing evaluation spec treats omitted relevance as irrelevant; no new labels were written into source data.",
+    "unresolvedJudgmentsRepresented": false,
+    "provenanceLimitations": [
+      "annotator identity not recorded",
+      "label-generator version not recorded",
+      "no unresolved category in source schema"
+    ]
+  },
+  "heldout": {
+    "status": "not_provided_blind_review_pending",
+    "datasetPath": "mentorax-ai/evaluation/heldout/dataset.json",
+    "proxyLabelSha256": null,
+    "labelProvenancePath": "mentorax-ai/evaluation/heldout/label-provenance.json",
+    "labelProvenanceSha256": null,
+    "templateSha256": "1522c338a2c2ef0e0c2989da5091dfae01ae473c20490488af54df80e8b27943",
+    "evaluationAllowed": false
+  }
+}

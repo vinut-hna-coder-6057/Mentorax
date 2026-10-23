@@ -52,6 +52,27 @@ class QuestionIntentClassifierTest {
     }
 
     @Test
+    void naturalCareerSwitchResumeAndProductQuestionsRouteToDiscovery() {
+        for (String question : List.of(
+                "I'm switching into product management; where should I start?",
+                "Can you review my resume for a data analyst job?",
+                "How do I prepare for campus placements?",
+                "I'm looking to join a software company as a backend developer.")) {
+            assertIntent(question, QuestionIntent.CAREER_MENTOR_SEARCH);
+        }
+    }
+
+    @Test
+    void companyInterviewAndReferralGuidanceRouteToDiscovery() {
+        assertIntent("I have an interview at Acme; how should I prepare?",
+                QuestionIntent.CAREER_MENTOR_SEARCH);
+        assertIntent("How can I request a referral for an engineering role?",
+                QuestionIntent.CAREER_MENTOR_SEARCH);
+        assertIntent("I need advice on getting a referral at Google.",
+                QuestionIntent.CAREER_MENTOR_SEARCH);
+    }
+
+    @Test
     void generalQuestionsDoNotBecomeMentorSearches() {
         assertIntent("Who is the Prime Minister of India?", QuestionIntent.GENERAL_KNOWLEDGE);
         assertIntent("What is 2 + 2?", QuestionIntent.GENERAL_KNOWLEDGE);

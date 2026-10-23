@@ -233,8 +233,7 @@ void main() {
         findsOneWidget);
     expect(find.text('Copy draft'), findsOneWidget);
     expect(find.text('Request connection'), findsOneWidget);
-    expect(find.text('TF-IDF ordering · TF-IDF cosine similarity'),
-        findsOneWidget);
+    expect(find.text('TF-IDF cosine similarity'), findsOneWidget);
     final draft = find.byType(TextField).last;
     expect(tester.widget<TextField>(draft).controller!.text,
         'Hi Asha, could I ask about your career path?');
@@ -267,6 +266,26 @@ void main() {
     expect(find.text('Asha Mentor'), findsOneWidget);
     expect(find.text('Copy draft'), findsOneWidget);
     expect(find.text('Request connection'), findsOneWidget);
+  });
+
+  testWidgets('semantic ranking mode is displayed without a TF-IDF label',
+      (tester) async {
+    final repository = _MentorRepository(response: {
+      'recommendations': [recommendation],
+      'rankingMethod':
+          'Sentence embedding ordering with Java profile evidence gate',
+      'fallbackUsed': false,
+    });
+    await pumpScreen(tester, repository);
+    await tester.enterText(
+        find.byType(TextField).first, 'How can I move into data engineering?');
+    await tester.scrollUntilVisible(find.text('Ask Career Assistant'), 100,
+        scrollable: find.byType(Scrollable).first);
+    await tester.tap(find.text('Ask Career Assistant'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Sentence embedding ordering'), findsOneWidget);
+    expect(find.textContaining('TF-IDF'), findsNothing);
   });
 
   testWidgets(

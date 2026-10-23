@@ -12,12 +12,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class RoutedMigrationTest {
     @Test
     void freshChainReceivesHardeningChangesAfterItsCurrentBaseline() throws Exception {
-        verifyChain("classpath:db/fresh", "1", "13");
+        verifyChain("classpath:db/fresh", "1", "14");
     }
 
     @Test
     void normalizedChainReceivesHardeningChangesAfterItsCurrentBaseline() throws Exception {
-        verifyChain("classpath:db/normalized", "2", "13");
+        verifyChain("classpath:db/normalized", "2", "14");
     }
 
     @Test
@@ -26,7 +26,7 @@ class RoutedMigrationTest {
                 + ";MODE=MySQL;DB_CLOSE_DELAY=-1";
         try (var connection = DriverManager.getConnection(url, "sa", "");
              var statement = connection.createStatement()) {
-            statement.execute("CREATE TABLE users (id BIGINT PRIMARY KEY, email_verified BOOLEAN NOT NULL DEFAULT FALSE)");
+            statement.execute("CREATE TABLE users (id BIGINT PRIMARY KEY, role VARCHAR(32), status VARCHAR(32), email_verified BOOLEAN NOT NULL DEFAULT FALSE)");
             statement.execute("CREATE TABLE events (id BIGINT PRIMARY KEY, attendee_count INT NOT NULL DEFAULT 0)");
             statement.execute("INSERT INTO users (id, email_verified) VALUES (1, FALSE)");
         }
@@ -39,8 +39,8 @@ class RoutedMigrationTest {
 
         var result = flyway.migrate();
 
-        assertEquals(4, result.migrationsExecuted);
-        assertEquals("13", flyway.info().current().getVersion().getVersion());
+        assertEquals(5, result.migrationsExecuted);
+        assertEquals("14", flyway.info().current().getVersion().getVersion());
         try (var connection = DriverManager.getConnection(url, "sa", "")) {
             assertTrue(hasTable(connection, "email_outbox"));
             assertTrue(hasColumn(connection, "email_outbox", "purpose"));
@@ -74,7 +74,7 @@ class RoutedMigrationTest {
                 .baselineVersion(baselineVersion)
                 .load();
         var result = flyway.migrate();
-        assertEquals(6, result.migrationsExecuted);
+        assertEquals(7, result.migrationsExecuted);
         assertEquals(expectedVersion, flyway.info().current().getVersion().getVersion());
 
         try (var connection = DriverManager.getConnection(url, "sa", "")) {
@@ -83,6 +83,7 @@ class RoutedMigrationTest {
             assertTrue(hasTable(connection, "email_outbox"));
             assertTrue(hasColumn(connection, "email_outbox", "purpose"));
             assertTrue(hasColumn(connection, "events", "max_capacity"));
+            assertTrue(hasIndex(connection, "users", "idx_users_role_status_id"));
             try (var statement = connection.createStatement();
                  var approval = statement.executeQuery("SELECT approval_status FROM alumni_profiles WHERE user_id = 1")) {
                 assertTrue(approval.next());
@@ -107,6 +108,17 @@ class RoutedMigrationTest {
         try (var columns = connection.getMetaData().getColumns(connection.getCatalog(), null,
                 table.toUpperCase(java.util.Locale.ROOT), column.toUpperCase(java.util.Locale.ROOT))) {
             return columns.next();
+        }
+    }
+
+    private static boolean hasIndex(java.sql.Connection connection, String table, String expectedIndex)
+            throws Exception {
+        try (var indexes = connection.getMetaData().getIndexInfo(
+                connection.getCatalog(), null, table.toUpperCase(java.util.Locale.ROOT), false, false)) {
+            while (indexes.next()) {
+                if (expectedIndex.equalsIgnoreCase(indexes.getString("INDEX_NAME"))) return true;
+            }
+            return false;
         }
     }
 }

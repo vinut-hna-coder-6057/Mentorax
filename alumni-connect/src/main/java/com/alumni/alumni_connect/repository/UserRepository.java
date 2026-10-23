@@ -71,6 +71,8 @@ public interface UserRepository
             String status
     );
     List<User> findByRoleAndStatus(String role, String status, Pageable pageable);
+    List<User> findTop500ByRoleAndStatusAndIdGreaterThanOrderByIdAsc(
+            String role, String status, Long afterId);
     List<User> findAllBy(Pageable pageable);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
