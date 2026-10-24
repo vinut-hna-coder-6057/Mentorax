@@ -81,6 +81,29 @@ void main() {
       );
     });
 
+    test('rejects a missing token without creating a STOMP client', () async {
+      var clientsCreated = 0;
+      final service = RealtimeService(
+        clientFactory: (_) {
+          clientsCreated++;
+          throw StateError('A client must not be created without a token.');
+        },
+      );
+      final failures = <RealtimeFailure>[];
+      final subscription = service.errors.listen(failures.add);
+      addTearDown(() async {
+        await subscription.cancel();
+        await service.dispose();
+      });
+
+      service.connect('  ');
+      await pumpEventQueue();
+
+      expect(clientsCreated, 0);
+      expect(service.current, RealtimeState.authenticationRejected);
+      expect(failures, [RealtimeFailure.authentication]);
+    });
+
     test('uses the destinations configured by the Spring message broker', () {
       expect(RealtimeService.messagesDestination, '/user/queue/messages');
       expect(

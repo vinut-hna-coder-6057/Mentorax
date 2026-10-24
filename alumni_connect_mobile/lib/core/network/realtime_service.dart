@@ -81,7 +81,14 @@ class RealtimeService {
       (connectionVersion == null || connectionVersion == _connectionVersion);
 
   void connect(String token) {
-    if (token.isEmpty) return;
+    if (token.trim().isEmpty) {
+      _reportFailure(
+        RealtimeFailure.authentication,
+        'A valid messaging token is required.',
+        terminal: true,
+      );
+      return;
+    }
     if (_client != null &&
         _token == token &&
         (_current == RealtimeState.connected ||
