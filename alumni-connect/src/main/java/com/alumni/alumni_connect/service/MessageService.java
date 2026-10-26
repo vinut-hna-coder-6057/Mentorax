@@ -8,6 +8,7 @@ import com.alumni.alumni_connect.entity.Message;
 import com.alumni.alumni_connect.entity.User;
 import com.alumni.alumni_connect.repository.ConversationParticipantRepository;
 import com.alumni.alumni_connect.repository.ConversationRepository;
+import com.alumni.alumni_connect.repository.ConnectionRepository;
 import com.alumni.alumni_connect.repository.MessageRepository;
 import com.alumni.alumni_connect.repository.UserRepository;
 
@@ -23,11 +24,18 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Collections;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 
 @Service
 public class MessageService {
+    private static final Set<String> CONVERSATION_PARTICIPANT_ROLES =
+            Set.of("STUDENT", "ALUMNI", "ADMIN");
 
     private final SimpMessagingTemplate messagingTemplate;
     private final MessageRepository repository;
@@ -35,6 +43,7 @@ public class MessageService {
     private final UserRepository userRepository;
     private final ConversationRepository conversationRepository;
     private final ConversationParticipantRepository participantRepository;
+    private final ConnectionRepository connectionRepository;
 
     public MessageService(
             SimpMessagingTemplate messagingTemplate,
@@ -42,7 +51,8 @@ public class MessageService {
             NotificationService notificationService,
             UserRepository userRepository,
             ConversationRepository conversationRepository,
-            ConversationParticipantRepository participantRepository
+            ConversationParticipantRepository participantRepository,
+            ConnectionRepository connectionRepository
     ) {
         this.messagingTemplate = messagingTemplate;
         this.repository = repository;
@@ -50,6 +60,7 @@ public class MessageService {
         this.userRepository = userRepository;
         this.conversationRepository = conversationRepository;
         this.participantRepository = participantRepository;
+        this.connectionRepository = connectionRepository;
     }
 
     // =====================================
@@ -103,6 +114,8 @@ public class MessageService {
             );
         }
 
+        requireAcceptedConnection(sender, receiver);
+
         // Server controls sender
         message.setSenderEmail(sender.getEmail());
         message.setSender(sender);
@@ -132,7 +145,15 @@ public class MessageService {
                             receiver.getId()
                     );
 
-            if (!senderIsParticipant || !receiverIsParticipant) {
+            boolean isDirectPair = conversationRepository
+                    .findByDirectUserLowIdAndDirectUserHighId(
+                            Math.min(sender.getId(), receiver.getId()),
+                            Math.max(sender.getId(), receiver.getId()))
+                    .map(directConversation ->
+                            directConversation.getId().equals(conversation.getId()))
+                    .orElse(false);
+
+            if (!senderIsParticipant || !receiverIsParticipant || !isDirectPair) {
                 throw new IllegalArgumentException(
                         "Conversation membership is invalid"
                 );
@@ -249,11 +270,20 @@ public class MessageService {
         return conversation;
     }
 
+    private void requireAcceptedConnection(User first, User second) {
+        if (!connectionRepository.existsAcceptedConnectionBetween(
+                first.getId(), second.getId())) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "An accepted connection is required to message this user");
+        }
+    }
+
     // =====================================
     // GET CONVERSATION
     // =====================================
 
-    @Transactional(readOnly = true)
+    @Transactional
     public List<Message> getConversation(
             String sender,
             String receiver,
@@ -262,7 +292,7 @@ public class MessageService {
         return getConversation(sender,receiver,authenticatedEmail,0,50);
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public List<Message> getConversation(String sender,String receiver,String authenticatedEmail,int page,int size) {
         Pageable pageable=PageRequest.of(Math.max(0,page),Math.max(1,Math.min(size,100)));
 
@@ -318,24 +348,16 @@ long highId = Math.max(
         receiverUser.getId()
 );
 
+requireAcceptedConnection(senderUser, receiverUser);
+
 Conversation conversation =
         conversationRepository
                 .findDirectConversation(lowId, highId)
                 .orElse(null);
 
         if (conversation != null) {
-            User authenticatedUser = userRepository.findByEmailIgnoreCase(authenticatedEmail)
-                    .orElseThrow(() -> new ResponseStatusException(
-                            HttpStatus.UNAUTHORIZED,
-                            "Authenticated user no longer exists"
-                    ));
-            if (!participantRepository.existsByConversation_IdAndUser_Id(
-                    conversation.getId(),
-                    authenticatedUser.getId())) {
-                throw new IllegalArgumentException(
-                        "You are not part of this conversation"
-                );
-            }
+            participantRepository.addParticipantIfAbsent(conversation.getId(), lowId);
+            participantRepository.addParticipantIfAbsent(conversation.getId(), highId);
         }
 
         List<Message> result = repository.findConversationPage(
@@ -362,6 +384,25 @@ Conversation conversation =
 
     @Transactional(readOnly = true)
     public List<ConversationDTO> getConversations(int page, int size) {
+        return getConversations(page, size, null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<ConversationDTO> getConversations(
+            int page,
+            int size,
+            String participantRole
+    ) {
+        String normalizedRole = participantRole == null || participantRole.isBlank()
+                ? null
+                : participantRole.trim().toUpperCase(Locale.ROOT);
+        if (normalizedRole != null
+                && !CONVERSATION_PARTICIPANT_ROLES.contains(normalizedRole)) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Unsupported conversation participant role"
+            );
+        }
 
         Authentication authentication =
                 SecurityContextHolder
@@ -389,8 +430,23 @@ Conversation conversation =
                         );
 
         List<Message> latestMessages = repository.findLatestMessagesForParticipant(
-                currentUser.getId(), authenticatedEmail,
+                currentUser.getId(), authenticatedEmail, normalizedRole,
                 PageRequest.of(Math.max(0, page), Math.max(1, Math.min(size, 100))));
+
+        List<String> otherEmails = latestMessages.stream()
+                .map(message -> authenticatedEmail.equalsIgnoreCase(message.getSenderEmail())
+                        ? message.getReceiverEmail()
+                        : message.getSenderEmail())
+                .filter(email -> email != null && !email.isBlank())
+                .map(email -> email.toLowerCase(Locale.ROOT))
+                .distinct()
+                .toList();
+        Map<String, User> otherUsers = otherEmails.isEmpty()
+                ? Map.of()
+                : userRepository.findByNormalizedEmails(otherEmails).stream()
+                        .collect(Collectors.toMap(
+                                user -> user.getEmail().toLowerCase(Locale.ROOT),
+                                Function.identity()));
 
         List<ConversationDTO> conversations =
                 new ArrayList<>();
@@ -423,6 +479,13 @@ Conversation conversation =
             dto.setEmail(
                     otherEmail
             );
+
+            User otherUser = otherUsers.get(otherEmail.toLowerCase(Locale.ROOT));
+            if (otherUser != null) {
+                dto.setDisplayName(otherUser.getName());
+                dto.setProfileImage(otherUser.getProfileImage());
+                dto.setParticipantRole(otherUser.getRole());
+            }
 
             dto.setLatestMessage(
                     message.getContent()

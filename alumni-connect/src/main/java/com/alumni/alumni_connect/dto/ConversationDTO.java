@@ -15,6 +15,12 @@ public class ConversationDTO {
 
     private String email;
 
+    private String displayName;
+
+    private String profileImage;
+
+    private String participantRole;
+
     private String latestMessage;
 
     private LocalDateTime timestamp;
@@ -30,8 +36,32 @@ public class ConversationDTO {
             LocalDateTime timestamp
 
     ) {
+        this(email, null, null, null, latestMessage, timestamp);
+    }
+
+    public ConversationDTO(
+
+            String email,
+
+            String displayName,
+
+            String profileImage,
+
+            String participantRole,
+
+            String latestMessage,
+
+            LocalDateTime timestamp
+
+    ) {
 
         this.email = email;
+
+        this.displayName = displayName;
+
+        this.profileImage = profileImage;
+
+        this.participantRole = participantRole;
 
         this.latestMessage = latestMessage;
 
@@ -44,6 +74,30 @@ public class ConversationDTO {
 
     public void setEmail(String email) {
         this.email = email;
+    }
+
+    public String getDisplayName() {
+        return displayName;
+    }
+
+    public void setDisplayName(String displayName) {
+        this.displayName = displayName;
+    }
+
+    public String getProfileImage() {
+        return profileImage;
+    }
+
+    public void setProfileImage(String profileImage) {
+        this.profileImage = profileImage;
+    }
+
+    public String getParticipantRole() {
+        return participantRole;
+    }
+
+    public void setParticipantRole(String participantRole) {
+        this.participantRole = participantRole;
     }
 
     public String getLatestMessage() {

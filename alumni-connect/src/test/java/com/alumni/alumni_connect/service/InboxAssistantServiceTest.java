@@ -10,7 +10,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.client.ResourceAccessException;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.server.ResponseStatusException;
@@ -97,6 +99,22 @@ class InboxAssistantServiceTest {
         ReflectionTestUtils.setField(service, "apiToken", "test-only-secret");
         when(rest.exchange(anyString(), eq(HttpMethod.POST), any(), eq(Object.class)))
                 .thenReturn(ResponseEntity.ok(java.util.Map.of("available", true, "category", "FORGED")));
+
+        InboxAssistantResponse result = service.analyzeIncomingMessage(8L);
+
+        assertFalse(result.available());
+        assertTrue(result.message().contains("temporarily unavailable"));
+    }
+
+    @Test
+    void pythonRouteFailureReturnsSafeUnavailableResult() {
+        Message received = new Message("student@example.test", "alumni@example.test", "Career advice?", null);
+        ReflectionTestUtils.setField(received, "id", 8L);
+        when(messages.findById(8L)).thenReturn(Optional.of(received));
+        ReflectionTestUtils.setField(service, "enabled", true);
+        ReflectionTestUtils.setField(service, "apiToken", "test-only-secret");
+        when(rest.exchange(anyString(), any(), any(), eq(Object.class)))
+                .thenThrow(new HttpClientErrorException(HttpStatus.NOT_FOUND));
 
         InboxAssistantResponse result = service.analyzeIncomingMessage(8L);
 

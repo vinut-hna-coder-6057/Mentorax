@@ -118,9 +118,12 @@ final realtimeNotificationsProvider =
         event.connectionVersion,
       ));
 });
-final conversationsProvider = StateNotifierProvider<
-    ConversationsPaginationNotifier, AsyncValue<List<Conversation>>>(
-  (ref) => ConversationsPaginationNotifier(ref.watch(appRepositoryProvider)),
+final conversationsProvider = StateNotifierProvider.family<
+    ConversationsPaginationNotifier, AsyncValue<List<Conversation>>, UserRole?>(
+  (ref, participantRole) => ConversationsPaginationNotifier(
+    ref.watch(appRepositoryProvider),
+    participantRole: participantRole,
+  ),
 );
 final allUsersProvider = FutureProvider<List<User>>(
     (ref) => ref.watch(appRepositoryProvider).allUsers());
@@ -225,26 +228,41 @@ class EventsPaginationNotifier
 
 class ConversationsPaginationNotifier
     extends StateNotifier<AsyncValue<List<Conversation>>> {
-  ConversationsPaginationNotifier(this._repo) : super(const AsyncLoading()) {
+  ConversationsPaginationNotifier(
+    this._repo, {
+    required this.participantRole,
+  }) : super(const AsyncLoading()) {
     unawaited(loadFirstPage());
   }
 
   final AppRepository _repo;
+  final UserRole? participantRole;
   static const int pageSize = 50;
   int _page = 0;
   bool _hasMore = true;
   bool _loadingMore = false;
+  int _requestGeneration = 0;
+
+  bool get hasMore => _hasMore;
+  bool get isLoadingMore => _loadingMore;
 
   Future<void> loadFirstPage() async {
+    final generation = ++_requestGeneration;
     _page = 0;
     _hasMore = true;
     _loadingMore = false;
     state = const AsyncLoading();
     try {
-      final result = await _repo.conversations(page: 0, size: pageSize);
+      final result = await _repo.conversations(
+        page: 0,
+        size: pageSize,
+        participantRole: participantRole,
+      );
+      if (generation != _requestGeneration) return;
       _hasMore = result.length == pageSize;
       state = AsyncData(result);
     } catch (error, stackTrace) {
+      if (generation != _requestGeneration) return;
       state = AsyncError(error, stackTrace);
     }
   }
@@ -252,17 +270,31 @@ class ConversationsPaginationNotifier
   Future<void> loadNextPage() async {
     if (_loadingMore || !_hasMore) return;
     _loadingMore = true;
+    final generation = _requestGeneration;
     final nextPage = _page + 1;
     try {
-      final result = await _repo.conversations(page: nextPage, size: pageSize);
+      final result = await _repo.conversations(
+        page: nextPage,
+        size: pageSize,
+        participantRole: participantRole,
+      );
+      if (generation != _requestGeneration) return;
       final current = state.valueOrNull ?? <Conversation>[];
       _page = nextPage;
       _hasMore = result.length == pageSize;
-      state = AsyncData([...current, ...result]);
+      final existingEmails =
+          current.map((conversation) => conversation.email).toSet();
+      state = AsyncData([
+        ...current,
+        ...result.where(
+          (conversation) => existingEmails.add(conversation.email),
+        ),
+      ]);
     } catch (error, stackTrace) {
+      if (generation != _requestGeneration) return;
       if (!state.hasValue) state = AsyncError(error, stackTrace);
     } finally {
-      _loadingMore = false;
+      if (generation == _requestGeneration) _loadingMore = false;
     }
   }
 }

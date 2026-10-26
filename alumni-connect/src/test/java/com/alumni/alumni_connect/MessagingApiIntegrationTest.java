@@ -2,7 +2,9 @@ package com.alumni.alumni_connect;
 
 import com.alumni.alumni_connect.entity.Message;
 import com.alumni.alumni_connect.entity.User;
+import com.alumni.alumni_connect.entity.Connection;
 import com.alumni.alumni_connect.entity.ConversationParticipantId;
+import com.alumni.alumni_connect.repository.ConnectionRepository;
 import com.alumni.alumni_connect.repository.ConversationParticipantRepository;
 import com.alumni.alumni_connect.repository.ConversationRepository;
 import com.alumni.alumni_connect.repository.MessageRepository;
@@ -41,6 +43,9 @@ class MessagingApiIntegrationTest {
 
     @Autowired
     private UserRepository userRepository;
+
+    @Autowired
+    private ConnectionRepository connectionRepository;
 
     @Autowired
     private MessageRepository messageRepository;
@@ -84,6 +89,10 @@ class MessagingApiIntegrationTest {
         charlie = createUser(
                 "api-charlie-" + suffix + "@example.test"
         );
+
+        connect(alice, bob);
+        connect(alice, charlie);
+        connect(bob, charlie);
     }
 
     // =========================================================
@@ -294,7 +303,7 @@ class MessagingApiIntegrationTest {
     }
 
     @Test
-    void normalizedConversationRequiresCurrentParticipantMembership() throws Exception {
+    void acceptedConversationHistoryRepairsMissingParticipantMembership() throws Exception {
         messageService.sendMessage(
                 new Message(alice.getEmail(), bob.getEmail(), "Normalized message", LocalDateTime.now()),
                 alice.getEmail());
@@ -309,9 +318,12 @@ class MessagingApiIntegrationTest {
                         .param("sender", alice.getEmail())
                         .param("receiver", bob.getEmail())
                         .header("Authorization", bearer(bob.getEmail(), "STUDENT")))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.error")
-                        .value("You are not part of this conversation"));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].content").value("Normalized message"));
+
+        org.junit.jupiter.api.Assertions.assertTrue(
+                participantRepository.existsByConversation_IdAndUser_Id(
+                        conversation.getId(), bob.getId()));
     }
 
     // =========================================================
@@ -351,6 +363,9 @@ class MessagingApiIntegrationTest {
         );
 
         messageRepository.save(message);
+        bob.setRole("ALUMNI");
+        bob.setProfileImage("https://example.test/bob.png");
+        userRepository.save(bob);
         mockMvc.perform(
         get("/conversations")
                 .param("page", "0")
@@ -366,11 +381,77 @@ class MessagingApiIntegrationTest {
 ))
 .andExpect(jsonPath("$[0].email")
         .value(bob.getEmail()))
+.andExpect(jsonPath("$[0].displayName")
+        .value(bob.getName()))
+.andExpect(jsonPath("$[0].profileImage")
+        .value("https://example.test/bob.png"))
+.andExpect(jsonPath("$[0].participantRole")
+        .value("ALUMNI"))
 .andExpect(jsonPath("$[0].latestMessage")
         .value("Hello Bob"))
 .andExpect(jsonPath("$[0].timestamp")
         .exists());
        
+    }
+
+    @Test
+    void conversationRoleFilterIsAppliedBeforePagination() throws Exception {
+        bob.setRole("ALUMNI");
+        userRepository.save(bob);
+        messageRepository.save(new Message(
+                alice.getEmail(), bob.getEmail(), "Alumni thread", LocalDateTime.now()));
+        messageRepository.save(new Message(
+                alice.getEmail(), charlie.getEmail(), "Student thread", LocalDateTime.now()));
+
+        mockMvc.perform(get("/conversations")
+                        .param("page", "0")
+                        .param("size", "1")
+                        .param("participantRole", "STUDENT")
+                        .header("Authorization", bearer(alice.getEmail(), "STUDENT")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(1)))
+                .andExpect(jsonPath("$[0].email").value(charlie.getEmail()))
+                .andExpect(jsonPath("$[0].participantRole").value("STUDENT"));
+
+        mockMvc.perform(get("/conversations")
+                        .param("page", "0")
+                        .param("size", "1")
+                        .param("participantRole", " alumni ")
+                        .header("Authorization", bearer(alice.getEmail(), "STUDENT")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(1)))
+                .andExpect(jsonPath("$[0].email").value(bob.getEmail()))
+                .andExpect(jsonPath("$[0].participantRole").value("ALUMNI"));
+    }
+
+    @Test
+    void conversationRoleFilterRejectsUnsupportedRoles() throws Exception {
+        mockMvc.perform(get("/conversations")
+                        .param("participantRole", "UNKNOWN")
+                        .header("Authorization", bearer(alice.getEmail(), "STUDENT")))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void inboxOnlyListsConversationsWithAcceptedConnections() throws Exception {
+        messageRepository.save(new Message(
+                alice.getEmail(), bob.getEmail(), "Private connected preview", LocalDateTime.now()));
+
+        mockMvc.perform(get("/conversations")
+                        .header("Authorization", bearer(alice.getEmail(), "STUDENT")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(1)))
+                .andExpect(jsonPath("$[0].email").value(bob.getEmail()));
+
+        var connection = connectionRepository.findByRequester_IdAndReceiver_Id(
+                alice.getId(), bob.getId()).orElseThrow();
+        connection.setStatus("PENDING");
+        connectionRepository.save(connection);
+
+        mockMvc.perform(get("/conversations")
+                        .header("Authorization", bearer(alice.getEmail(), "STUDENT")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(0)));
     }
 
     // =========================================================
@@ -408,6 +489,14 @@ class MessagingApiIntegrationTest {
         user.setEmailVerified(true);
 
         return userRepository.save(user);
+    }
+
+    private void connect(User requester, User receiver) {
+        Connection connection = new Connection();
+        connection.setRequester(requester);
+        connection.setReceiver(receiver);
+        connection.setStatus("ACCEPTED");
+        connectionRepository.save(connection);
     }
 
     private String bearer(

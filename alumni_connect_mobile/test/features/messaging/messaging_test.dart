@@ -78,6 +78,9 @@ void main() {
       (server) => server.reply(200, [
         {
           'email': 'alice@example.test',
+          'displayName': 'Alice Alumni',
+          'profileImage': 'https://example.test/alice.png',
+          'participantRole': 'ALUMNI',
           'latestMessage': 'Hello',
           'timestamp': '2026-10-02T10:00:00',
         }
@@ -92,7 +95,34 @@ void main() {
 
     expect(conversations, hasLength(1));
     expect(conversations.single.email, 'alice@example.test');
+    expect(conversations.single.displayName, 'Alice Alumni');
+    expect(conversations.single.profileImage, 'https://example.test/alice.png');
+    expect(conversations.single.participantRole, UserRole.alumni);
     expect(conversations.single.latestMessage, 'Hello');
+  });
+
+  test('conversation role filter is sent to the backend', () async {
+    final dio = Dio(BaseOptions(baseUrl: 'https://api.example.test'));
+    final adapter = DioAdapter(dio: dio);
+    dio.httpClientAdapter = adapter;
+    adapter.onGet(
+      '/conversations',
+      (server) => server.reply(200, []),
+      queryParameters: {
+        'page': 0,
+        'size': 50,
+        'participantRole': 'ALUMNI',
+      },
+    );
+    final repository = AppRepository(
+      ApiClient(SecureStorageService(const FlutterSecureStorage()), dio: dio),
+    );
+
+    final conversations = await repository.conversations(
+      participantRole: UserRole.alumni,
+    );
+
+    expect(conversations, isEmpty);
   });
 
   testWidgets('chat draft clears only after server echo and survives rejection',

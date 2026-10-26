@@ -192,12 +192,22 @@ class NotificationItem {
 
 class Conversation {
   const Conversation(
-      {required this.email, required this.latestMessage, this.timestamp});
+      {required this.email,
+      required this.latestMessage,
+      this.displayName,
+      this.profileImage,
+      this.participantRole = UserRole.unknown,
+      this.timestamp});
   final String email, latestMessage;
+  final String? displayName, profileImage;
+  final UserRole participantRole;
   final String? timestamp;
   factory Conversation.fromJson(Map<String, dynamic> j) => Conversation(
       email: j['email'] as String? ?? '',
       latestMessage: j['latestMessage'] as String? ?? '',
+      displayName: j['displayName'] as String?,
+      profileImage: j['profileImage'] as String?,
+      participantRole: userRole(j['participantRole'] as String?),
       timestamp: j['timestamp'] as String?);
 }
 

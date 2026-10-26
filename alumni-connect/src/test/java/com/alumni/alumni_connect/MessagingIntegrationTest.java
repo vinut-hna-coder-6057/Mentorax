@@ -62,6 +62,9 @@ class MessagingIntegrationTest {
     private ConversationParticipantRepository participantRepository;
 
     @Autowired
+    private ConnectionRepository connectionRepository;
+
+    @Autowired
     private UserRepository userRepository;
 
     @Autowired
@@ -119,6 +122,10 @@ class MessagingIntegrationTest {
                                 suffix +
                                 "@example.test"
                 );
+
+        connect(alice, bob, "ACCEPTED");
+        connect(alice, charlie, "ACCEPTED");
+        connect(bob, charlie, "ACCEPTED");
     }
 
 
@@ -737,6 +744,73 @@ class MessagingIntegrationTest {
     }
 
     @Test
+    void acceptedStudentAndAlumnusReuseConversationAndKeepHistoryInEitherDirection() {
+        bob.setRole("ALUMNI");
+        userRepository.save(bob);
+
+        messageService.sendMessage(
+                request(bob.getEmail(), "Student's first message", null),
+                alice.getEmail());
+
+        Message first = messageRepository.findAll().stream()
+                .filter(message -> "Student's first message".equals(message.getContent()))
+                .findFirst().orElseThrow();
+        Long conversationId = first.getConversationId();
+
+        assertEquals(1, messageService.getConversation(
+                alice.getEmail(), bob.getEmail(), alice.getEmail()).size());
+        assertEquals(1, messageService.getConversation(
+                alice.getEmail(), bob.getEmail(), bob.getEmail()).size());
+
+        messageService.sendMessage(
+                request(alice.getEmail(), "Alumnus replied", conversationId),
+                bob.getEmail());
+        messageService.sendMessage(
+                request(bob.getEmail(), "Student reopened the chat", conversationId),
+                alice.getEmail());
+
+        assertEquals(3, messageService.getConversation(
+                alice.getEmail(), bob.getEmail(), bob.getEmail()).size());
+        assertEquals(conversationId, conversationRepository
+                .findByDirectUserLowIdAndDirectUserHighId(
+                        Math.min(alice.getId(), bob.getId()),
+                        Math.max(alice.getId(), bob.getId()))
+                .orElseThrow()
+                .getId());
+    }
+
+    @Test
+    void pendingRejectedAndUnrelatedUsersCannotStartOrReadConversation() {
+        User unrelated = createUser("unrelated-" + UUID.randomUUID() + "@example.test");
+        messageService.sendMessage(
+                request(bob.getEmail(), "before status change", null),
+                alice.getEmail());
+        Connection connection = connectionRepository.findByRequester_IdAndReceiver_Id(
+                alice.getId(), bob.getId()).orElseThrow();
+
+        connection.setStatus("PENDING");
+        connectionRepository.save(connection);
+        assertThrows(org.springframework.web.server.ResponseStatusException.class,
+                () -> messageService.sendMessage(
+                        request(bob.getEmail(), "pending", null), alice.getEmail()));
+        assertThrows(org.springframework.web.server.ResponseStatusException.class,
+                () -> messageService.getConversation(
+                        alice.getEmail(), bob.getEmail(), alice.getEmail()));
+
+        connection.setStatus("REJECTED");
+        connectionRepository.save(connection);
+        assertThrows(org.springframework.web.server.ResponseStatusException.class,
+                () -> messageService.sendMessage(
+                        request(bob.getEmail(), "rejected", null), alice.getEmail()));
+        assertThrows(org.springframework.web.server.ResponseStatusException.class,
+                () -> messageService.getConversation(
+                        alice.getEmail(), bob.getEmail(), bob.getEmail()));
+        assertThrows(org.springframework.web.server.ResponseStatusException.class,
+                () -> messageService.sendMessage(
+                        request(alice.getEmail(), "unrelated", null), unrelated.getEmail()));
+    }
+
+    @Test
 void emptyMessageContentIsRejected() {
 
     Message message = request(
@@ -1054,6 +1128,7 @@ void messageContentLongerThan2000CharactersIsRejected() {
     @Test
     void inboxConversationPagesAreBoundedAndDoNotRepeatThreads() {
         User dave = createUser("message-dave-" + UUID.randomUUID() + "@example.test");
+        connect(alice, dave, "ACCEPTED");
         messageService.sendMessage(request(bob.getEmail(), "Bob thread", null), alice.getEmail());
         messageService.sendMessage(request(charlie.getEmail(), "Charlie thread", null), alice.getEmail());
         messageService.sendMessage(request(dave.getEmail(), "Dave thread", null), alice.getEmail());
@@ -1092,6 +1167,14 @@ void messageContentLongerThan2000CharactersIsRejected() {
         return userRepository.save(
                 user
         );
+    }
+
+    private void connect(User requester, User receiver, String status) {
+        Connection connection = new Connection();
+        connection.setRequester(requester);
+        connection.setReceiver(receiver);
+        connection.setStatus(status);
+        connectionRepository.save(connection);
     }
 
 

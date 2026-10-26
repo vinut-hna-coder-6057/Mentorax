@@ -62,6 +62,16 @@ class _UserScreenState extends ConsumerState<UserScreen> {
         .toList();
     final connection = matches.isEmpty ? null : matches.first;
     final status = connection?.status.toUpperCase();
+    final chatEmail = connection?.requester?.id == id
+        ? connection?.requester?.email
+        : connection?.receiver?.email;
+
+    void openChat() {
+      if (chatEmail != null && chatEmail.isNotEmpty) {
+        c.push('/chat/${Uri.encodeComponent(chatEmail)}');
+      }
+    }
+
     return Scaffold(
       appBar: AppBar(
         actions: [
@@ -82,14 +92,7 @@ class _UserScreenState extends ConsumerState<UserScreen> {
             )
           else if (!isOwnProfile && status == 'ACCEPTED')
             TextButton.icon(
-              onPressed: () {
-                final email = connection?.requester?.id == id
-                    ? connection?.requester?.email
-                    : connection?.receiver?.email;
-                if (email != null && email.isNotEmpty) {
-                  c.push('/chat/${Uri.encodeComponent(email)}');
-                }
-              },
+              onPressed: openChat,
               icon: const Icon(Icons.chat_bubble_outline),
               label: const Text('Message'),
             )
@@ -289,8 +292,7 @@ class _UserScreenState extends ConsumerState<UserScreen> {
               if (status == 'ACCEPTED') ...[
                 const SizedBox(height: AppSpacing.lg),
                 FilledButton.icon(
-                  onPressed: () =>
-                      c.push('/chat/${Uri.encodeComponent(user.email)}'),
+                  onPressed: openChat,
                   icon: const Icon(Icons.chat_bubble_outline),
                   label: const Text('Message'),
                 ),

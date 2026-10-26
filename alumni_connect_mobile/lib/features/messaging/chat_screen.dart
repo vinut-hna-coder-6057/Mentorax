@@ -8,6 +8,144 @@ import '../../core/network/realtime_service.dart';
 import '../../shared/models/models.dart';
 import '../../shared/widgets/ui_components.dart';
 import '../shared/presentation_helpers.dart';
+import 'conversation_list_tile.dart';
+
+class InboxScreen extends ConsumerStatefulWidget {
+  const InboxScreen({super.key});
+
+  @override
+  ConsumerState<InboxScreen> createState() => _InboxScreenState();
+}
+
+class _InboxScreenState extends ConsumerState<InboxScreen> {
+  UserRole? _participantRole;
+
+  @override
+  Widget build(BuildContext context) {
+    final role = _participantRole;
+    final conversations = ref.watch(conversationsProvider(role));
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Inbox'),
+        actions: [
+          IconButton(
+            tooltip: 'Inbox assistant',
+            onPressed: () => context.push('/chat/inbox/assistant'),
+            icon: const Icon(Icons.auto_awesome_outlined),
+          ),
+          IconButton(
+            tooltip: 'Refresh inbox',
+            onPressed: () =>
+                ref.read(conversationsProvider(role).notifier).loadFirstPage(),
+            icon: const Icon(Icons.refresh),
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.lg,
+              AppSpacing.md,
+              AppSpacing.lg,
+              AppSpacing.sm,
+            ),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: SegmentedButton<UserRole?>(
+                segments: const [
+                  ButtonSegment(value: null, label: Text('All')),
+                  ButtonSegment(
+                    value: UserRole.student,
+                    label: Text('Students'),
+                  ),
+                  ButtonSegment(
+                    value: UserRole.alumni,
+                    label: Text('Alumni'),
+                  ),
+                ],
+                selected: {role},
+                onSelectionChanged: (selection) =>
+                    setState(() => _participantRole = selection.first),
+              ),
+            ),
+          ),
+          Expanded(
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 900),
+                child: conversations.when(
+                  loading: () => const LoadingState(),
+                  error: (error, _) => ErrorState(
+                    message: userFacingError(error),
+                    onRetry: () => ref
+                        .read(conversationsProvider(role).notifier)
+                        .loadFirstPage(),
+                  ),
+                  data: (items) => RefreshIndicator(
+                    onRefresh: () => ref
+                        .read(conversationsProvider(role).notifier)
+                        .loadFirstPage(),
+                    child: items.isEmpty
+                        ? ListView(
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            children: [
+                              SizedBox(
+                                height: MediaQuery.sizeOf(context).height * .65,
+                                child: EmptyState(
+                                  title: switch (role) {
+                                    UserRole.student =>
+                                      'No student conversations',
+                                    UserRole.alumni =>
+                                      'No alumni conversations',
+                                    _ => 'No conversations yet',
+                                  },
+                                  message:
+                                      'Open a connected person’s profile and choose Message to start a conversation.',
+                                  icon: Icons.chat_bubble_outline,
+                                ),
+                              ),
+                            ],
+                          )
+                        : NotificationListener<ScrollNotification>(
+                            onNotification: (notification) {
+                              if (notification.metrics.axis == Axis.vertical &&
+                                  notification.metrics.pixels >=
+                                      notification.metrics.maxScrollExtent -
+                                          300) {
+                                ref
+                                    .read(conversationsProvider(role).notifier)
+                                    .loadNextPage();
+                              }
+                              return false;
+                            },
+                            child: ListView.builder(
+                              physics: const AlwaysScrollableScrollPhysics(),
+                              padding: const EdgeInsets.all(AppSpacing.lg),
+                              itemCount: items.length,
+                              itemBuilder: (context, index) {
+                                final conversation = items[index];
+                                return ConversationListTile(
+                                  conversation: conversation,
+                                  onTap: conversation.email.isEmpty
+                                      ? null
+                                      : () => context.push(
+                                            '/chat/${Uri.encodeComponent(conversation.email)}',
+                                          ),
+                                );
+                              },
+                            ),
+                          ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 class ChatScreen extends ConsumerStatefulWidget {
   const ChatScreen({super.key, required this.email});
@@ -36,8 +174,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   String? _error;
   String? _sendError;
   String? _pendingContent;
-
-  bool get _isInbox => widget.email == 'inbox';
 
   @override
   void initState() {
@@ -74,41 +210,39 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         };
       });
     });
-    if (!_isInbox) {
-      _loadHistory();
-      _sub = realtime.messageEvents.listen((event) {
-        if (!realtime.isCurrentSession(
-          event.sessionVersion,
-          event.connectionVersion,
-        )) {
-          return;
+    _loadHistory();
+    _sub = realtime.messageEvents.listen((event) {
+      if (!realtime.isCurrentSession(
+        event.sessionVersion,
+        event.connectionVersion,
+      )) {
+        return;
+      }
+      final m = event.value;
+      final me = ref.read(authProvider).valueOrNull?.email ?? '';
+      final other = widget.email;
+      final involves = (m.senderEmail == me && m.receiverEmail == other) ||
+          (m.senderEmail == other && m.receiverEmail == me);
+      if (!involves || !mounted) return;
+      final confirmsPendingSend = _pendingContent != null &&
+          m.senderEmail == me &&
+          m.receiverEmail == other &&
+          m.content == _pendingContent;
+      setState(() {
+        if (!_messages.any((existing) => _sameMessage(existing, m))) {
+          _messages.add(m);
+          _sortMessages();
         }
-        final m = event.value;
-        final me = ref.read(authProvider).valueOrNull?.email ?? '';
-        final other = widget.email;
-        final involves = (m.senderEmail == me && m.receiverEmail == other) ||
-            (m.senderEmail == other && m.receiverEmail == me);
-        if (!involves || !mounted) return;
-        final confirmsPendingSend = _pendingContent != null &&
-            m.senderEmail == me &&
-            m.receiverEmail == other &&
-            m.content == _pendingContent;
-        setState(() {
-          if (!_messages.any((existing) => _sameMessage(existing, m))) {
-            _messages.add(m);
-            _sortMessages();
-          }
-          if (confirmsPendingSend) {
-            _pendingContent = null;
-            _sending = false;
-            _sendError = null;
-            if (_input.text == m.content) _input.clear();
-          }
-        });
-        ref.invalidate(conversationsProvider);
-        _scrollToLatest();
+        if (confirmsPendingSend) {
+          _pendingContent = null;
+          _sending = false;
+          _sendError = null;
+          if (_input.text == m.content) _input.clear();
+        }
       });
-    }
+      ref.invalidate(conversationsProvider);
+      _scrollToLatest();
+    });
   }
 
   void _loadOlderWhenAtTop() {
@@ -411,47 +545,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   @override
   Widget build(BuildContext c) {
-    if (_isInbox) {
-      return Scaffold(
-          appBar: AppBar(title: const Text('Inbox')),
-          body: asyncList<Conversation>(
-            ref.watch(conversationsProvider),
-            (x) => AppCard(
-                child: ListTile(
-                    contentPadding: const EdgeInsets.all(AppSpacing.sm),
-                    leading: UserAvatar(name: x.email),
-                    title: Text(x.email,
-                        style: const TextStyle(fontWeight: FontWeight.w700)),
-                    subtitle: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          x.latestMessage,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        if (x.timestamp?.isNotEmpty == true)
-                          Padding(
-                            padding: const EdgeInsets.only(top: AppSpacing.xs),
-                            child: Text(
-                              formatTimestamp(x.timestamp!),
-                              style: Theme.of(c).textTheme.bodySmall,
-                            ),
-                          ),
-                      ],
-                    ),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () =>
-                        c.push('/chat/${Uri.encodeComponent(x.email)}'))),
-            onRetry: () => ref.invalidate(conversationsProvider),
-            onLoadMore: () =>
-                ref.read(conversationsProvider.notifier).loadNextPage(),
-            emptyTitle: 'No conversations yet',
-            emptyMessage:
-                'Start a conversation from a connected person’s profile.',
-            emptyIcon: Icons.chat_bubble_outline,
-          ));
-    }
     final scheme = Theme.of(c).colorScheme;
     final statusBackground = switch (_realtimeState) {
       RealtimeState.connected => scheme.tertiaryContainer,

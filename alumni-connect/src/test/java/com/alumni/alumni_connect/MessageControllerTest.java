@@ -198,8 +198,8 @@ class MessageControllerTest {
                 .getContext()
                 .setAuthentication(authentication);
 
-        controller.getConversations(0, 50);
+        controller.getConversations(0, 50, null);
 
-        verify(messageService).getConversations(0, 50);
+        verify(messageService).getConversations(0, 50, null);
     }
 }

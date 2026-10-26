@@ -20,6 +20,17 @@ import java.util.Optional;
 import org.springframework.data.domain.Pageable;
 
 public interface ConnectionRepository extends JpaRepository<Connection, Long> {
+    @Query("""
+            select case when count(c) > 0 then true else false end
+            from Connection c
+            where ((c.requester.id = :firstUserId and c.receiver.id = :secondUserId)
+                or (c.requester.id = :secondUserId and c.receiver.id = :firstUserId))
+              and upper(c.status) = 'ACCEPTED'
+            """)
+    boolean existsAcceptedConnectionBetween(
+            @Param("firstUserId") Long firstUserId,
+            @Param("secondUserId") Long secondUserId);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @EntityGraph(attributePaths = {"requester", "receiver"})
     @Query("select c from Connection c where c.id = :id")

@@ -95,8 +95,9 @@ public class MessageController {
     @GetMapping("/conversations")
     public List<ConversationDTO> getConversations(
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "50") int size
+            @RequestParam(defaultValue = "50") int size,
+            @RequestParam(required = false) String participantRole
     ) {
-        return messageService.getConversations(page, size);
+        return messageService.getConversations(page, size, participantRole);
     }
 }

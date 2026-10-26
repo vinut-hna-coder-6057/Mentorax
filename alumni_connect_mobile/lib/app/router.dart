@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../shared/models/models.dart';
 import 'providers.dart';
 import '../features/presentation.dart';
+import '../features/messaging/inbox_assistant_screen.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
   final refresh = _RouterRefresh(ref);
@@ -46,6 +47,11 @@ final routerProvider = Provider<GoRouter>((ref) {
         final home = user.role == UserRole.admin
             ? '/admin/dashboard'
             : '/${user.role.name}/home';
+        if ((location == '/chat/inbox' || location.startsWith('/chat/inbox/')) &&
+            (user.role != UserRole.alumni ||
+                user.status.toUpperCase() != 'APPROVED')) {
+          return home;
+        }
         if (location == '/splash' || publicRoutes.contains(location)) {
           return home;
         }
@@ -121,6 +127,14 @@ final routerProvider = Provider<GoRouter>((ref) {
         GoRoute(
             path: '/notifications',
             builder: (_, __) => const NotificationsScreen()),
+        GoRoute(
+          path: '/chat/inbox',
+          builder: (_, __) => const InboxScreen(),
+        ),
+        GoRoute(
+          path: '/chat/inbox/assistant',
+          builder: (_, __) => const InboxAssistantScreen(),
+        ),
         GoRoute(
             path: '/chat/:email',
             builder: (_, s) => ChatScreen(

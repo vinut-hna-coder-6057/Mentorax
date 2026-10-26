@@ -124,6 +124,30 @@ class HomeScreen extends ConsumerWidget {
               ? 'Review activity and keep the Mentorax community moving.'
               : 'Build meaningful connections with your alumni community.',
         ),
+        if (user?.role == UserRole.alumni &&
+            user?.status.toUpperCase() == 'APPROVED') ...[
+          const SizedBox(height: AppSpacing.lg),
+          AppCard(
+            padding: EdgeInsets.zero,
+            child: ListTile(
+              minVerticalPadding: AppSpacing.md,
+              leading: CircleAvatar(
+                backgroundColor: Theme.of(c).colorScheme.primaryContainer,
+                child: Icon(
+                  Icons.chat_bubble_outline,
+                  color: Theme.of(c).colorScheme.onPrimaryContainer,
+                ),
+              ),
+              title: const Text(
+                'Inbox',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+              subtitle: const Text('Continue your conversations'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => c.push('/chat/inbox'),
+            ),
+          ),
+        ],
         const SizedBox(height: AppSpacing.xl),
         LayoutBuilder(
           builder: (context, constraints) {
@@ -275,11 +299,6 @@ class HomeScreen extends ConsumerWidget {
                 label: 'Find a mentor',
                 onTap: () => c.push('/student/mentor-discovery'),
               ),
-            _QuickAction(
-              icon: Icons.chat_bubble_outline,
-              label: 'Open messages',
-              onTap: () => c.push('/chat/inbox'),
-            ),
             if (user?.role == UserRole.admin)
               _QuickAction(
                 icon: Icons.verified_user_outlined,

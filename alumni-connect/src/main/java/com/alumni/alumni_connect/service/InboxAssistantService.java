@@ -12,6 +12,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.ResourceAccessException;
+import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.server.ResponseStatusException;
@@ -68,7 +70,14 @@ public class InboxAssistantService {
             throw new ResponseStatusException(org.springframework.http.HttpStatus.UNPROCESSABLE_ENTITY,
                     "Message cannot be analyzed");
         }
-        if (!enabled || apiToken == null || apiToken.isBlank()) return InboxAssistantResponse.unavailable();
+        if (!enabled) {
+            log.warn("Inbox assistant unavailable: feature flag is disabled");
+            return InboxAssistantResponse.unavailable();
+        }
+        if (apiToken == null || apiToken.isBlank()) {
+            log.warn("Inbox assistant unavailable: internal token is not configured");
+            return InboxAssistantResponse.unavailable();
+        }
 
         try {
             HttpHeaders headers = new HttpHeaders();
@@ -78,10 +87,37 @@ public class InboxAssistantService {
                     message.getTimestamp() == null ? null : message.getTimestamp().toString());
             ResponseEntity<Object> response = restTemplate.exchange(aiServiceUrl + "/inbox/assist",
                     HttpMethod.POST, new HttpEntity<>(request, headers), Object.class);
-            InboxAssistantResponse result = mapper.convertValue(response.getBody(), InboxAssistantResponse.class);
-            return isValid(result, content) ? result : InboxAssistantResponse.unavailable();
-        } catch (RestClientException | IllegalArgumentException exception) {
-            log.warn("Inbox assistant unavailable ({})", exception.getClass().getSimpleName());
+            InboxAssistantResponse result;
+            try {
+                result = mapper.convertValue(response.getBody(), InboxAssistantResponse.class);
+            } catch (IllegalArgumentException exception) {
+                log.warn("Inbox assistant unavailable: Python response could not be parsed");
+                return InboxAssistantResponse.unavailable();
+            }
+            if (result != null && !result.available()) {
+                log.warn("Inbox assistant unavailable: Python service returned unavailable");
+                return InboxAssistantResponse.unavailable();
+            }
+            if (!isValid(result, content)) {
+                log.warn("Inbox assistant unavailable: Python response failed contract validation");
+                return InboxAssistantResponse.unavailable();
+            }
+            return result;
+        } catch (RestClientResponseException exception) {
+            log.warn("Inbox assistant unavailable: Python service returned HTTP {}",
+                    exception.getStatusCode().value());
+            return InboxAssistantResponse.unavailable();
+        } catch (ResourceAccessException exception) {
+            log.warn("Inbox assistant unavailable: Python service connection failed ({})",
+                    exception.getClass().getSimpleName());
+            return InboxAssistantResponse.unavailable();
+        } catch (RestClientException exception) {
+            log.warn("Inbox assistant unavailable: Python request failed ({})",
+                    exception.getClass().getSimpleName());
+            return InboxAssistantResponse.unavailable();
+        } catch (IllegalArgumentException exception) {
+            log.warn("Inbox assistant unavailable: request or response processing failed ({})",
+                    exception.getClass().getSimpleName());
             return InboxAssistantResponse.unavailable();
         }
     }

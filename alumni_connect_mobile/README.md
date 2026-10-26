@@ -55,6 +55,24 @@ sends the JWT in its STOMP `CONNECT` headers. SockJS transport setup is
 unauthenticated at the HTTP layer; the backend validates the JWT before
 accepting the STOMP connection.
 
+## Alumni inbox assistant
+
+Approved alumni can open **Inbox assistant** from the existing Messages Inbox
+to browse all messages or filter conversations by referral requests, career
+advice, mentorship, job opportunities, interview preparation, or other/unclear
+topics. These are local filters over the authenticated user's existing
+conversations; selecting a result opens the existing chat. Categories use
+deterministic message-content rules, with referral requests taking precedence
+over job opportunities. Greetings and acknowledgements do not determine a
+topic. When the latest preview is unclear, the app checks up to 20 recent
+messages through the existing conversation API. Conversation pages can be
+loaded progressively, so category filters can include matches beyond the first
+page.
+
+This category browser does not call the optional Python inbox-assistance
+service. The per-message assistant remains a separate feature and can be
+unavailable without preventing conversation browsing or replies.
+
 Self-registration creates an unverified student or alumni account and opens
 the email-code verification flow. A verified student can sign in; a verified
 alumnus remains pending until an administrator approves the account. Existing

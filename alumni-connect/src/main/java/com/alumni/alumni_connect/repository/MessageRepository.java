@@ -92,11 +92,34 @@ public interface MessageRepository
                             OR (newer.timestamp IS NOT NULL AND m.timestamp IS NULL)
                             OR (newer.timestamp IS NULL AND m.timestamp IS NULL AND newer.id > m.id))
               )
+              AND EXISTS (
+                    SELECT acceptedConnection FROM Connection acceptedConnection
+                    WHERE UPPER(acceptedConnection.status) = 'ACCEPTED'
+                      AND (
+                            (acceptedConnection.requester.id = :userId
+                                AND LOWER(acceptedConnection.receiver.email) = LOWER(
+                                    CASE WHEN m.senderEmail = :email
+                                         THEN m.receiverEmail ELSE m.senderEmail END))
+                            OR
+                            (acceptedConnection.receiver.id = :userId
+                                AND LOWER(acceptedConnection.requester.email) = LOWER(
+                                    CASE WHEN m.senderEmail = :email
+                                         THEN m.receiverEmail ELSE m.senderEmail END))
+                      )
+              )
+              AND (:participantRole IS NULL OR EXISTS (
+                    SELECT otherUser FROM User otherUser
+                    WHERE LOWER(otherUser.email) = LOWER(
+                        CASE WHEN m.senderEmail = :email
+                             THEN m.receiverEmail ELSE m.senderEmail END)
+                      AND UPPER(otherUser.role) = :participantRole
+              ))
             ORDER BY m.timestamp DESC, m.id DESC
             """)
     List<Message> findLatestMessagesForParticipant(
             @Param("userId") Long userId,
             @Param("email") String email,
+            @Param("participantRole") String participantRole,
             Pageable pageable);
 
     @Query("""
@@ -149,4 +172,3 @@ public interface MessageRepository
     @Query("SELECT m FROM Message m WHERE m.conversation IS NULL AND (m.senderEmail = :email OR m.receiverEmail = :email) ORDER BY m.id DESC")
     List<Message> findInboxMessages(@Param("email") String email,Pageable pageable);
 }
-

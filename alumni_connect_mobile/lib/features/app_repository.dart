@@ -196,10 +196,16 @@ class AppRepository {
   Future<List<Conversation>> conversations({
     int page = 0,
     int size = 50,
+    UserRole? participantRole,
   }) =>
       api.get(
         '/conversations',
-        query: {'page': page, 'size': size},
+        query: {
+          'page': page,
+          'size': size,
+          if (participantRole != null && participantRole != UserRole.unknown)
+            'participantRole': participantRole.name.toUpperCase(),
+        },
         decode: (d) => (d as List)
             .map((e) =>
                 Conversation.fromJson(Map<String, dynamic>.from(e as Map)))

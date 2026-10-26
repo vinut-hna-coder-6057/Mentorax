@@ -3,6 +3,7 @@ package com.alumni.alumni_connect;
 import com.alumni.alumni_connect.entity.User;
 import com.alumni.alumni_connect.repository.ConversationParticipantRepository;
 import com.alumni.alumni_connect.repository.ConversationRepository;
+import com.alumni.alumni_connect.repository.ConnectionRepository;
 import com.alumni.alumni_connect.repository.MessageRepository;
 import com.alumni.alumni_connect.repository.UserRepository;
 import com.alumni.alumni_connect.service.MessageService;
@@ -36,18 +37,21 @@ class ConversationPaginationTest {
         UserRepository users = mock(UserRepository.class);
         MessageRepository messages = mock(MessageRepository.class);
         when(users.findByEmail(email)).thenReturn(Optional.of(user));
-        when(messages.findLatestMessagesForParticipant(eq(12L), eq(email), any(Pageable.class)))
+        when(messages.findLatestMessagesForParticipant(
+                eq(12L), eq(email), isNull(), any(Pageable.class)))
                 .thenReturn(List.of());
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(email, null));
         MessageService service = new MessageService(
                 mock(SimpMessagingTemplate.class), messages, mock(NotificationService.class), users,
-                mock(ConversationRepository.class), mock(ConversationParticipantRepository.class));
+                mock(ConversationRepository.class), mock(ConversationParticipantRepository.class),
+                mock(ConnectionRepository.class));
 
         service.getConversations(-3, 1000);
 
         var pageable = org.mockito.ArgumentCaptor.forClass(Pageable.class);
-        verify(messages).findLatestMessagesForParticipant(eq(12L), eq(email), pageable.capture());
+        verify(messages).findLatestMessagesForParticipant(
+                eq(12L), eq(email), isNull(), pageable.capture());
         assertEquals(0, pageable.getValue().getPageNumber());
         assertEquals(100, pageable.getValue().getPageSize());
     }
