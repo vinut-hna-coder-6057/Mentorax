@@ -155,6 +155,10 @@ public class SecurityConfig {
     "/conversations/**"
 ).authenticated()
 
+                        .requestMatchers(
+    "/experience-claims/**"
+).authenticated()
+
                         // =================================
                         // USERS + STUDENTS
                         // =================================

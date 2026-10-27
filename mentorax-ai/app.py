@@ -9,6 +9,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from semantic_ranker import SemanticEmbeddingError, SentenceEmbeddingRanker
+from experience_analysis import router as experience_analysis_router
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
@@ -137,6 +138,7 @@ class RequestBodyLimitMiddleware:
 
 
 app.add_middleware(RequestBodyLimitMiddleware)
+app.include_router(experience_analysis_router)
 
 
 @app.exception_handler(RequestValidationError)

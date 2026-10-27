@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../app/providers.dart';
 import '../../shared/models/models.dart';
 import '../../shared/widgets/ui_components.dart';
+import 'experience_claims_section.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
@@ -249,6 +250,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 ],
               ),
             ),
+            if (u.role == UserRole.student || u.role == UserRole.alumni) ...[
+              const SizedBox(height: AppSpacing.md),
+              const ExperienceClaimsSection(),
+            ],
             const SizedBox(height: AppSpacing.md),
             AppCard(
               child: Column(

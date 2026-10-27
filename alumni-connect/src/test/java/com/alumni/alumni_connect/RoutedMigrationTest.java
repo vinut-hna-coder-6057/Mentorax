@@ -12,12 +12,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class RoutedMigrationTest {
     @Test
     void freshChainReceivesHardeningChangesAfterItsCurrentBaseline() throws Exception {
-        verifyChain("classpath:db/fresh", "1", "14");
+        verifyChain("classpath:db/fresh", "1", "16");
     }
 
     @Test
     void normalizedChainReceivesHardeningChangesAfterItsCurrentBaseline() throws Exception {
-        verifyChain("classpath:db/normalized", "2", "14");
+        verifyChain("classpath:db/normalized", "2", "16");
     }
 
     @Test
@@ -39,12 +39,13 @@ class RoutedMigrationTest {
 
         var result = flyway.migrate();
 
-        assertEquals(5, result.migrationsExecuted);
-        assertEquals("14", flyway.info().current().getVersion().getVersion());
+        assertEquals(7, result.migrationsExecuted);
+        assertEquals("16", flyway.info().current().getVersion().getVersion());
         try (var connection = DriverManager.getConnection(url, "sa", "")) {
             assertTrue(hasTable(connection, "email_outbox"));
             assertTrue(hasColumn(connection, "email_outbox", "purpose"));
             assertTrue(hasColumn(connection, "events", "max_capacity"));
+            assertExperienceEvidenceSchema(connection);
             try (var statement = connection.createStatement();
                  var resultSet = statement.executeQuery(
                          "SELECT email_verified FROM users WHERE id = 1")) {
@@ -74,7 +75,7 @@ class RoutedMigrationTest {
                 .baselineVersion(baselineVersion)
                 .load();
         var result = flyway.migrate();
-        assertEquals(7, result.migrationsExecuted);
+        assertEquals(9, result.migrationsExecuted);
         assertEquals(expectedVersion, flyway.info().current().getVersion().getVersion());
 
         try (var connection = DriverManager.getConnection(url, "sa", "")) {
@@ -84,6 +85,7 @@ class RoutedMigrationTest {
             assertTrue(hasColumn(connection, "email_outbox", "purpose"));
             assertTrue(hasColumn(connection, "events", "max_capacity"));
             assertTrue(hasIndex(connection, "users", "idx_users_role_status_id"));
+            assertExperienceEvidenceSchema(connection);
             try (var statement = connection.createStatement();
                  var approval = statement.executeQuery("SELECT approval_status FROM alumni_profiles WHERE user_id = 1")) {
                 assertTrue(approval.next());
@@ -97,6 +99,21 @@ class RoutedMigrationTest {
         }
     }
 
+    private static void assertExperienceEvidenceSchema(java.sql.Connection connection) throws Exception {
+        assertTrue(hasColumn(connection, "experience_claims", "request_id"));
+        assertTrue(hasColumn(connection, "experience_claims", "evidence_storage_key"));
+        assertTrue(hasColumn(connection, "experience_claims", "encrypted_evidence"));
+        assertTrue(hasColumn(connection, "experience_claims", "evidence_file_name"));
+        assertTrue(hasColumn(connection, "experience_claims", "evidence_media_type"));
+        assertTrue(hasColumn(connection, "experience_claims", "evidence_size"));
+        assertTrue(hasColumn(connection, "experience_claims", "evidence_uploaded_at"));
+        assertEquals(java.sql.Types.BLOB,
+                columnDataType(connection, "experience_claims", "encrypted_evidence"));
+        assertTrue(hasTable(connection, "experience_claim_audit"));
+        assertTrue(hasIndex(connection, "experience_claims", "uk_experience_claim_user_request"));
+        assertTrue(hasIndex(connection, "experience_claim_audit", "idx_experience_claim_audit_claim_created"));
+    }
+
     private static boolean hasTable(java.sql.Connection connection, String table) throws Exception {
         try (var tables = connection.getMetaData().getTables(
                 connection.getCatalog(), null, table.toUpperCase(java.util.Locale.ROOT), new String[]{"TABLE"})) {
@@ -108,6 +125,17 @@ class RoutedMigrationTest {
         try (var columns = connection.getMetaData().getColumns(connection.getCatalog(), null,
                 table.toUpperCase(java.util.Locale.ROOT), column.toUpperCase(java.util.Locale.ROOT))) {
             return columns.next();
+        }
+    }
+
+    private static int columnDataType(
+            java.sql.Connection connection, String table, String column) throws Exception {
+        try (var columns = connection.getMetaData().getColumns(
+                connection.getCatalog(), null,
+                table.toUpperCase(java.util.Locale.ROOT),
+                column.toUpperCase(java.util.Locale.ROOT))) {
+            if (!columns.next()) throw new AssertionError("Missing column " + table + "." + column);
+            return columns.getInt("DATA_TYPE");
         }
     }
 

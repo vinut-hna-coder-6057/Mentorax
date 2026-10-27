@@ -1,3 +1,7 @@
+import 'dart:typed_data';
+
+import 'package:dio/dio.dart';
+
 import '../core/network/api_client.dart';
 import '../shared/models/models.dart';
 
@@ -154,6 +158,110 @@ class AppRepository {
           query: {'status': status.trim().toUpperCase()},
           decode: (d) =>
               ConnectionItem.fromJson(Map<String, dynamic>.from(d as Map)));
+
+  Future<List<ExperienceClaim>> experienceClaims({
+    int page = 0,
+    int size = 50,
+  }) =>
+      api.get(
+        '/experience-claims/mine',
+        query: {'page': page, 'size': size},
+        decode: (data) => (data as List)
+            .map((item) => ExperienceClaim.fromJson(
+                Map<String, dynamic>.from(item as Map)))
+            .toList(),
+      );
+
+  Future<ExperienceClaim> createExperienceClaim({
+    required String company,
+    required String jobTitle,
+    required String requestId,
+    required String summary,
+    String? startMonth,
+    String? endMonth,
+  }) =>
+      api.post(
+        '/experience-claims',
+        data: {
+          'company': company,
+          'jobTitle': jobTitle,
+          'requestId': requestId,
+          'summary': summary,
+          'startMonth': startMonth,
+          'endMonth': endMonth,
+        },
+        decode: (data) =>
+            ExperienceClaim.fromJson(Map<String, dynamic>.from(data as Map)),
+      );
+
+  Future<ExperienceClaim> updateExperienceClaim(
+    int id, {
+    required String company,
+    required String jobTitle,
+    required String summary,
+    required String requestId,
+    String? startMonth,
+    String? endMonth,
+  }) =>
+      api.put(
+        '/experience-claims/$id',
+        data: {
+          'company': company,
+          'jobTitle': jobTitle,
+          'requestId': requestId,
+          'summary': summary,
+          'startMonth': startMonth,
+          'endMonth': endMonth,
+        },
+        decode: (data) =>
+            ExperienceClaim.fromJson(Map<String, dynamic>.from(data as Map)),
+      );
+
+  Future<ExperienceClaim> appealExperienceClaim(int id, String note) =>
+      api.post(
+        '/experience-claims/$id/appeal',
+        data: {'note': note},
+        decode: (data) =>
+            ExperienceClaim.fromJson(Map<String, dynamic>.from(data as Map)),
+      );
+
+  Future<List<ExperienceClaimAudit>> experienceClaimHistory(int id) => api.get(
+        '/experience-claims/$id/history',
+        decode: (data) => (data as List)
+            .map((item) => ExperienceClaimAudit.fromJson(
+                Map<String, dynamic>.from(item as Map)))
+            .toList(),
+      );
+
+  Future<ExperienceClaim> uploadExperienceEvidence(
+    int id,
+    String filename,
+    Uint8List bytes, {
+    ProgressCallback? onSendProgress,
+  }) =>
+      api.postForm(
+        '/experience-claims/$id/evidence',
+        data: FormData.fromMap({
+          'file': MultipartFile.fromBytes(
+            bytes,
+            filename: filename,
+            contentType: DioMediaType('application', 'pdf'),
+          ),
+        }),
+        onSendProgress: onSendProgress,
+        decode: (data) =>
+            ExperienceClaim.fromJson(Map<String, dynamic>.from(data as Map)),
+      );
+
+  Future<Uint8List> experienceEvidence(int id) => api.getBytes(
+        '/experience-claims/$id/evidence',
+        decode: (data) => Uint8List.fromList(List<int>.from(data as List)),
+      );
+
+  Future<void> deleteExperienceEvidence(int id) => api.delete(
+        '/experience-claims/$id/evidence',
+        decode: (_) {},
+      );
 
   Future<List<User>> pendingUsers({
     int page = 0,

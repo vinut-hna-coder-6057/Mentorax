@@ -69,6 +69,34 @@ class ApiClient {
         decode,
         path,
       );
+
+  Future<T> postForm<T>(
+    String path, {
+    required FormData data,
+    required T Function(dynamic) decode,
+    ProgressCallback? onSendProgress,
+  }) =>
+      _run(
+        () => _dio.post(path, data: data, onSendProgress: onSendProgress),
+        decode,
+        path,
+      );
+
+  Future<T> getBytes<T>(
+    String path, {
+    required T Function(dynamic) decode,
+    ProgressCallback? onReceiveProgress,
+  }) =>
+      _run(
+        () => _dio.get(
+          path,
+          options: Options(responseType: ResponseType.bytes),
+          onReceiveProgress: onReceiveProgress,
+        ),
+        decode,
+        path,
+      );
+
   Future<T> _run<T>(
     Future<Response<dynamic>> Function() request,
     T Function(dynamic) decode,

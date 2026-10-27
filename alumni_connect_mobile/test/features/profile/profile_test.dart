@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -13,16 +15,30 @@ import 'package:alumni_connect_mobile/core/storage/secure_storage_service.dart';
 import 'package:alumni_connect_mobile/features/app_repository.dart';
 import 'package:alumni_connect_mobile/features/presentation.dart';
 import 'package:alumni_connect_mobile/shared/models/models.dart';
+
 //profile
 class _ProfileRepository extends AppRepository {
-  _ProfileRepository(super.api, {required this.failUpdate});
+  _ProfileRepository(
+    super.api, {
+    required this.failUpdate,
+    this.updateCompleter,
+  });
 
   final bool failUpdate;
+  final Completer<User>? updateCompleter;
   final submittedUsers = <User>[];
+
+  @override
+  Future<List<ExperienceClaim>> experienceClaims({
+    int page = 0,
+    int size = 50,
+  }) async =>
+      const [];
 
   @override
   Future<User> updateUser(User user) async {
     submittedUsers.add(user);
+    if (updateCompleter != null) return updateCompleter!.future;
     if (failUpdate) {
       throw const ApiException(
         ApiErrorKind.server,
@@ -143,6 +159,55 @@ void main() {
         find.text('The service is temporarily unavailable. Try again shortly.'),
         findsOneWidget);
     expect(repository.submittedUsers.single.name, 'Unsaved Name');
+    expect(
+      tester
+          .widget<TextField>(
+            find.byWidgetPredicate(
+              (widget) =>
+                  widget is TextField && widget.decoration?.labelText == 'Name',
+              skipOffstage: false,
+            ),
+          )
+          .controller!
+          .text,
+      'Unsaved Name',
+    );
+  });
+
+  testWidgets('profile save prevents duplicate submissions while pending',
+      (tester) async {
+    final dio = Dio(BaseOptions(baseUrl: 'https://api.example.test'));
+    final updateCompleter = Completer<User>();
+    final repository = _ProfileRepository(
+      ApiClient(SecureStorageService(const FlutterSecureStorage()), dio: dio),
+      failUpdate: false,
+      updateCompleter: updateCompleter,
+    );
+    await pumpProfile(tester, repository: repository);
+
+    await tester.enterText(find.byType(TextField).first, 'Asha Updated');
+    await tester.pump();
+    await tester.scrollUntilVisible(
+      find.text('Save profile'),
+      400,
+      scrollable: find.byType(Scrollable).first,
+    );
+    final saveButton = find.widgetWithText(FilledButton, 'Save profile');
+    await tester.ensureVisible(saveButton);
+    await tester.pumpAndSettle();
+    await tester.tap(saveButton);
+    await tester.pump();
+
+    final savingButton = find.widgetWithText(FilledButton, 'Saving…');
+    expect(savingButton, findsOneWidget);
+    expect(tester.widget<FilledButton>(savingButton).onPressed, isNull);
+    await tester.tap(savingButton);
+    await tester.pump();
+    expect(repository.submittedUsers, hasLength(1));
+
+    updateCompleter.complete(repository.submittedUsers.single);
+    await tester.pumpAndSettle();
+    expect(find.text('Profile saved'), findsOneWidget);
   });
 
   test('profile repository maps a successful update response', () async {
@@ -152,10 +217,10 @@ void main() {
         responseType: ResponseType.plain,
       ),
     );
-   final adapter = DioAdapter(dio: dio);
-dio.httpClientAdapter = adapter;
+    final adapter = DioAdapter(dio: dio);
+    dio.httpClientAdapter = adapter;
 
-adapter.onPut(
+    adapter.onPut(
       '/users/1',
       (server) => server.reply(200, {
         'id': 1,

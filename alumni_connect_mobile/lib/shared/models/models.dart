@@ -228,3 +228,89 @@ class ChatMessage {
       content: j['content'] as String? ?? '',
       timestamp: j['timestamp'] as String?);
 }
+
+class ExperienceClaim {
+  const ExperienceClaim({
+    required this.id,
+    required this.company,
+    required this.jobTitle,
+    required this.summary,
+    required this.status,
+    required this.aiStatus,
+    required this.evidenceAvailable,
+    this.requestId,
+    this.startMonth,
+    this.endMonth,
+    this.evidenceSummary,
+    this.evidenceFileName,
+    this.evidenceSize,
+    this.aiFindings,
+    this.appealNote,
+    this.createdAt,
+    this.updatedAt,
+  });
+
+  final int id;
+  final String company;
+  final String jobTitle;
+  final String summary;
+  final String status;
+  final String aiStatus;
+  final bool evidenceAvailable;
+  final String? requestId;
+  final String? startMonth;
+  final String? endMonth;
+  final String? evidenceSummary;
+  final String? evidenceFileName;
+  final int? evidenceSize;
+  final String? aiFindings;
+  final String? appealNote;
+  final String? createdAt;
+  final String? updatedAt;
+
+  factory ExperienceClaim.fromJson(Map<String, dynamic> json) =>
+      ExperienceClaim(
+        id: (json['id'] as num).toInt(),
+        company: json['company'] as String? ?? '',
+        jobTitle: json['jobTitle'] as String? ?? '',
+        summary: json['summary'] as String? ?? '',
+        status: json['status'] as String? ?? 'PENDING',
+        aiStatus: json['aiStatus'] as String? ?? 'PENDING',
+        evidenceAvailable: json['evidenceAvailable'] as bool? ?? false,
+        requestId: json['requestId'] as String?,
+        startMonth: json['startMonth'] as String?,
+        endMonth: json['endMonth'] as String?,
+        evidenceSummary: json['evidenceSummary'] as String?,
+        evidenceFileName: json['evidenceFileName'] as String?,
+        evidenceSize: (json['evidenceSize'] as num?)?.toInt(),
+        aiFindings: json['aiFindings'] as String?,
+        appealNote: json['appealNote'] as String?,
+        createdAt: json['createdAt'] as String?,
+        updatedAt: json['updatedAt'] as String?,
+      );
+}
+
+class ExperienceClaimAudit {
+  const ExperienceClaimAudit({
+    required this.eventType,
+    required this.createdAt,
+    this.oldStatus,
+    this.newStatus,
+    this.eventNote,
+  });
+
+  final String eventType;
+  final String createdAt;
+  final String? oldStatus;
+  final String? newStatus;
+  final String? eventNote;
+
+  factory ExperienceClaimAudit.fromJson(Map<String, dynamic> json) =>
+      ExperienceClaimAudit(
+        eventType: json['eventType'] as String? ?? '',
+        createdAt: json['createdAt'] as String? ?? '',
+        oldStatus: json['oldStatus'] as String?,
+        newStatus: json['newStatus'] as String?,
+        eventNote: json['eventNote'] as String?,
+      );
+}
