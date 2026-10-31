@@ -9,6 +9,7 @@ import com.alumni.alumni_connect.repository.ExperienceClaimRepository;
 import com.alumni.alumni_connect.security.CurrentUserService;
 import com.alumni.alumni_connect.service.ExperienceEvidenceAnalysisService;
 import com.alumni.alumni_connect.service.ExperienceEvidenceCrypto;
+import com.alumni.alumni_connect.service.ExperienceEvidencePdfValidator;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -23,7 +24,6 @@ import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
@@ -42,17 +42,20 @@ public class ExperienceClaimController {
     private final ExperienceClaimAuditRepository auditRepository;
     private final CurrentUserService currentUserService;
     private final ExperienceEvidenceCrypto evidenceCrypto;
+    private final ExperienceEvidencePdfValidator evidencePdfValidator;
     private final ExperienceEvidenceAnalysisService analysisService;
 
     public ExperienceClaimController(ExperienceClaimRepository repository,
                                      ExperienceClaimAuditRepository auditRepository,
                                      CurrentUserService currentUserService,
                                      ExperienceEvidenceCrypto evidenceCrypto,
+                                     ExperienceEvidencePdfValidator evidencePdfValidator,
                                      ExperienceEvidenceAnalysisService analysisService) {
         this.repository = repository;
         this.auditRepository = auditRepository;
         this.currentUserService = currentUserService;
         this.evidenceCrypto = evidenceCrypto;
+        this.evidencePdfValidator = evidencePdfValidator;
         this.analysisService = analysisService;
     }
 
@@ -175,7 +178,7 @@ public class ExperienceClaimController {
             throw new ResponseStatusException(BAD_REQUEST, "Evidence upload could not be read");
         }
         if (document.length == 0 || document.length > MAX_EVIDENCE_BYTES
-                || !new String(document, 0, Math.min(document.length, 5), StandardCharsets.US_ASCII).startsWith("%PDF-")) {
+                || !evidencePdfValidator.isValid(document)) {
             throw new ResponseStatusException(UNSUPPORTED_MEDIA_TYPE, "Evidence is not a valid PDF file");
         }
 

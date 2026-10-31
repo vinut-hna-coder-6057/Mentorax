@@ -1,6 +1,8 @@
 package com.alumni.alumni_connect.entity;
 
 import jakarta.persistence.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.LocalDateTime;
 
@@ -43,8 +45,8 @@ public class ExperienceClaim {
     @Column(name = "evidence_storage_key", length = 64)
     private String evidenceStorageKey;
 
-    @Lob
-    @Column(name = "encrypted_evidence")
+    @JdbcTypeCode(SqlTypes.LONGVARBINARY)
+    @Column(name = "encrypted_evidence", columnDefinition = "MEDIUMBLOB")
     private byte[] encryptedEvidence;
 
     @Column(name = "evidence_file_name", length = 255)

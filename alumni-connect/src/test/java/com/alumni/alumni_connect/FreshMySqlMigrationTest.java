@@ -27,8 +27,10 @@ class FreshMySqlMigrationTest {
             "users", "student_profiles", "alumni_profiles", "skills", "user_skills", "events",
             "event_registrations", "connections", "conversations", "conversation_participants",
             "messages", "notifications", "otp_verifications", "email_outbox");
-    private static final List<String> FRESH_HISTORY = List.of("1", "2", "3", "10", "11", "12", "13", "14");
-    private static final List<String> NORMALIZED_HISTORY = List.of("1", "2", "3", "4", "10", "11", "12", "13", "14");
+    private static final List<String> FRESH_HISTORY =
+            List.of("1", "2", "3", "10", "11", "12", "13", "14", "15", "16");
+    private static final List<String> NORMALIZED_HISTORY =
+            List.of("1", "2", "3", "4", "10", "11", "12", "13", "14", "15", "16");
 
     @Test
     void freshMySqlSchemaMigratesAndPassesHibernateValidation() throws Exception {
@@ -163,6 +165,7 @@ class FreshMySqlMigrationTest {
 
     private static void assertFinalSchema(Connection connection) throws Exception {
         assertTables(connection);
+        assertMediumBlobEvidenceColumn(connection);
         for (String[] column : List.of(
                 new String[]{"email_outbox", "recipient"},
                 new String[]{"email_outbox", "encrypted_otp"},
@@ -208,6 +211,17 @@ class FreshMySqlMigrationTest {
         assertTrue(isNotNullable(connection, "email_outbox", "encrypted_otp"));
         assertTrue(isNullable(connection, "events", "max_capacity"),
                 "Event capacity must remain optional for existing unlimited events");
+    }
+
+    private static void assertMediumBlobEvidenceColumn(Connection connection) throws Exception {
+        try (var columns = connection.getMetaData().getColumns(
+                connection.getCatalog(), null, "experience_claims", "encrypted_evidence")) {
+            assertTrue(columns.next(), "Missing MySQL column experience_claims.encrypted_evidence");
+            assertEquals("MEDIUMBLOB", columns.getString("TYPE_NAME").toUpperCase(java.util.Locale.ROOT));
+            assertEquals(java.sql.Types.LONGVARBINARY, columns.getInt("DATA_TYPE"));
+            assertEquals(16_777_215, columns.getInt("COLUMN_SIZE"),
+                    "encrypted_evidence must preserve MySQL MEDIUMBLOB capacity");
+        }
     }
 
     private static long count(Connection connection, String sql) throws Exception {

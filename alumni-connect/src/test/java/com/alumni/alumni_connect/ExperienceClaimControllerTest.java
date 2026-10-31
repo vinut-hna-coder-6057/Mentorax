@@ -15,7 +15,11 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.mock.web.MockMultipartFile;
+import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.pdmodel.PDPage;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.UUID;
@@ -152,9 +156,49 @@ class ExperienceClaimControllerTest {
     }
 
     @Test
+    void malformedPdfWithHeaderAndEofIsRejectedBeforeStorage() throws Exception {
+        var claim = saveClaim(student);
+        byte[] malformedPdf = "%PDF-1.7\nnot a PDF structure\n%%EOF".getBytes(StandardCharsets.US_ASCII);
+
+        mockMvc.perform(multipart("/experience-claims/{id}/evidence", claim.getId())
+                        .file(new MockMultipartFile("file", "malformed.pdf", "application/pdf", malformedPdf))
+                        .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+                .andExpect(status().isUnsupportedMediaType());
+        org.junit.jupiter.api.Assertions.assertNull(
+                experienceClaimRepository.findById(claim.getId()).orElseThrow().getEncryptedEvidence());
+    }
+
+    @Test
+    void pdfContainingOnlyHeaderIsRejectedBeforeStorage() throws Exception {
+        var claim = saveClaim(student);
+
+        mockMvc.perform(multipart("/experience-claims/{id}/evidence", claim.getId())
+                        .file(new MockMultipartFile("file", "header-only.pdf", "application/pdf",
+                                "%PDF-1.7".getBytes(StandardCharsets.US_ASCII)))
+                        .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+                .andExpect(status().isUnsupportedMediaType());
+        org.junit.jupiter.api.Assertions.assertNull(
+                experienceClaimRepository.findById(claim.getId()).orElseThrow().getEncryptedEvidence());
+    }
+
+    @Test
+    void truncatedPdfIsRejectedBeforeStorage() throws Exception {
+        var claim = saveClaim(student);
+        byte[] validPdf = validPdf();
+        byte[] truncatedPdf = java.util.Arrays.copyOf(validPdf, validPdf.length - 8);
+
+        mockMvc.perform(multipart("/experience-claims/{id}/evidence", claim.getId())
+                        .file(new MockMultipartFile("file", "truncated.pdf", "application/pdf", truncatedPdf))
+                        .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+                .andExpect(status().isUnsupportedMediaType());
+        org.junit.jupiter.api.Assertions.assertNull(
+                experienceClaimRepository.findById(claim.getId()).orElseThrow().getEncryptedEvidence());
+    }
+
+    @Test
     void validEvidenceIsEncryptedAndOwnerCanRetrieveOrDeleteIt() throws Exception {
         var claim = saveClaim(student);
-        byte[] pdf = "%PDF-1.4\nsynthetic test PDF\n%%EOF".getBytes(StandardCharsets.US_ASCII);
+        byte[] pdf = validPdf();
         mockMvc.perform(multipart("/experience-claims/{id}/evidence", claim.getId())
                         .file(new MockMultipartFile("file", "offer.pdf", "application/pdf", pdf))
                         .header("Authorization", bearer(student.getEmail(), "STUDENT")))
@@ -180,6 +224,15 @@ class ExperienceClaimControllerTest {
         mockMvc.perform(get("/experience-claims/{id}/evidence", claim.getId())
                         .header("Authorization", bearer(student.getEmail(), "STUDENT")))
                 .andExpect(status().isNotFound());
+    }
+
+    private byte[] validPdf() throws IOException {
+        try (PDDocument document = new PDDocument();
+             ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            document.addPage(new PDPage());
+            document.save(output);
+            return output.toByteArray();
+        }
     }
 
     @Test

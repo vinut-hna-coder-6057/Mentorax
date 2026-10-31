@@ -4,6 +4,7 @@ import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 
 import java.sql.DriverManager;
+import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -107,8 +108,11 @@ class RoutedMigrationTest {
         assertTrue(hasColumn(connection, "experience_claims", "evidence_media_type"));
         assertTrue(hasColumn(connection, "experience_claims", "evidence_size"));
         assertTrue(hasColumn(connection, "experience_claims", "evidence_uploaded_at"));
-        assertEquals(java.sql.Types.BLOB,
-                columnDataType(connection, "experience_claims", "encrypted_evidence"));
+        assertTrue(List.of(java.sql.Types.BLOB, java.sql.Types.LONGVARBINARY)
+                        .contains(columnDataType(connection, "experience_claims", "encrypted_evidence")),
+                "Expected encrypted evidence to be stored as a large binary column "
+                        + "(H2 reports BLOB, MySQL reports LONGVARBINARY), but found "
+                        + columnDataType(connection, "experience_claims", "encrypted_evidence"));
         assertTrue(hasTable(connection, "experience_claim_audit"));
         assertTrue(hasIndex(connection, "experience_claims", "uk_experience_claim_user_request"));
         assertTrue(hasIndex(connection, "experience_claim_audit", "idx_experience_claim_audit_claim_created"));

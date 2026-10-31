@@ -115,8 +115,9 @@ class _ExperienceClaimsSectionState
         _showMessage('Claim updated and resubmitted for review.');
       }
     } catch (error) {
-      if (mounted)
+      if (mounted) {
         _showMessage('Could not update claim: ${userFacingError(error)}');
+      }
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -156,8 +157,9 @@ class _ExperienceClaimsSectionState
       }
       return file;
     } catch (error) {
-      if (mounted)
+      if (mounted) {
         _showMessage('Could not select evidence: ${userFacingError(error)}');
+      }
       return null;
     }
   }
@@ -244,8 +246,9 @@ class _ExperienceClaimsSectionState
       setState(() => _replaceClaim(_withoutEvidence(claim)));
       _showMessage('Private evidence deleted.');
     } catch (error) {
-      if (mounted)
+      if (mounted) {
         _showMessage('Could not delete evidence: ${userFacingError(error)}');
+      }
     }
   }
 
@@ -260,9 +263,10 @@ class _ExperienceClaimsSectionState
         requirePrivacyConfirmation: false,
       );
     } catch (error) {
-      if (mounted)
+      if (mounted) {
         _showMessage(
             'Could not open private evidence: ${userFacingError(error)}');
+      }
     }
   }
 
@@ -308,8 +312,9 @@ class _ExperienceClaimsSectionState
         ),
       );
     } catch (error) {
-      if (mounted)
+      if (mounted) {
         _showMessage('Could not load claim history: ${userFacingError(error)}');
+      }
     }
   }
 
@@ -330,8 +335,9 @@ class _ExperienceClaimsSectionState
       setState(() => _replaceClaim(updated));
       _showMessage('Appeal submitted for review.');
     } catch (error) {
-      if (mounted)
+      if (mounted) {
         _showMessage('Could not submit appeal: ${userFacingError(error)}');
+      }
     }
   }
 
