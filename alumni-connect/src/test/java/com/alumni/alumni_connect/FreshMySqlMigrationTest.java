@@ -2,7 +2,6 @@ package com.alumni.alumni_connect;
 
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationVersion;
-import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.builder.SpringApplicationBuilder;
@@ -26,21 +25,26 @@ class FreshMySqlMigrationTest {
     private static final List<String> REQUIRED_TABLES = List.of(
             "users", "student_profiles", "alumni_profiles", "skills", "user_skills", "events",
             "event_registrations", "connections", "conversations", "conversation_participants",
-            "messages", "notifications", "otp_verifications", "email_outbox");
+            "messages", "notifications", "otp_verifications", "email_outbox",
+            "experience_claim_audit", "experience_claim_evidence", "experience_claim_processing",
+            "experience_corroboration_attempts");
     private static final List<String> FRESH_HISTORY =
-            List.of("1", "2", "3", "10", "11", "12", "13", "14", "15", "16");
+            List.of("1", "2", "3", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19");
     private static final List<String> NORMALIZED_HISTORY =
-            List.of("1", "2", "3", "4", "10", "11", "12", "13", "14", "15", "16");
+            List.of("1", "2", "3", "4", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19");
+    private static final String MIGRATION_TEST_PREFIX = "MENTORAX_MYSQL_MIGRATION_TEST";
+    private static final String RECOVERY_TEST_PREFIX = "MENTORAX_MYSQL_RECOVERY_TEST";
 
     @Test
     void freshMySqlSchemaMigratesAndPassesHibernateValidation() throws Exception {
-        DatabaseSettings database = settings("MENTORAX_MYSQL_MIGRATION_TEST");
+        DatabaseSettings database = settings(MIGRATION_TEST_PREFIX);
         assertEmptySchema(database);
 
         try (ConfigurableApplicationContext ignored =
                      startApplication(database.url(), database.username(), database.password());
              Connection connection = DriverManager.getConnection(
                      database.url(), database.username(), database.password())) {
+            assertConnectedToExpectedSchema(connection, database);
             assertTables(connection);
             assertMigrationHistory(connection, FRESH_HISTORY);
             assertFreshChecksums(connection);
@@ -50,7 +54,7 @@ class FreshMySqlMigrationTest {
 
     @Test
     void knownFailedLegacyV2AfterNormalizedV1IsRepairedAndMigrated() throws Exception {
-        DatabaseSettings database = settings("MENTORAX_MYSQL_RECOVERY_TEST");
+        DatabaseSettings database = settings(RECOVERY_TEST_PREFIX);
         assertEmptySchema(database);
 
         Flyway.configure()
@@ -63,6 +67,7 @@ class FreshMySqlMigrationTest {
         try (Connection connection = DriverManager.getConnection(
                 database.url(), database.username(), database.password());
              var statement = connection.createStatement()) {
+            assertConnectedToExpectedSchema(connection, database);
             statement.executeUpdate("""
                     INSERT INTO flyway_schema_history
                         (installed_rank, version, description, type, script, checksum, installed_by, execution_time, success)
@@ -75,6 +80,7 @@ class FreshMySqlMigrationTest {
                      startApplication(database.url(), database.username(), database.password());
              Connection connection = DriverManager.getConnection(
                      database.url(), database.username(), database.password())) {
+            assertConnectedToExpectedSchema(connection, database);
             assertMigrationHistory(connection, NORMALIZED_HISTORY);
             assertEquals(1, count(connection,
                     "SELECT COUNT(*) FROM flyway_schema_history "
@@ -85,44 +91,76 @@ class FreshMySqlMigrationTest {
     }
 
     private static DatabaseSettings settings(String prefix) {
-        String url = System.getenv(prefix + "_URL");
-        String username = System.getenv(prefix + "_USERNAME");
-        String password = System.getenv(prefix + "_PASSWORD");
-        if (url == null || url.isBlank() || username == null || username.isBlank() || password == null) {
-            String message = "Missing disposable MySQL settings for " + prefix
-                    + "; the MySQL migration tests must run in the configured CI job.";
-            if ("true".equalsIgnoreCase(System.getenv("CI"))) {
-                throw new IllegalStateException(message);
-            }
-            Assumptions.assumeTrue(false, message);
+        return settings(prefix, System.getenv());
+    }
+
+    static DatabaseSettings settings(String prefix, Map<String, String> environment) {
+        String expectedDatabase = switch (prefix) {
+            case MIGRATION_TEST_PREFIX -> "mentorax_migration_test";
+            case RECOVERY_TEST_PREFIX -> "mentorax_recovery_test";
+            default -> throw new IllegalArgumentException("Unsupported MySQL migration-test configuration");
+        };
+        String url = environment.get(prefix + "_URL");
+        String username = environment.get(prefix + "_USERNAME");
+        String password = environment.get(prefix + "_PASSWORD");
+        if (isBlank(url) || isBlank(username) || isBlank(password)) {
+            throw new IllegalStateException("MySQL migration-test URL, username, and password are required for "
+                    + prefix + "; tests will not run without explicit credentials.");
         }
-        String expectedDatabase = prefix.equals("MENTORAX_MYSQL_MIGRATION_TEST")
-                ? "mentorax_migration_test"
-                : "mentorax_recovery_test";
-        URI endpoint = URI.create(url.substring("jdbc:".length()));
+        if (!url.startsWith("jdbc:mysql://")) {
+            throw invalidTarget(prefix, expectedDatabase);
+        }
+
+        URI endpoint;
+        try {
+            endpoint = URI.create(url.substring("jdbc:".length()));
+        } catch (IllegalArgumentException exception) {
+            throw invalidTarget(prefix, expectedDatabase);
+        }
         String host = endpoint.getHost();
         boolean loopbackHost = "localhost".equalsIgnoreCase(host)
                 || "127.0.0.1".equals(host)
-                || "::1".equals(host);
+                || "::1".equals(host)
+                || "[::1]".equals(host);
         if (!"mysql".equalsIgnoreCase(endpoint.getScheme())
                 || !loopbackHost
+                || endpoint.getPort() != 3306
+                || endpoint.getUserInfo() != null
+                || endpoint.getRawQuery() != null
+                || endpoint.getRawFragment() != null
                 || !("/" + expectedDatabase).equals(endpoint.getPath())) {
-            throw new IllegalArgumentException(
-                    "MySQL migration tests may only use the dedicated loopback schema " + expectedDatabase);
+            throw invalidTarget(prefix, expectedDatabase);
         }
-        return new DatabaseSettings(url, username, password);
+        return new DatabaseSettings(url, username, password, expectedDatabase);
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
+    }
+
+    private static IllegalArgumentException invalidTarget(String prefix, String expectedDatabase) {
+        return new IllegalArgumentException(prefix + " must target only jdbc:mysql://localhost:3306/"
+                + expectedDatabase + " (or an equivalent loopback address), without URL credentials or options.");
     }
 
     private static void assertEmptySchema(DatabaseSettings database) throws Exception {
         try (Connection connection = DriverManager.getConnection(
-                database.url(), database.username(), database.password());
-             var tables = connection.getMetaData().getTables(
-                     connection.getCatalog(), null, "%", new String[]{"TABLE"})) {
-            List<String> existing = new ArrayList<>();
-            while (tables.next()) existing.add(tables.getString("TABLE_NAME"));
-            assertTrue(existing.isEmpty(),
-                    "Refusing to run a MySQL migration test against a non-empty database: " + existing);
+                database.url(), database.username(), database.password())) {
+            assertConnectedToExpectedSchema(connection, database);
+            try (var tables = connection.getMetaData().getTables(
+                    connection.getCatalog(), null, "%", new String[]{"TABLE"})) {
+                List<String> existing = new ArrayList<>();
+                while (tables.next()) existing.add(tables.getString("TABLE_NAME"));
+                assertTrue(existing.isEmpty(),
+                        "Refusing to run a MySQL migration test against a non-empty database: " + existing);
+            }
         }
+    }
+
+    private static void assertConnectedToExpectedSchema(Connection connection, DatabaseSettings database)
+            throws Exception {
+        assertEquals(database.schema(), connection.getCatalog(),
+                "MySQL connection did not select its dedicated migration-test schema");
     }
 
     private static void assertTables(Connection connection) throws Exception {
@@ -147,6 +185,13 @@ class FreshMySqlMigrationTest {
             }
         }
         assertEquals(expectedVersions, versions, "Unexpected or incomplete MySQL migration chain");
+        for (String version : List.of("17", "18", "19")) {
+            assertEquals(1, count(connection,
+                    "SELECT COUNT(*) FROM flyway_schema_history "
+                            + "WHERE version = '" + version + "' AND success = 1 "
+                            + "AND type = 'SQL' AND checksum IS NOT NULL"),
+                    "Migration V" + version + " must be recorded as a successful checksummed SQL migration");
+        }
     }
 
     private static void assertFreshChecksums(Connection connection) throws Exception {
@@ -174,7 +219,18 @@ class FreshMySqlMigrationTest {
                 new String[]{"email_outbox", "expires_at"},
                 new String[]{"events", "max_capacity"},
                 new String[]{"otp_verifications", "reset_token_hash"},
-                new String[]{"otp_verifications", "reset_token_expiry"})) {
+                new String[]{"otp_verifications", "reset_token_expiry"},
+                new String[]{"experience_claims", "evidence_version"},
+                new String[]{"experience_claims", "decision_explanation"},
+                new String[]{"experience_claims", "requested_evidence"},
+                new String[]{"experience_claims", "decision_at"},
+                new String[]{"experience_claims", "corroboration_status"},
+                new String[]{"experience_claims", "analysis_method"},
+                new String[]{"experience_claims", "ocr_status"},
+                new String[]{"experience_claim_evidence", "evidence_version"},
+                new String[]{"experience_claim_evidence", "encrypted_evidence"},
+                new String[]{"experience_claim_processing", "next_attempt_at"},
+                new String[]{"experience_corroboration_attempts", "independently_authenticated"})) {
             assertTrue(hasColumn(connection, column[0], column[1]),
                     "Missing MySQL column " + column[0] + "." + column[1]);
         }
@@ -190,7 +246,10 @@ class FreshMySqlMigrationTest {
                 new String[]{"messages", "sender_id", "users"},
                 new String[]{"notifications", "recipient_id", "users"},
                 new String[]{"notifications", "actor_id", "users"},
-                new String[]{"otp_verifications", "user_id", "users"})) {
+                new String[]{"otp_verifications", "user_id", "users"},
+                new String[]{"experience_claim_evidence", "claim_id", "experience_claims"},
+                new String[]{"experience_claim_processing", "claim_id", "experience_claims"},
+                new String[]{"experience_corroboration_attempts", "claim_id", "experience_claims"})) {
             assertTrue(hasImportedKey(connection, foreignKey[0], foreignKey[1], foreignKey[2]),
                     "Missing MySQL foreign key " + foreignKey[0] + "." + foreignKey[1]);
         }
@@ -202,6 +261,8 @@ class FreshMySqlMigrationTest {
         assertTrue(hasUniqueIndex(connection, "conversation_participants", "conversation_id", "user_id"));
         assertTrue(hasUniqueIndex(connection, "conversations", "direct_user_low_id", "direct_user_high_id"));
         assertTrue(hasUniqueIndex(connection, "otp_verifications", "reset_token_hash"));
+        assertTrue(hasUniqueIndex(connection, "experience_claim_evidence", "claim_id", "evidence_version"));
+        assertTrue(hasUniqueIndex(connection, "experience_claim_evidence", "claim_id", "evidence_hash"));
 
         assertTrue(hasIndex(connection, "users", "idx_users_role_status_id"));
         assertTrue(hasIndex(connection, "email_outbox", "idx_email_outbox_due"));
@@ -318,5 +379,5 @@ class FreshMySqlMigrationTest {
                         "--app.cors.allowed-origin-patterns=http://localhost:*");
     }
 
-    private record DatabaseSettings(String url, String username, String password) {}
+    record DatabaseSettings(String url, String username, String password, String schema) {}
 }
