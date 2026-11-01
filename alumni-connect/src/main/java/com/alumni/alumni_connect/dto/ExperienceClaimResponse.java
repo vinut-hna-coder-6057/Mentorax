@@ -26,7 +26,14 @@ public record ExperienceClaimResponse(
         String appealNote,
         String reviewerEmail,
         LocalDateTime createdAt,
-        LocalDateTime updatedAt
+        LocalDateTime updatedAt,
+        int evidenceVersion,
+        String decisionExplanation,
+        String requestedEvidence,
+        LocalDateTime decisionAt,
+        String corroborationStatus,
+        String analysisMethod,
+        String ocrStatus
 ) {
     public static ExperienceClaimResponse from(ExperienceClaim claim) {
         return new ExperienceClaimResponse(
@@ -51,7 +58,14 @@ public record ExperienceClaimResponse(
                 claim.getAppealNote(),
                 claim.getReviewerEmail(),
                 claim.getCreatedAt(),
-                claim.getUpdatedAt()
+                claim.getUpdatedAt(),
+                claim.getEvidenceVersion(),
+                claim.getDecisionExplanation(),
+                claim.getRequestedEvidence(),
+                claim.getDecisionAt(),
+                claim.getCorroborationStatus(),
+                claim.getAnalysisMethod(),
+                claim.getOcrStatus()
         );
     }
 }

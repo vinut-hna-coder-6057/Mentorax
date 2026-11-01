@@ -2,6 +2,8 @@ package com.alumni.alumni_connect;
 
 import com.alumni.alumni_connect.entity.User;
 import com.alumni.alumni_connect.repository.ExperienceClaimRepository;
+import com.alumni.alumni_connect.repository.ExperienceClaimEvidenceRepository;
+import com.alumni.alumni_connect.repository.ExperienceClaimProcessingRepository;
 import com.alumni.alumni_connect.repository.UserRepository;
 import com.alumni.alumni_connect.security.JwtUtil;
 import org.junit.jupiter.api.BeforeEach;
@@ -20,6 +22,8 @@ import org.apache.pdfbox.pdmodel.PDPage;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.awt.image.BufferedImage;
+import javax.imageio.ImageIO;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.UUID;
@@ -41,12 +45,15 @@ class ExperienceClaimControllerTest {
         registry.add("EXPERIENCE_EVIDENCE_ENCRYPTION_KEY",
                 () -> Base64.getEncoder().encodeToString(
                         "synthetic-test-evidence-key-32!!".getBytes(StandardCharsets.UTF_8)));
+        registry.add("app.experience-verification.enabled", () -> "false");
     }
 
     @Autowired private MockMvc mockMvc;
     @Autowired private JwtUtil jwtUtil;
     @Autowired private UserRepository userRepository;
     @Autowired private ExperienceClaimRepository experienceClaimRepository;
+    @Autowired private ExperienceClaimEvidenceRepository evidenceRepository;
+    @Autowired private ExperienceClaimProcessingRepository processingRepository;
 
     private User student;
     private User otherStudent;
@@ -70,8 +77,8 @@ class ExperienceClaimControllerTest {
                         .content(claimJson(UUID.randomUUID().toString(), "PENDING")))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.company").value("Google"))
-                .andExpect(jsonPath("$.status").value("PENDING"))
-                .andExpect(jsonPath("$.aiStatus").value("PENDING"));
+                .andExpect(jsonPath("$.status").value("AWAITING_EVIDENCE"))
+                .andExpect(jsonPath("$.aiStatus").value("AWAITING_EVIDENCE"));
 
         mockMvc.perform(get("/experience-claims/mine")
                         .header("Authorization", bearer(student.getEmail(), "STUDENT")))
@@ -87,7 +94,7 @@ class ExperienceClaimControllerTest {
                         .header("Authorization", bearer(student.getEmail(), "STUDENT"))
                         .contentType(MediaType.APPLICATION_JSON).content(request))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.status").value("PENDING"))
+                .andExpect(jsonPath("$.status").value("AWAITING_EVIDENCE"))
                 .andReturn().getResponse().getContentAsString();
         mockMvc.perform(post("/experience-claims")
                         .header("Authorization", bearer(student.getEmail(), "STUDENT"))
@@ -164,8 +171,79 @@ class ExperienceClaimControllerTest {
                         .file(new MockMultipartFile("file", "malformed.pdf", "application/pdf", malformedPdf))
                         .header("Authorization", bearer(student.getEmail(), "STUDENT")))
                 .andExpect(status().isUnsupportedMediaType());
-        org.junit.jupiter.api.Assertions.assertNull(
+    }
+
+    @Test
+    void evidenceUploadQueuesAutomaticAnalysisAndDuplicateUploadsAreIdempotent() throws Exception {
+        var claim = saveClaim(student);
+        byte[] pdf = validPdf();
+        var upload = new MockMultipartFile("file", "proof.pdf", "application/pdf", pdf);
+
+        mockMvc.perform(multipart("/experience-claims/{id}/evidence", claim.getId())
+                        .file(upload)
+                        .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PROCESSING"))
+                .andExpect(jsonPath("$.aiStatus").value("QUEUED"))
+                .andExpect(jsonPath("$.evidenceVersion").value(1));
+
+        mockMvc.perform(multipart("/experience-claims/{id}/evidence", claim.getId())
+                        .file(new MockMultipartFile("file", "proof.pdf", "application/pdf", pdf))
+                        .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.evidenceVersion").value(1));
+
+        org.junit.jupiter.api.Assertions.assertEquals(1,
+                evidenceRepository.findByClaimIdOrderByEvidenceVersionAsc(claim.getId()).size());
+        org.junit.jupiter.api.Assertions.assertTrue(processingRepository.existsById(claim.getId()));
+        org.junit.jupiter.api.Assertions.assertNotNull(
                 experienceClaimRepository.findById(claim.getId()).orElseThrow().getEncryptedEvidence());
+    }
+
+    @Test
+    void newEvidenceOnVerifiedClaimQueuesAnalysisForAllDocumentVersions() throws Exception {
+        var claim = saveClaim(student);
+        mockMvc.perform(multipart("/experience-claims/{id}/evidence", claim.getId())
+                        .file(new MockMultipartFile("file", "first.pdf", "application/pdf", validPdf("first")))
+                        .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.evidenceVersion").value(1));
+
+        var previouslyVerified = experienceClaimRepository.findById(claim.getId()).orElseThrow();
+        previouslyVerified.setStatus("VERIFIED_FROM_EVIDENCE");
+        experienceClaimRepository.save(previouslyVerified);
+
+        mockMvc.perform(multipart("/experience-claims/{id}/evidence", claim.getId())
+                        .file(new MockMultipartFile("file", "second.pdf", "application/pdf", validPdf("second")))
+                        .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PROCESSING"))
+                .andExpect(jsonPath("$.evidenceVersion").value(2));
+
+        org.junit.jupiter.api.Assertions.assertEquals(
+                2, evidenceRepository.findByClaimIdOrderByEvidenceVersionAsc(claim.getId()).size());
+        org.junit.jupiter.api.Assertions.assertEquals(
+                2, processingRepository.findById(claim.getId()).orElseThrow().getEvidenceVersion());
+    }
+
+    @Test
+    void pngEvidenceIsValidatedEncryptedAndQueued() throws Exception {
+        var claim = saveClaim(student);
+        ByteArrayOutputStream image = new ByteArrayOutputStream();
+        ImageIO.write(new BufferedImage(16, 16, BufferedImage.TYPE_INT_RGB), "png", image);
+
+        mockMvc.perform(multipart("/experience-claims/{id}/evidence", claim.getId())
+                        .file(new MockMultipartFile("file", "proof.png", "image/png", image.toByteArray()))
+                        .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.evidenceMediaType").value("image/png"))
+                .andExpect(jsonPath("$.analysisMethod").value("NOT_RUN"))
+                .andExpect(jsonPath("$.ocrStatus").value("NOT_RUN"));
+
+        var stored = experienceClaimRepository.findById(claim.getId()).orElseThrow();
+        org.junit.jupiter.api.Assertions.assertNotNull(stored.getEncryptedEvidence());
+        org.junit.jupiter.api.Assertions.assertEquals("image/png", stored.getEvidenceMediaType());
+        org.junit.jupiter.api.Assertions.assertTrue(processingRepository.existsById(claim.getId()));
     }
 
     @Test
@@ -204,7 +282,7 @@ class ExperienceClaimControllerTest {
                         .header("Authorization", bearer(student.getEmail(), "STUDENT")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.evidenceAvailable").value(true))
-                .andExpect(jsonPath("$.aiStatus").value("UNAVAILABLE"));
+                .andExpect(jsonPath("$.aiStatus").value("QUEUED"));
 
         var stored = experienceClaimRepository.findById(claim.getId()).orElseThrow();
         org.junit.jupiter.api.Assertions.assertFalse(
@@ -224,12 +302,20 @@ class ExperienceClaimControllerTest {
         mockMvc.perform(get("/experience-claims/{id}/evidence", claim.getId())
                         .header("Authorization", bearer(student.getEmail(), "STUDENT")))
                 .andExpect(status().isNotFound());
+        org.junit.jupiter.api.Assertions.assertEquals(0,
+                evidenceRepository.findByClaimIdOrderByEvidenceVersionAsc(claim.getId()).size());
+        org.junit.jupiter.api.Assertions.assertFalse(processingRepository.existsById(claim.getId()));
     }
 
     private byte[] validPdf() throws IOException {
+        return validPdf("synthetic evidence");
+    }
+
+    private byte[] validPdf(String title) throws IOException {
         try (PDDocument document = new PDDocument();
              ByteArrayOutputStream output = new ByteArrayOutputStream()) {
             document.addPage(new PDPage());
+            document.getDocumentInformation().setTitle(title);
             document.save(output);
             return output.toByteArray();
         }

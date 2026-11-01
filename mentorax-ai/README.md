@@ -2,11 +2,59 @@
 
 This service runs only after Spring has classified an authenticated student question as career mentorship and `AI_MENTOR_ENABLED=true`. Spring reads approved alumni in stable keyset batches of at most 500, backed by the `(role, status, id)` MySQL index. For semantic and hybrid strategies, it sends each approved page's professional fields to Python before applying the Java evidence and abstention gate; TF-IDF remains gated before ranking. Names and contact details stay in Spring. Java validates each page's full ranked-ID and score contract. Semantic cosine scores are comparable across pages and can be merged globally. TF-IDF cosine and hybrid rank percentiles are page-relative; when a search spans multiple pages, Java uses its global evidence ordering and marks the result as fallback because those batch scores cannot be compared safely. Similarity and rank-fusion scores are not calibrated probabilities. Keep the service on a private network reachable only by Spring; do not expose it to Flutter.
 
+## Experience evidence analysis
+
+The same private FastAPI service also extracts experience evidence. PDF text is extracted first; pages with insufficient text and supported JPG/JPEG/PNG uploads are processed by local RapidOCR. OCR does not require an external credential. The backend evaluates all versions attached to a claim together, compares supported employee/employer/role/date/employment details, and reports identical normalized extracted text with its document versions. The backend applies its evidence policy and persists the decision; neither the Python service nor an LLM confirms employment with an employer.
+
+Use Python 3.10–3.12 for the pinned project dependencies. From the repository root in Windows PowerShell:
+
+```powershell
+cd mentorax-ai
+py -3.12 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+$env:EXPERIENCE_ANALYSIS_API_TOKEN = "<same-long-random-secret-configured-on-Spring>"
+uvicorn app:app --host 127.0.0.1 --port 8090
+```
+
+Configure the backend with the same `EXPERIENCE_ANALYSIS_API_TOKEN` and `app.ai.service-url=http://127.0.0.1:8090`. Configure a separately generated `EXPERIENCE_EVIDENCE_ENCRYPTION_KEY` for Spring evidence storage. Keep both secrets out of source control and use a private network for the Python service.
+
+Generate the encryption key once, store it in your secret manager, and reuse it across backend restarts so previously uploaded evidence remains decryptable:
+
+```powershell
+$bytes = New-Object byte[] 32
+[System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
+[Convert]::ToBase64String($bytes)
+```
+
+In a second PowerShell window, set the same internal token and the persistent encryption key before starting Spring:
+
+```powershell
+cd alumni-connect
+$env:EXPERIENCE_ANALYSIS_API_TOKEN = "<same-long-random-secret>"
+$env:EXPERIENCE_EVIDENCE_ENCRYPTION_KEY = "<stored-base64-key>"
+.\mvnw.cmd spring-boot:run
+```
+
+Without an LLM provider, analysis is explicitly reported as `HEURISTIC_FALLBACK` or `OCR_PLUS_HEURISTIC`; no employer confirmation is inferred. To enable an OpenAI-compatible provider, set `EXPERIENCE_ANALYSIS_LLM_PROVIDER=openai-compatible`, `EXPERIENCE_ANALYSIS_LLM_MODEL=<model>`, `EXPERIENCE_ANALYSIS_LLM_BASE_URL=<private-or-provider-v1-url>`, and `EXPERIENCE_ANALYSIS_LLM_API_KEY=<secret>`. The provider may be `openai`, `openrouter`, or `ollama` as well; Ollama defaults to `http://127.0.0.1:11434/v1` and does not require an API key. Provider requests use a 45-second per-attempt timeout and retry once. Invalid responses and provider errors fail closed and never trigger a verification decision. Spring's evidence-analysis HTTP read timeout is longer than both provider attempts.
+
+After both services are running, upload or add evidence to a claim. The enabled backend scheduler processes queued claims automatically, persists analysis status/method and findings, then notifies the claimant. Use **Retry analysis** when a terminal processing failure is shown. To run focused verification tests:
+
+```powershell
+python -m unittest discover -s tests -p "test_experience_analysis.py" -v
+cd ..\alumni-connect
+.\mvnw.cmd "-Dtest=ExperienceClaimControllerTest,ExperienceVerificationDecisionEngineTest,ExperienceClaimProcessingServiceTest,ExperienceClaimProcessingSchedulerTest" test
+```
+
+The automated provider request/timeout tests use mocks. A real LLM request requires valid provider configuration and credentials; the provider is not called by tests unless explicitly configured.
+
+## Optional alumni ranking service
+
 Python 3.10+ is required. Windows PowerShell setup from the repository root:
 
 ```powershell
 cd mentorax-ai
-py -m venv .venv
+py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
 uvicorn app:app --host 127.0.0.1 --port 8090

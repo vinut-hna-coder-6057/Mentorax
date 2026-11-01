@@ -48,13 +48,15 @@ class _ExperienceClaimsSectionState
       if (!mounted) return;
       setState(() => _loading = false);
       _showMessage(
-          'Could not load experience claims: ${userFacingError(error)}');
+        'Could not load experience claims: ${userFacingError(error)}',
+      );
     }
   }
 
   void _showMessage(String message) {
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _createClaim() async {
@@ -65,7 +67,9 @@ class _ExperienceClaimsSectionState
     if (draft == null || !mounted) return;
     setState(() => _saving = true);
     try {
-      final claim = await ref.read(appRepositoryProvider).createExperienceClaim(
+      final claim = await ref
+          .read(appRepositoryProvider)
+          .createExperienceClaim(
             company: draft.company,
             jobTitle: draft.jobTitle,
             requestId: _newRequestId(),
@@ -78,7 +82,7 @@ class _ExperienceClaimsSectionState
       if (draft.evidence != null) {
         await _uploadEvidence(claim.id, draft.evidence!);
       } else {
-        _showMessage('Experience claim submitted for review.');
+        _showMessage('Claim submitted. Add a PDF to start automatic analysis.');
       }
     } catch (error) {
       if (mounted) {
@@ -97,22 +101,26 @@ class _ExperienceClaimsSectionState
     if (draft == null || !mounted) return;
     setState(() => _saving = true);
     try {
-      final updated =
-          await ref.read(appRepositoryProvider).updateExperienceClaim(
-                claim.id,
-                company: draft.company,
-                jobTitle: draft.jobTitle,
-                requestId: claim.requestId ?? _newRequestId(),
-                startMonth: draft.startMonth,
-                endMonth: draft.endMonth,
-                summary: draft.summary,
-              );
+      final updated = await ref
+          .read(appRepositoryProvider)
+          .updateExperienceClaim(
+            claim.id,
+            company: draft.company,
+            jobTitle: draft.jobTitle,
+            requestId: claim.requestId ?? _newRequestId(),
+            startMonth: draft.startMonth,
+            endMonth: draft.endMonth,
+            summary: draft.summary,
+          );
       if (!mounted) return;
       _replaceClaim(updated);
       if (draft.evidence != null) {
         await _uploadEvidence(updated.id, draft.evidence!);
       } else {
-        _showMessage('Claim updated and resubmitted for review.');
+        _showMessage(
+          updated.decisionExplanation ??
+              'Claim details updated. Add evidence to continue.',
+        );
       }
     } catch (error) {
       if (mounted) {
@@ -140,19 +148,19 @@ class _ExperienceClaimsSectionState
     try {
       final result = await FilePicker.pickFiles(
         type: FileType.custom,
-        allowedExtensions: const ['pdf'],
+        allowedExtensions: const ['pdf', 'jpg', 'jpeg', 'png'],
         withData: true,
       );
       if (result == null || result.files.isEmpty) return null;
       final file = result.files.single;
       final bytes = file.bytes;
-      if (!file.name.toLowerCase().endsWith('.pdf') ||
-          file.size <= 0 ||
+      if (file.size <= 0 ||
           file.size > _maxEvidenceBytes ||
           bytes == null ||
-          bytes.length < 5 ||
-          String.fromCharCodes(bytes.take(5)) != '%PDF-') {
-        _showMessage('Select a valid PDF no larger than 5 MiB.');
+          !_isSupportedEvidence(file.name, bytes)) {
+        _showMessage(
+          'Select a valid PDF, JPG, JPEG, or PNG no larger than 5 MiB.',
+        );
         return null;
       }
       return file;
@@ -168,7 +176,8 @@ class _ExperienceClaimsSectionState
     final bytes = file.bytes;
     if (bytes == null || bytes.isEmpty) {
       _showMessage(
-          'The selected evidence is no longer available. Select it again.');
+        'The selected evidence is no longer available. Select it again.',
+      );
       return;
     }
     _evidencePendingRetry[claimId] = file;
@@ -177,22 +186,23 @@ class _ExperienceClaimsSectionState
       _uploadProgress = 0;
     });
     try {
-      final updated =
-          await ref.read(appRepositoryProvider).uploadExperienceEvidence(
-        claimId,
-        file.name,
-        bytes,
-        onSendProgress: (sent, total) {
-          if (!mounted || total <= 0) return;
-          setState(() => _uploadProgress = sent / total);
-        },
-      );
+      final updated = await ref
+          .read(appRepositoryProvider)
+          .uploadExperienceEvidence(
+            claimId,
+            file.name,
+            bytes,
+            onSendProgress: (sent, total) {
+              if (!mounted || total <= 0) return;
+              setState(() => _uploadProgress = sent / total);
+            },
+          );
       if (!mounted) return;
       setState(() {
         _evidencePendingRetry.remove(claimId);
         _replaceClaim(updated);
       });
-      _showMessage('Evidence uploaded. Claim status: ${updated.status}.');
+      _showMessage('Evidence uploaded. Automatic analysis has started.');
     } catch (error) {
       if (mounted) {
         _showMessage(
@@ -254,8 +264,9 @@ class _ExperienceClaimsSectionState
 
   Future<void> _viewEvidence(ExperienceClaim claim) async {
     try {
-      final bytes =
-          await ref.read(appRepositoryProvider).experienceEvidence(claim.id);
+      final bytes = await ref
+          .read(appRepositoryProvider)
+          .experienceEvidence(claim.id);
       if (!mounted) return;
       await _showPdfPreview(
         bytes,
@@ -265,7 +276,8 @@ class _ExperienceClaimsSectionState
     } catch (error) {
       if (mounted) {
         _showMessage(
-            'Could not open private evidence: ${userFacingError(error)}');
+          'Could not open private evidence: ${userFacingError(error)}',
+        );
       }
     }
   }
@@ -291,14 +303,16 @@ class _ExperienceClaimsSectionState
                         ListTile(
                           contentPadding: EdgeInsets.zero,
                           title: Text(_eventTitle(event)),
-                          subtitle: Text([
-                            if (event.oldStatus != null ||
-                                event.newStatus != null)
-                              '${event.oldStatus ?? '—'} → ${event.newStatus ?? '—'}',
-                            if (event.eventNote?.isNotEmpty == true)
-                              event.eventNote!,
-                            event.createdAt,
-                          ].join('\n')),
+                          subtitle: Text(
+                            [
+                              if (event.oldStatus != null ||
+                                  event.newStatus != null)
+                                '${event.oldStatus ?? '—'} → ${event.newStatus ?? '—'}',
+                              if (event.eventNote?.isNotEmpty == true)
+                                event.eventNote!,
+                              event.createdAt,
+                            ].join('\n'),
+                          ),
                         ),
                     ],
                   ),
@@ -326,14 +340,12 @@ class _ExperienceClaimsSectionState
     );
     if (note == null || !mounted) return;
     try {
-      final updated =
-          await ref.read(appRepositoryProvider).appealExperienceClaim(
-                claim.id,
-                note,
-              );
+      final updated = await ref
+          .read(appRepositoryProvider)
+          .appealExperienceClaim(claim.id, note);
       if (!mounted) return;
       setState(() => _replaceClaim(updated));
-      _showMessage('Appeal submitted for review.');
+      _showMessage('Appeal submitted for automatic reassessment.');
     } catch (error) {
       if (mounted) {
         _showMessage('Could not submit appeal: ${userFacingError(error)}');
@@ -385,8 +397,13 @@ class _ExperienceClaimsSectionState
     String filename, {
     required bool requirePrivacyConfirmation,
   }) async {
-    if (!_hasPdfSignature(bytes)) {
-      _showMessage('This document is not a valid PDF.');
+    final isPdf = filename.toLowerCase().endsWith('.pdf');
+    final isImage =
+        filename.toLowerCase().endsWith('.png') ||
+        filename.toLowerCase().endsWith('.jpg') ||
+        filename.toLowerCase().endsWith('.jpeg');
+    if ((!isPdf && !isImage) || !_isSupportedEvidence(filename, bytes)) {
+      _showMessage('This document format is not supported.');
       return false;
     }
     var privacyReviewed = !requirePrivacyConfirmation;
@@ -394,8 +411,9 @@ class _ExperienceClaimsSectionState
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          title:
-              Text(requirePrivacyConfirmation ? 'Review evidence' : filename),
+          title: Text(
+            requirePrivacyConfirmation ? 'Review evidence' : filename,
+          ),
           content: SizedBox(
             width: 640,
             height: 560,
@@ -405,10 +423,12 @@ class _ExperienceClaimsSectionState
                 Expanded(
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(8),
-                    child: PdfViewer.data(
-                      bytes,
-                      sourceName: '$filename-${bytes.length}',
-                    ),
+                    child: isPdf
+                        ? PdfViewer.data(
+                            bytes,
+                            sourceName: '$filename-${bytes.length}',
+                          )
+                        : Image.memory(bytes, fit: BoxFit.contain),
                   ),
                 ),
                 const SizedBox(height: AppSpacing.sm),
@@ -422,15 +442,14 @@ class _ExperienceClaimsSectionState
                     'Only upload evidence needed to support this claim. '
                     'Permanently redact account numbers, government IDs, '
                     'home addresses, and unrelated people’s information in a '
-                    'trusted PDF editor before uploading. Redaction cannot be '
+                    'trusted editor before uploading. Redaction cannot be '
                     'performed inside Mentorax.',
                   ),
                   CheckboxListTile(
                     contentPadding: EdgeInsets.zero,
                     value: privacyReviewed,
-                    onChanged: (value) => setDialogState(
-                      () => privacyReviewed = value ?? false,
-                    ),
+                    onChanged: (value) =>
+                        setDialogState(() => privacyReviewed = value ?? false),
                     title: const Text(
                       'I reviewed this document and removed unnecessary sensitive information.',
                     ),
@@ -446,8 +465,9 @@ class _ExperienceClaimsSectionState
             ),
             if (requirePrivacyConfirmation)
               FilledButton(
-                onPressed:
-                    privacyReviewed ? () => Navigator.pop(context, true) : null,
+                onPressed: privacyReviewed
+                    ? () => Navigator.pop(context, true)
+                    : null,
                 child: const Text('Use this evidence'),
               ),
           ],
@@ -466,63 +486,79 @@ class _ExperienceClaimsSectionState
   }
 
   ExperienceClaim _withoutEvidence(ExperienceClaim claim) => ExperienceClaim(
-        id: claim.id,
-        company: claim.company,
-        jobTitle: claim.jobTitle,
-        requestId: claim.requestId,
-        summary: claim.summary,
-        status: claim.status,
-        aiStatus: 'PENDING',
-        evidenceAvailable: false,
-        startMonth: claim.startMonth,
-        endMonth: claim.endMonth,
-        evidenceSummary: claim.evidenceSummary,
-        appealNote: claim.appealNote,
-        createdAt: claim.createdAt,
-        updatedAt: claim.updatedAt,
-      );
+    id: claim.id,
+    company: claim.company,
+    jobTitle: claim.jobTitle,
+    requestId: claim.requestId,
+    summary: claim.summary,
+    status: claim.status,
+    aiStatus: 'AWAITING_EVIDENCE',
+    evidenceAvailable: false,
+    startMonth: claim.startMonth,
+    endMonth: claim.endMonth,
+    evidenceSummary: claim.evidenceSummary,
+    appealNote: claim.appealNote,
+    evidenceVersion: claim.evidenceVersion,
+    decisionExplanation:
+        'Upload a supporting document to begin evidence analysis.',
+    corroborationStatus: 'NOT_CHECKED',
+    createdAt: claim.createdAt,
+    updatedAt: claim.updatedAt,
+  );
 
   @override
   Widget build(BuildContext context) => AppCard(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
           children: [
-            Row(
-              children: [
-                const Expanded(
-                    child: AppSectionTitle('Experience verification')),
-                IconButton(
-                  tooltip: 'Refresh claims',
-                  onPressed: _loading ? null : _loadClaims,
-                  icon: const Icon(Icons.refresh),
-                ),
-              ],
-            ),
-            const Text(
-              'Claims remain unverified until an authorized review decides them. '
-              'Document analysis is only a consistency aid.',
-            ),
-            const SizedBox(height: AppSpacing.md),
-            if (_loading)
-              const Center(child: CircularProgressIndicator())
-            else if (_claims.isEmpty)
-              const Text('No experience claims have been submitted.')
-            else
-              for (final claim in _claims) _claimCard(claim),
-            const SizedBox(height: AppSpacing.sm),
-            FilledButton.icon(
-              onPressed: _saving ? null : _createClaim,
-              icon: const Icon(Icons.add),
-              label: Text(_saving ? 'Saving claim…' : 'Add experience claim'),
+            const Expanded(child: AppSectionTitle('Experience verification')),
+            IconButton(
+              tooltip: 'Refresh claims',
+              onPressed: _loading ? null : _loadClaims,
+              icon: const Icon(Icons.refresh),
             ),
           ],
         ),
-      );
+        const Text(
+          'Evidence is analysed automatically. A document-based result is '
+          'not independent confirmation from the employer.',
+        ),
+        const SizedBox(height: AppSpacing.md),
+        if (_loading)
+          const Center(child: CircularProgressIndicator())
+        else if (_claims.isEmpty)
+          const Text('No experience claims have been submitted.')
+        else
+          for (final claim in _claims) _claimCard(claim),
+        const SizedBox(height: AppSpacing.sm),
+        FilledButton.icon(
+          onPressed: _saving ? null : _createClaim,
+          icon: const Icon(Icons.add),
+          label: Text(_saving ? 'Saving claim…' : 'Add experience claim'),
+        ),
+      ],
+    ),
+  );
 
   Widget _claimCard(ExperienceClaim claim) {
     final isUploading = _uploadingClaimId == claim.id;
-    final canEdit = claim.status.toUpperCase() == 'NEEDS_INFO';
+    final canEdit = const {
+      'NEEDS_INFO',
+      'ADDITIONAL_EVIDENCE_REQUIRED',
+      'INCONSISTENT',
+      'INSUFFICIENT_EVIDENCE',
+      'PROCESSING_FAILED',
+    }.contains(claim.status.toUpperCase());
     final isRejected = claim.status.toUpperCase() == 'REJECTED';
+    final canUpload = _canUploadEvidence(claim.status);
+    final isVerified = const {
+      'VERIFIED',
+      'VERIFIED_FROM_EVIDENCE',
+      'EMPLOYER_CONFIRMED',
+    }.contains(claim.status.toUpperCase());
+    final processingFailed = claim.status.toUpperCase() == 'PROCESSING_FAILED';
     return Card(
       margin: const EdgeInsets.only(top: AppSpacing.md),
       child: Padding(
@@ -538,7 +574,7 @@ class _ExperienceClaimsSectionState
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                 ),
-                StatusBadge(claim.status),
+                StatusBadge(_claimStatusLabel(claim.status)),
               ],
             ),
             if (claim.startMonth != null || claim.endMonth != null)
@@ -552,9 +588,41 @@ class _ExperienceClaimsSectionState
             Text(claim.summary),
             const SizedBox(height: AppSpacing.sm),
             Text(
-              'Document analysis: ${claim.aiStatus}. This does not verify employment.',
+              'Analysis status: ${claim.aiStatus.replaceAll('_', ' ')}',
               style: Theme.of(context).textTheme.bodySmall,
             ),
+            Text(
+              'Analysis method: ${claim.analysisMethod.replaceAll('_', ' ')}',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            Text(
+              'OCR status: ${claim.ocrStatus.replaceAll('_', ' ')}',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            Text(
+              'Independent corroboration: ${claim.corroborationStatus.replaceAll('_', ' ')}',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            if (claim.decisionExplanation?.isNotEmpty == true) ...[
+              const SizedBox(height: AppSpacing.xs),
+              Text(claim.decisionExplanation!),
+            ],
+            if (isVerified &&
+                claim.status.toUpperCase() == 'EMPLOYER_CONFIRMED') ...[
+              const SizedBox(height: AppSpacing.xs),
+              Text(
+                'An independent verification provider confirmed this claim '
+                '(${claim.corroborationStatus.replaceAll('_', ' ')}).',
+              ),
+            ] else if (isVerified) ...[
+              const SizedBox(height: AppSpacing.xs),
+              const Text(
+                'This result is based on submitted documents. Employer '
+                'confirmation was not independently obtained.',
+              ),
+            ],
+            if (claim.requestedEvidence?.isNotEmpty == true)
+              _requestedEvidence(claim.requestedEvidence!),
             if (claim.aiFindings?.isNotEmpty == true)
               _findings(claim.aiFindings!),
             if (isUploading) ...[
@@ -580,21 +648,34 @@ class _ExperienceClaimsSectionState
                   ),
                 if (claim.evidenceAvailable)
                   TextButton(
-                    onPressed:
-                        isUploading ? null : () => _deleteEvidence(claim),
+                    onPressed: isUploading
+                        ? null
+                        : () => _deleteEvidence(claim),
                     child: const Text('Delete evidence'),
                   ),
-                if (!claim.evidenceAvailable &&
-                    (claim.status == 'PENDING' || canEdit))
+                if (canUpload)
                   OutlinedButton.icon(
-                    onPressed:
-                        isUploading ? null : () => _retryEvidence(claim.id),
-                    icon: Icon(_evidencePendingRetry.containsKey(claim.id)
-                        ? Icons.refresh
-                        : Icons.attach_file),
-                    label: Text(_evidencePendingRetry.containsKey(claim.id)
-                        ? 'Retry evidence upload'
-                        : 'Attach evidence'),
+                    onPressed: isUploading
+                        ? null
+                        : () => _retryEvidence(claim.id),
+                    icon: Icon(
+                      _evidencePendingRetry.containsKey(claim.id)
+                          ? Icons.refresh
+                          : Icons.attach_file,
+                    ),
+                    label: Text(
+                      _evidencePendingRetry.containsKey(claim.id)
+                          ? 'Retry evidence upload'
+                          : claim.evidenceAvailable
+                          ? 'Add evidence'
+                          : 'Upload evidence',
+                    ),
+                  ),
+                if (processingFailed && claim.evidenceAvailable)
+                  OutlinedButton.icon(
+                    onPressed: isUploading ? null : () => _reassess(claim),
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Retry analysis'),
                   ),
                 if (canEdit)
                   OutlinedButton(
@@ -639,10 +720,67 @@ class _ExperienceClaimsSectionState
               title: Text(
                 '${item['field'] ?? 'Finding'} · ${item['outcome'] ?? 'INCONCLUSIVE'}',
               ),
-              subtitle: Text(item['explanation']?.toString() ?? ''),
+              subtitle: Text(
+                [
+                  if (item['extractedValue']?.toString().isNotEmpty == true)
+                    'Extracted: ${item['extractedValue']}',
+                  if (item['evidenceVersion'] != null)
+                    'Document version: ${item['evidenceVersion']}',
+                  if (item['evidenceReferences'] is List &&
+                      (item['evidenceReferences'] as List).isNotEmpty)
+                    'Supporting documents: ${(item['evidenceReferences'] as List).join(', ')}',
+                  if (item['explanation']?.toString().isNotEmpty == true)
+                    item['explanation'].toString(),
+                  if (item['evidenceReference']?.toString().isNotEmpty == true)
+                    'Source: ${item['evidenceReference']}',
+                  if (item['pageNumber'] != null) 'Page ${item['pageNumber']}',
+                  if (item['textExcerpt']?.toString().isNotEmpty == true)
+                    '“${item['textExcerpt']}”',
+                ].join('\n'),
+              ),
             ),
       ],
     );
+  }
+
+  Widget _requestedEvidence(String raw) {
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is List && decoded.isNotEmpty) {
+        return Padding(
+          padding: const EdgeInsets.only(top: AppSpacing.xs),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Additional evidence requested:'),
+              for (final item in decoded)
+                Padding(
+                  padding: const EdgeInsets.only(left: AppSpacing.md, top: 2),
+                  child: Text('• $item'),
+                ),
+            ],
+          ),
+        );
+      }
+    } on FormatException {
+      return Text('Additional evidence requested: $raw');
+    }
+    return const SizedBox.shrink();
+  }
+
+  Future<void> _reassess(ExperienceClaim claim) async {
+    try {
+      final updated = await ref
+          .read(appRepositoryProvider)
+          .reassessExperienceClaim(claim.id);
+      if (!mounted) return;
+      setState(() => _replaceClaim(updated));
+      _showMessage('Evidence analysis has been queued again.');
+    } catch (error) {
+      if (mounted) {
+        _showMessage('Could not retry analysis: ${userFacingError(error)}');
+      }
+    }
   }
 }
 
@@ -689,21 +827,23 @@ class _ClaimEditorDialogState extends State<_ClaimEditorDialog> {
   Future<void> _selectFile() async {
     final result = await FilePicker.pickFiles(
       type: FileType.custom,
-      allowedExtensions: const ['pdf'],
+      allowedExtensions: const ['pdf', 'jpg', 'jpeg', 'png'],
       withData: true,
     );
     if (result == null || result.files.isEmpty) return;
     final file = result.files.single;
     final bytes = file.bytes;
-    if (!file.name.toLowerCase().endsWith('.pdf') ||
-        file.size <= 0 ||
+    if (file.size <= 0 ||
         file.size > _maxEvidenceBytes ||
         bytes == null ||
-        !_hasPdfSignature(bytes)) {
+        !_isSupportedEvidence(file.name, bytes)) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-              content: Text('Select a valid PDF no larger than 5 MiB.')),
+            content: Text(
+              'Select a valid PDF, JPG, JPEG, or PNG no larger than 5 MiB.',
+            ),
+          ),
         );
       }
       return;
@@ -716,125 +856,123 @@ class _ClaimEditorDialogState extends State<_ClaimEditorDialog> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-        title: Text(
-          widget.claim == null
-              ? 'New experience claim'
-              : 'Update experience claim',
-        ),
-        content: SizedBox(
-          width: 520,
-          child: Form(
-            key: _formKey,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextFormField(
-                    controller: _company,
-                    maxLength: 150,
-                    decoration: const InputDecoration(labelText: 'Company'),
-                    validator: _required,
-                  ),
-                  TextFormField(
-                    controller: _jobTitle,
-                    maxLength: 150,
-                    decoration: const InputDecoration(labelText: 'Job title'),
-                    validator: _required,
-                  ),
-                  TextFormField(
-                    controller: _startMonth,
-                    decoration: const InputDecoration(
-                      labelText: 'Start month (YYYY-MM, optional)',
-                    ),
-                    validator: _month,
-                  ),
-                  TextFormField(
-                    controller: _endMonth,
-                    decoration: const InputDecoration(
-                      labelText: 'End month (YYYY-MM, optional)',
-                    ),
-                    validator: _month,
-                  ),
-                  TextFormField(
-                    controller: _summary,
-                    maxLength: 2000,
-                    maxLines: 3,
-                    decoration: const InputDecoration(
-                      labelText: 'Experience summary',
-                    ),
-                    validator: _required,
-                  ),
-                  const Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      'Evidence is optional. Only PDF files up to 5 MiB are accepted. '
-                      'Evidence is private to you and authorized reviewers.',
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
-                  OutlinedButton.icon(
-                    onPressed: _selectFile,
-                    icon: const Icon(Icons.attach_file),
-                    label: Text(_evidence?.name ?? 'Choose evidence PDF'),
-                  ),
-                  if (_evidence?.bytes case final bytes?) ...[
-                    SizedBox(
-                      height: 280,
-                      child: PdfViewer.data(
-                        bytes,
-                        sourceName: '${_evidence!.name}-${bytes.length}',
-                      ),
-                    ),
-                    Text(
-                      'Preview · ${_formatBytes(bytes.length)}',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                    const Text(
-                      'Permanently redact government IDs, bank details, '
-                      'home addresses, and unrelated people’s information in '
-                      'a trusted PDF editor before upload. Mentorax does not '
-                      'alter or redact your document.',
-                    ),
-                    CheckboxListTile(
-                      contentPadding: EdgeInsets.zero,
-                      value: _privacyReviewed,
-                      onChanged: (value) =>
-                          setState(() => _privacyReviewed = value ?? false),
-                      title: const Text(
-                        'I reviewed the document and removed unnecessary sensitive information.',
-                      ),
-                    ),
-                  ],
-                ],
+    title: Text(
+      widget.claim == null ? 'New experience claim' : 'Update experience claim',
+    ),
+    content: SizedBox(
+      width: 520,
+      child: Form(
+        key: _formKey,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                controller: _company,
+                maxLength: 150,
+                decoration: const InputDecoration(labelText: 'Company'),
+                validator: _required,
               ),
-            ),
+              TextFormField(
+                controller: _jobTitle,
+                maxLength: 150,
+                decoration: const InputDecoration(labelText: 'Job title'),
+                validator: _required,
+              ),
+              TextFormField(
+                controller: _startMonth,
+                decoration: const InputDecoration(
+                  labelText: 'Start month (YYYY-MM, optional)',
+                ),
+                validator: _month,
+              ),
+              TextFormField(
+                controller: _endMonth,
+                decoration: const InputDecoration(
+                  labelText: 'End month (YYYY-MM, optional)',
+                ),
+                validator: _month,
+              ),
+              TextFormField(
+                controller: _summary,
+                maxLength: 2000,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                  labelText: 'Experience summary',
+                ),
+                validator: _required,
+              ),
+              const Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Evidence is optional. Only PDF files up to 5 MiB are accepted. '
+                  'Uploaded evidence is encrypted and analysed automatically.',
+                ),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              OutlinedButton.icon(
+                onPressed: _selectFile,
+                icon: const Icon(Icons.attach_file),
+                label: Text(_evidence?.name ?? 'Choose evidence PDF'),
+              ),
+              if (_evidence?.bytes case final bytes?) ...[
+                SizedBox(
+                  height: 280,
+                  child: PdfViewer.data(
+                    bytes,
+                    sourceName: '${_evidence!.name}-${bytes.length}',
+                  ),
+                ),
+                Text(
+                  'Preview · ${_formatBytes(bytes.length)}',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                const Text(
+                  'Permanently redact government IDs, bank details, '
+                  'home addresses, and unrelated people’s information in '
+                  'a trusted PDF editor before upload. Mentorax does not '
+                  'alter or redact your document.',
+                ),
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  value: _privacyReviewed,
+                  onChanged: (value) =>
+                      setState(() => _privacyReviewed = value ?? false),
+                  title: const Text(
+                    'I reviewed the document and removed unnecessary sensitive information.',
+                  ),
+                ),
+              ],
+            ],
           ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              if (!_formKey.currentState!.validate()) return;
-              if (_evidence != null && !_privacyReviewed) return;
-              Navigator.pop(
-                context,
-                _ClaimDraft(
-                  company: _company.text.trim(),
-                  jobTitle: _jobTitle.text.trim(),
-                  startMonth: _startMonth.text.trim(),
-                  endMonth: _endMonth.text.trim(),
-                  summary: _summary.text.trim(),
-                  evidence: _evidence,
-                ),
-              );
-            },
-            child: const Text('Submit claim'),
-          ),
-        ],
-      );
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Cancel'),
+      ),
+      FilledButton(
+        onPressed: () {
+          if (!_formKey.currentState!.validate()) return;
+          if (_evidence != null && !_privacyReviewed) return;
+          Navigator.pop(
+            context,
+            _ClaimDraft(
+              company: _company.text.trim(),
+              jobTitle: _jobTitle.text.trim(),
+              startMonth: _startMonth.text.trim(),
+              endMonth: _endMonth.text.trim(),
+              summary: _summary.text.trim(),
+              evidence: _evidence,
+            ),
+          );
+        },
+        child: const Text('Submit claim'),
+      ),
+    ],
+  );
 
   String? _required(String? value) =>
       value == null || value.trim().isEmpty ? 'This field is required.' : null;
@@ -873,16 +1011,62 @@ String _eventTitle(ExperienceClaimAudit event) {
   return '${title[0].toUpperCase()}${title.substring(1)}';
 }
 
+bool _canUploadEvidence(String status) => const {
+  'PENDING',
+  'AWAITING_EVIDENCE',
+  'PROCESSING',
+  'NEEDS_INFO',
+  'INCONSISTENT',
+  'INSUFFICIENT_EVIDENCE',
+  'PROCESSING_FAILED',
+  'VERIFIED',
+  'VERIFIED_FROM_EVIDENCE',
+  'EMPLOYER_CONFIRMED',
+}.contains(status.toUpperCase());
+
+String _claimStatusLabel(String status) => switch (status.toUpperCase()) {
+  'PENDING' => 'SUBMITTED',
+  'AWAITING_EVIDENCE' ||
+  'NEEDS_INFO' ||
+  'ADDITIONAL_EVIDENCE_REQUIRED' ||
+  'INSUFFICIENT_EVIDENCE' => 'ADDITIONAL EVIDENCE REQUIRED',
+  'PROCESSING' => 'ANALYSING EVIDENCE',
+  'PROCESSING_FAILED' => 'PROCESSING FAILED',
+  'INCONSISTENT' => 'INCONSISTENT INFORMATION',
+  'VERIFIED' => 'VERIFIED',
+  'VERIFIED_FROM_EVIDENCE' => 'VERIFIED FROM EVIDENCE',
+  'EMPLOYER_CONFIRMED' => 'EMPLOYER CONFIRMED',
+  'REJECTED' => 'REJECTED',
+  _ => status.replaceAll('_', ' '),
+};
+
 bool _hasPdfSignature(Uint8List bytes) =>
     bytes.length >= 5 && String.fromCharCodes(bytes.take(5)) == '%PDF-';
+
+bool _isSupportedEvidence(String filename, Uint8List bytes) {
+  final name = filename.toLowerCase();
+  if (name.endsWith('.pdf')) return _hasPdfSignature(bytes);
+  if (name.endsWith('.png')) {
+    return bytes.length >= 8 &&
+        bytes.take(8).join(',') == '137,80,78,71,13,10,26,10';
+  }
+  if (name.endsWith('.jpg') || name.endsWith('.jpeg')) {
+    return bytes.length >= 3 &&
+        bytes[0] == 0xff &&
+        bytes[1] == 0xd8 &&
+        bytes[2] == 0xff;
+  }
+  return false;
+}
 
 String _newRequestId() {
   final random = Random.secure();
   final bytes = List<int>.generate(16, (_) => random.nextInt(256));
   bytes[6] = (bytes[6] & 0x0f) | 0x40;
   bytes[8] = (bytes[8] & 0x3f) | 0x80;
-  final hex =
-      bytes.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
+  final hex = bytes
+      .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
+      .join();
   return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-'
       '${hex.substring(12, 16)}-${hex.substring(16, 20)}-${hex.substring(20)}';
 }

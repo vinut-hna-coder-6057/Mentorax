@@ -34,11 +34,8 @@ class AppCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Card(
-        child: Padding(
-          padding: padding ?? const EdgeInsets.all(18),
-          child: child,
-        ),
-      );
+    child: Padding(padding: padding ?? const EdgeInsets.all(18), child: child),
+  );
 }
 
 class AppSectionTitle extends StatelessWidget {
@@ -48,13 +45,13 @@ class AppSectionTitle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Row(
-        children: [
-          Expanded(
-            child: Text(title, style: Theme.of(context).textTheme.titleLarge),
-          ),
-          if (action != null) action!,
-        ],
-      );
+    children: [
+      Expanded(
+        child: Text(title, style: Theme.of(context).textTheme.titleLarge),
+      ),
+      if (action != null) action!,
+    ],
+  );
 }
 
 class StatusBadge extends StatelessWidget {
@@ -65,22 +62,34 @@ class StatusBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     final value = label.toUpperCase();
     final scheme = Theme.of(context).colorScheme;
-    final background = value == 'APPROVED' ||
-            value == 'ACCEPTED' ||
-            value == 'CONNECTED' ||
-            value == 'READ'
+    final normalized = value.replaceAll('_', ' ');
+    final isPositive = [
+      'APPROVED',
+      'VERIFIED',
+      'VERIFIED FROM EVIDENCE',
+      'EMPLOYER CONFIRMED',
+      'ACCEPTED',
+      'CONNECTED',
+      'READ',
+    ].contains(normalized);
+    final isNegative = [
+      'REJECTED',
+      'BLOCKED',
+      'INCONSISTENT',
+      'PROCESSING FAILED',
+      'ADDITIONAL EVIDENCE REQUIRED',
+      'NEEDS INFO',
+    ].contains(normalized);
+    final background = isPositive
         ? scheme.tertiaryContainer
-        : value == 'REJECTED' || value == 'BLOCKED'
-            ? scheme.errorContainer
-            : scheme.secondaryContainer;
-    final foreground = value == 'APPROVED' ||
-            value == 'ACCEPTED' ||
-            value == 'CONNECTED' ||
-            value == 'READ'
+        : isNegative
+        ? scheme.errorContainer
+        : scheme.secondaryContainer;
+    final foreground = isPositive
         ? scheme.onTertiaryContainer
-        : value == 'REJECTED' || value == 'BLOCKED'
-            ? scheme.onErrorContainer
-            : scheme.onSecondaryContainer;
+        : isNegative
+        ? scheme.onErrorContainer
+        : scheme.onSecondaryContainer;
     return Semantics(
       label: 'Status: $value',
       child: DecoratedBox(
@@ -90,11 +99,14 @@ class StatusBadge extends StatelessWidget {
         ),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-          child: Text(value,
-              style: TextStyle(
-                  color: foreground,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700)),
+          child: Text(
+            value,
+            style: TextStyle(
+              color: foreground,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
         ),
       ),
     );
@@ -148,37 +160,42 @@ class UserAvatar extends StatelessWidget {
 }
 
 class EmptyState extends StatelessWidget {
-  const EmptyState(
-      {super.key, required this.title, this.message, this.icon = Icons.inbox});
+  const EmptyState({
+    super.key,
+    required this.title,
+    this.message,
+    this.icon = Icons.inbox,
+  });
   final String title;
   final String? message;
   final IconData icon;
 
   @override
   Widget build(BuildContext context) => Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon,
-                  size: 46,
-                  color: Theme.of(context)
-                      .colorScheme
-                      .primary
-                      .withValues(alpha: .65)),
-              const SizedBox(height: 14),
-              Text(title, style: Theme.of(context).textTheme.titleMedium),
-              if (message != null) ...[
-                const SizedBox(height: 6),
-                Text(message!,
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.bodyMedium),
-              ],
-            ],
+    child: Padding(
+      padding: const EdgeInsets.all(32),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            icon,
+            size: 46,
+            color: Theme.of(context).colorScheme.primary.withValues(alpha: .65),
           ),
-        ),
-      );
+          const SizedBox(height: 14),
+          Text(title, style: Theme.of(context).textTheme.titleMedium),
+          if (message != null) ...[
+            const SizedBox(height: 6),
+            Text(
+              message!,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+          ],
+        ],
+      ),
+    ),
+  );
 }
 
 String userFacingError(Object error) {
@@ -193,41 +210,48 @@ String userFacingError(Object error) {
 }
 
 class ErrorState extends StatelessWidget {
-  const ErrorState(
-      {super.key,
-      required this.message,
-      this.onRetry,
-      this.title = 'Unable to load'});
+  const ErrorState({
+    super.key,
+    required this.message,
+    this.onRetry,
+    this.title = 'Unable to load',
+  });
   final String title;
   final String message;
   final VoidCallback? onRetry;
 
   @override
   Widget build(BuildContext context) => Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.cloud_off_outlined,
-                  size: 46, color: Theme.of(context).colorScheme.error),
-              const SizedBox(height: 14),
-              Text(title, style: Theme.of(context).textTheme.titleMedium),
-              const SizedBox(height: 6),
-              Text(message,
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodyMedium),
-              if (onRetry != null) ...[
-                const SizedBox(height: 16),
-                OutlinedButton.icon(
-                    onPressed: onRetry,
-                    icon: const Icon(Icons.refresh),
-                    label: const Text('Try again')),
-              ],
-            ],
+    child: Padding(
+      padding: const EdgeInsets.all(32),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.cloud_off_outlined,
+            size: 46,
+            color: Theme.of(context).colorScheme.error,
           ),
-        ),
-      );
+          const SizedBox(height: 14),
+          Text(title, style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 6),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+          if (onRetry != null) ...[
+            const SizedBox(height: 16),
+            OutlinedButton.icon(
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Try again'),
+            ),
+          ],
+        ],
+      ),
+    ),
+  );
 }
 
 class InlineError extends StatelessWidget {
@@ -236,43 +260,49 @@ class InlineError extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(Icons.error_outline,
-              size: 18, color: Theme.of(context).colorScheme.error),
-          const SizedBox(width: 8),
-          Expanded(
-              child: Text(message,
-                  style:
-                      TextStyle(color: Theme.of(context).colorScheme.error))),
-        ],
-      );
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Icon(
+        Icons.error_outline,
+        size: 18,
+        color: Theme.of(context).colorScheme.error,
+      ),
+      const SizedBox(width: 8),
+      Expanded(
+        child: Text(
+          message,
+          style: TextStyle(color: Theme.of(context).colorScheme.error),
+        ),
+      ),
+    ],
+  );
 }
 
 class LoadingState extends StatelessWidget {
   const LoadingState({super.key});
   @override
   Widget build(BuildContext context) => Semantics(
-        liveRegion: true,
-        label: 'Loading',
-        child: const Center(
-          child: SizedBox(
-            width: 28,
-            height: 28,
-            child: CircularProgressIndicator(),
-          ),
-        ),
-      );
+    liveRegion: true,
+    label: 'Loading',
+    child: const Center(
+      child: SizedBox(
+        width: 28,
+        height: 28,
+        child: CircularProgressIndicator(),
+      ),
+    ),
+  );
 }
 
 class AppTextField extends StatelessWidget {
-  const AppTextField(
-      {super.key,
-      required this.controller,
-      required this.label,
-      this.icon,
-      this.obscureText = false,
-      this.keyboardType});
+  const AppTextField({
+    super.key,
+    required this.controller,
+    required this.label,
+    this.icon,
+    this.obscureText = false,
+    this.keyboardType,
+  });
   final TextEditingController controller;
   final String label;
   final IconData? icon;
@@ -281,18 +311,19 @@ class AppTextField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => TextField(
-        controller: controller,
-        obscureText: obscureText,
-        keyboardType: keyboardType,
-        decoration: InputDecoration(
-          labelText: label,
-          prefixIcon: icon == null ? null : Icon(icon),
-        ),
-      );
+    controller: controller,
+    obscureText: obscureText,
+    keyboardType: keyboardType,
+    decoration: InputDecoration(
+      labelText: label,
+      prefixIcon: icon == null ? null : Icon(icon),
+    ),
+  );
 }
 
 Widget responsiveContent(BuildContext context, Widget child) => Center(
-        child: ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 520),
-      child: child,
-    ));
+  child: ConstrainedBox(
+    constraints: const BoxConstraints(maxWidth: 520),
+    child: child,
+  ),
+);

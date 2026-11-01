@@ -5,6 +5,7 @@ public record ExperienceEvidenceAnalysisRequest(
         String jobTitle,
         String startMonth,
         String endMonth,
-        String summary
+        String summary,
+        String employeeName
 ) {
 }

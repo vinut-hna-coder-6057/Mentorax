@@ -7,10 +7,43 @@ import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.io.ByteArrayInputStream;
+import java.util.Iterator;
+import javax.imageio.ImageIO;
+import javax.imageio.ImageReader;
+import javax.imageio.stream.ImageInputStream;
 
 @Component
 public class ExperienceEvidencePdfValidator {
     private static final byte[] EOF_MARKER = "%%EOF".getBytes(StandardCharsets.US_ASCII);
+
+    public boolean isValidEvidence(byte[] data, String mediaType) {
+        if ("application/pdf".equals(mediaType)) return isValid(data);
+        String expectedFormat = switch (mediaType) {
+            case "image/jpeg" -> "JPEG";
+            case "image/png" -> "PNG";
+            default -> null;
+        };
+        if (data == null || expectedFormat == null) return false;
+        try (ImageInputStream input = ImageIO.createImageInputStream(new ByteArrayInputStream(data))) {
+            if (input == null) return false;
+            Iterator<ImageReader> readers = ImageIO.getImageReaders(input);
+            if (!readers.hasNext()) return false;
+            ImageReader reader = readers.next();
+            try {
+                if (!expectedFormat.equalsIgnoreCase(reader.getFormatName())) return false;
+                reader.setInput(input, true, true);
+                int width = reader.getWidth(0);
+                int height = reader.getHeight(0);
+                if (width <= 0 || height <= 0 || (long) width * height > 25_000_000L) return false;
+                return reader.read(0) != null;
+            } finally {
+                reader.dispose();
+            }
+        } catch (IOException | RuntimeException exception) {
+            return false;
+        }
+    }
 
     public boolean isValid(byte[] pdf) {
         if (pdf == null || !startsWithHeader(pdf) || !endsWithEofMarker(pdf)) {

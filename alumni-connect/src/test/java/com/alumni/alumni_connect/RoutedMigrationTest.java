@@ -13,12 +13,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class RoutedMigrationTest {
     @Test
     void freshChainReceivesHardeningChangesAfterItsCurrentBaseline() throws Exception {
-        verifyChain("classpath:db/fresh", "1", "16");
+        verifyChain("classpath:db/fresh", "1", "19");
     }
 
     @Test
     void normalizedChainReceivesHardeningChangesAfterItsCurrentBaseline() throws Exception {
-        verifyChain("classpath:db/normalized", "2", "16");
+        verifyChain("classpath:db/normalized", "2", "19");
     }
 
     @Test
@@ -40,13 +40,14 @@ class RoutedMigrationTest {
 
         var result = flyway.migrate();
 
-        assertEquals(7, result.migrationsExecuted);
-        assertEquals("16", flyway.info().current().getVersion().getVersion());
+        assertEquals(10, result.migrationsExecuted);
+        assertEquals("19", flyway.info().current().getVersion().getVersion());
         try (var connection = DriverManager.getConnection(url, "sa", "")) {
             assertTrue(hasTable(connection, "email_outbox"));
             assertTrue(hasColumn(connection, "email_outbox", "purpose"));
             assertTrue(hasColumn(connection, "events", "max_capacity"));
             assertExperienceEvidenceSchema(connection);
+            assertTrue(hasTable(connection, "experience_corroboration_attempts"));
             try (var statement = connection.createStatement();
                  var resultSet = statement.executeQuery(
                          "SELECT email_verified FROM users WHERE id = 1")) {
@@ -76,7 +77,7 @@ class RoutedMigrationTest {
                 .baselineVersion(baselineVersion)
                 .load();
         var result = flyway.migrate();
-        assertEquals(9, result.migrationsExecuted);
+        assertEquals(12, result.migrationsExecuted);
         assertEquals(expectedVersion, flyway.info().current().getVersion().getVersion());
 
         try (var connection = DriverManager.getConnection(url, "sa", "")) {
@@ -87,6 +88,9 @@ class RoutedMigrationTest {
             assertTrue(hasColumn(connection, "events", "max_capacity"));
             assertTrue(hasIndex(connection, "users", "idx_users_role_status_id"));
             assertExperienceEvidenceSchema(connection);
+            assertTrue(hasTable(connection, "experience_corroboration_attempts"));
+            assertTrue(hasColumn(connection, "experience_claims", "analysis_method"));
+            assertTrue(hasColumn(connection, "experience_claims", "ocr_status"));
             try (var statement = connection.createStatement();
                  var approval = statement.executeQuery("SELECT approval_status FROM alumni_profiles WHERE user_id = 1")) {
                 assertTrue(approval.next());
@@ -101,6 +105,8 @@ class RoutedMigrationTest {
     }
 
     private static void assertExperienceEvidenceSchema(java.sql.Connection connection) throws Exception {
+        assertTrue(hasColumn(connection, "experience_claims", "analysis_method"));
+        assertTrue(hasColumn(connection, "experience_claims", "ocr_status"));
         assertTrue(hasColumn(connection, "experience_claims", "request_id"));
         assertTrue(hasColumn(connection, "experience_claims", "evidence_storage_key"));
         assertTrue(hasColumn(connection, "experience_claims", "encrypted_evidence"));

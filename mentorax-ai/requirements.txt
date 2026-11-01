@@ -2,4 +2,6 @@ fastapi==0.115.6
 uvicorn[standard]==0.34.0
 scikit-learn==1.6.0
 pypdf==5.1.0
+PyMuPDF==1.26.7
+rapidocr-onnxruntime==1.2.3
 python-multipart==0.0.20

@@ -61,6 +61,9 @@ public class ExperienceClaim {
     @Column(name = "evidence_uploaded_at")
     private LocalDateTime evidenceUploadedAt;
 
+    @Column(name = "evidence_version", nullable = false)
+    private int evidenceVersion;
+
     @Column(nullable = false, length = 32)
     private String status = "PENDING";
 
@@ -69,6 +72,24 @@ public class ExperienceClaim {
 
     @Column(name = "ai_findings", columnDefinition = "TEXT")
     private String aiFindings;
+
+    @Column(name = "analysis_method", nullable = false, length = 32)
+    private String analysisMethod = "NOT_RUN";
+
+    @Column(name = "ocr_status", nullable = false, length = 32)
+    private String ocrStatus = "NOT_RUN";
+
+    @Column(name = "decision_explanation", columnDefinition = "TEXT")
+    private String decisionExplanation;
+
+    @Column(name = "requested_evidence", columnDefinition = "TEXT")
+    private String requestedEvidence;
+
+    @Column(name = "decision_at")
+    private LocalDateTime decisionAt;
+
+    @Column(name = "corroboration_status", nullable = false, length = 32)
+    private String corroborationStatus = "NOT_CHECKED";
 
     @Column(name = "appeal_note", columnDefinition = "TEXT")
     private String appealNote;
@@ -218,6 +239,14 @@ public class ExperienceClaim {
         this.evidenceUploadedAt = evidenceUploadedAt;
     }
 
+    public int getEvidenceVersion() {
+        return evidenceVersion;
+    }
+
+    public void setEvidenceVersion(int evidenceVersion) {
+        this.evidenceVersion = evidenceVersion;
+    }
+
     public String getStatus() {
         return status;
     }
@@ -240,6 +269,54 @@ public class ExperienceClaim {
 
     public void setAiFindings(String aiFindings) {
         this.aiFindings = aiFindings;
+    }
+
+    public String getAnalysisMethod() {
+        return analysisMethod;
+    }
+
+    public void setAnalysisMethod(String analysisMethod) {
+        this.analysisMethod = analysisMethod;
+    }
+
+    public String getOcrStatus() {
+        return ocrStatus;
+    }
+
+    public void setOcrStatus(String ocrStatus) {
+        this.ocrStatus = ocrStatus;
+    }
+
+    public String getDecisionExplanation() {
+        return decisionExplanation;
+    }
+
+    public void setDecisionExplanation(String decisionExplanation) {
+        this.decisionExplanation = decisionExplanation;
+    }
+
+    public String getRequestedEvidence() {
+        return requestedEvidence;
+    }
+
+    public void setRequestedEvidence(String requestedEvidence) {
+        this.requestedEvidence = requestedEvidence;
+    }
+
+    public LocalDateTime getDecisionAt() {
+        return decisionAt;
+    }
+
+    public void setDecisionAt(LocalDateTime decisionAt) {
+        this.decisionAt = decisionAt;
+    }
+
+    public String getCorroborationStatus() {
+        return corroborationStatus;
+    }
+
+    public void setCorroborationStatus(String corroborationStatus) {
+        this.corroborationStatus = corroborationStatus;
     }
 
     public String getAppealNote() {
