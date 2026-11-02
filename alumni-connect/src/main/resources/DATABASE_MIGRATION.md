@@ -70,7 +70,14 @@ URLs or source files.
 
 Configure the Railway backend service root directory as `alumni-connect`. Build with `./mvnw package` and start the repackaged JAR with `java -jar target/alumni-connect-0.0.1-SNAPSHOT.jar`. Spring listens on Railway’s `PORT` environment value and defaults to port 8080 for local use. Configure the following environment variables in Railway’s secret/environment settings; do not place their values in repository files:
 
-- `DB_URL`, `DB_USERNAME`, and `DB_PASSWORD`
+- `DB_URL`, `DB_USERNAME`, and `DB_PASSWORD`. When connecting directly to a
+  Railway MySQL service, the application also accepts Railway's
+  `MYSQLHOST`, `MYSQLPORT`, `MYSQLDATABASE`, `MYSQLUSER`, and `MYSQLPASSWORD`
+  variables and builds the JDBC URL automatically. Each configured `DB_*`
+  value takes precedence over its corresponding `MYSQL*` fallback when both
+  are present; specifically, `DB_URL` overrides the constructed JDBC URL,
+  `DB_USERNAME` overrides `MYSQLUSER`, and `DB_PASSWORD` overrides
+  `MYSQLPASSWORD`.
 - `JWT_SECRET` (at least 32 UTF-8 bytes)
 - `CORS_ALLOWED_ORIGIN_PATTERNS` and `WEBSOCKET_ALLOWED_ORIGINS` (comma-separated trusted origins; avoid broad wildcards in production)
 
