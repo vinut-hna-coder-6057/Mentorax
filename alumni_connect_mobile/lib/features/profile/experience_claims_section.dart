@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
@@ -29,14 +30,20 @@ class _ExperienceClaimsSectionState
   bool _saving = false;
   int? _uploadingClaimId;
   double? _uploadProgress;
+  Timer? _processingRefreshTimer;
+  bool _refreshInFlight = false;
 
   @override
   void initState() {
     super.initState();
     _loadClaims();
+    _processingRefreshTimer = Timer.periodic(
+      const Duration(seconds: 5),
+      (_) => _refreshProcessingClaims(),
+    );
   }
 
-  Future<void> _loadClaims() async {
+  Future<void> _loadClaims({bool silent = false}) async {
     try {
       final claims = await ref.read(appRepositoryProvider).experienceClaims();
       if (!mounted) return;
@@ -47,10 +54,32 @@ class _ExperienceClaimsSectionState
     } catch (error) {
       if (!mounted) return;
       setState(() => _loading = false);
-      _showMessage(
-        'Could not load experience claims: ${userFacingError(error)}',
-      );
+      if (!silent) {
+        _showMessage(
+          'Could not load experience claims: ${userFacingError(error)}',
+        );
+      }
     }
+  }
+
+  Future<void> _refreshProcessingClaims() async {
+    if (!mounted ||
+        _refreshInFlight ||
+        !_claims.any((claim) => claim.status.toUpperCase() == 'PROCESSING')) {
+      return;
+    }
+    _refreshInFlight = true;
+    try {
+      await _loadClaims(silent: true);
+    } finally {
+      _refreshInFlight = false;
+    }
+  }
+
+  @override
+  void dispose() {
+    _processingRefreshTimer?.cancel();
+    super.dispose();
   }
 
   void _showMessage(String message) {

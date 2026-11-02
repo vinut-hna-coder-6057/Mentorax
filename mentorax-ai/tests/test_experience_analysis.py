@@ -157,6 +157,23 @@ class ExperienceAnalysisTests(unittest.TestCase):
         self.assertEqual("MISMATCH", outcomes["jobTitle"])
         self.assertEqual("MISMATCH", outcomes["startMonth"])
 
+    def test_contradictory_labeled_values_are_not_replaced_by_claim_values(self):
+        fields = ClaimFields(company="Northstar", jobTitle="Engineer", summary="Built systems")
+        text = (
+            "Employment Certificate\n"
+            "Employer: Other Company\n"
+            "Position: Analyst\n"
+            "This document mentions Northstar and Engineer as a former employer and role."
+        )
+        with patch("experience_analysis._extract_document",
+                   return_value=(text, [], [{"page": 1, "text": text}], "NOT_NEEDED")):
+            result = analyze_document(fields, b"%PDF-test")
+        extracted = {finding["field"]: finding["extractedValue"] for finding in result["findings"]}
+        self.assertEqual("Other Company", extracted["company"])
+        self.assertEqual("Analyst", extracted["jobTitle"])
+        self.assertEqual("Other Company", result["extractedDetails"]["companyName"])
+        self.assertEqual("Analyst", result["extractedDetails"]["jobTitle"])
+
     def test_extracts_employment_type_issue_date_and_supporting_statement(self):
         text = (
             "Employment Certificate\n"

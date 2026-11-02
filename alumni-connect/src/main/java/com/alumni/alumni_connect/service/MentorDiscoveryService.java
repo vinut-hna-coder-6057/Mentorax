@@ -37,6 +37,7 @@ public class MentorDiscoveryService {
     private final RestTemplate restTemplate;
     @Value("${app.ai.enabled:false}") private boolean aiEnabled;
     @Value("${app.ai.service-url:http://127.0.0.1:8090}") private String aiServiceUrl;
+    @Value("${AI_MENTOR_API_TOKEN:}") private String aiServiceToken = "";
     @Value("${app.ai.minimum-relevance:0.0}") private double minimumRelevance;
     @Value("${app.ai.minimum-semantic-relevance:0.72}") private double minimumSemanticRelevance = 0.72;
     @Value("${app.ai.ranking-strategy:tfidf}") private String rankingStrategy = "tfidf";
@@ -276,14 +277,15 @@ public class MentorDiscoveryService {
         if (!(raw instanceof List<?> ids)) return null;
         List<Long> validated = ids.stream().map(this::parseRankingId).filter(Objects::nonNull).distinct().toList();
         Set<Long> expectedIds = candidates.stream().map(MentorCandidate::id).collect(Collectors.toSet());
-        Map<Long, Double> validatedScores = parseScores(responseBody.get("scores"), expectedIds);
+        Set<Long> returnedIds = new HashSet<>(validated);
+        Map<Long, Double> validatedScores = parseScores(responseBody.get("scores"), returnedIds);
         Map<Long, Double> semanticScores = Set.of("semantic", "hybrid").contains(rankingStrategy)
-                ? parseScores(responseBody.get("semanticScores"), expectedIds) : Map.of();
-        List<Long> scoreOrder = validatedScores == null ? List.of() : expectedIds.stream()
+                ? parseScores(responseBody.get("semanticScores"), returnedIds) : Map.of();
+        List<Long> scoreOrder = validatedScores == null ? List.of() : returnedIds.stream()
                 .sorted(Comparator.comparingDouble((Long id) -> validatedScores.get(id)).reversed()
                         .thenComparingLong(Long::longValue)).toList();
-        if (ids.size() != expectedIds.size() || validated.size() != expectedIds.size()
-                || !new HashSet<>(validated).equals(expectedIds) || validatedScores == null
+        if (validated.isEmpty() || validated.size() != ids.size()
+                || !returnedIds.stream().allMatch(expectedIds::contains) || validatedScores == null
                 || !validated.equals(scoreOrder)
                 || (Set.of("semantic", "hybrid").contains(rankingStrategy) && semanticScores == null)) {
             log.info("Optional mentor ranking response rejected (count={}, expected={}, finalScores={}, order={}, semanticScores={})",
@@ -335,6 +337,7 @@ public class MentorDiscoveryService {
                 }
                 List<CandidateRanking> pageRankings = new ArrayList<>();
                 for (MentorCandidate candidate : page.candidates()) {
+                    if (pythonRanking != null && !pythonRanking.rankedIds().contains(candidate.id())) continue;
                     double evidenceScore = localScore(goal, candidate);
                     Double semanticScore = pythonRanking == null ? null
                             : pythonRanking.semanticScores().get(candidate.id());
@@ -494,5 +497,10 @@ public class MentorDiscoveryService {
         return null;
     }
     private String normalize(String value) { return Normalizer.normalize(Objects.toString(value, "").toLowerCase(Locale.ROOT), Normalizer.Form.NFKC).replaceAll("[^\\p{L}\\p{N}]+", " ").trim(); }
-    private HttpHeaders jsonHeaders() { HttpHeaders headers = new HttpHeaders(); headers.setContentType(MediaType.APPLICATION_JSON); return headers; }
+    private HttpHeaders jsonHeaders() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        if (aiServiceToken != null && !aiServiceToken.isBlank()) headers.setBearerAuth(aiServiceToken);
+        return headers;
+    }
 }

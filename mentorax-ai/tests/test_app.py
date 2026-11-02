@@ -23,6 +23,7 @@ class MentorRankerApiTests(unittest.TestCase):
         self.client.__exit__(None, None, None)
         self.strategy_env.stop()
 
+
     def test_health_endpoint(self):
         response = self.client.get("/health")
 
@@ -149,13 +150,24 @@ class MentorRankerApiTests(unittest.TestCase):
 
         self.assertEqual(200, response.status_code)
         result = response.json()
-        self.assertEqual([3, 7], result["rankedIds"])
+        self.assertEqual([3], result["rankedIds"])
         self.assertEqual("TF-IDF cosine similarity", result["rankingMethod"])
-        self.assertEqual({"3", "7"}, set(result["scores"]))
+        self.assertEqual({"3"}, set(result["scores"]))
         for score in result["scores"].values():
             self.assertIsInstance(score, float)
             self.assertGreaterEqual(score, 0.0)
             self.assertLessEqual(score, 1.0)
+
+    def test_configured_ranking_token_is_required(self):
+        with patch.dict("os.environ", {"MENTOR_RANKING_API_TOKEN": "ranking-token"}):
+            response = self.client.post("/rank", json={
+                "goal": "Python", "candidates": [{"id": 1, "skills": ["Python"]}],
+            })
+            self.assertEqual(503, response.status_code)
+            response = self.client.post("/rank", json={
+                "goal": "Python", "candidates": [{"id": 1, "skills": ["Python"]}],
+            }, headers={"Authorization": "Bearer ranking-token"})
+            self.assertEqual(200, response.status_code)
 
     def test_semantic_strategy_is_selected_and_model_failure_is_explicit(self):
         with patch("app.ensure_semantic_model_ready"), \
@@ -212,8 +224,8 @@ class MentorRankerApiTests(unittest.TestCase):
 
         self.assertEqual(200, response.status_code)
         results = response.json()["results"]
-        self.assertEqual([1, 2], results[0]["result"]["rankedIds"])
-        self.assertEqual([4, 3], results[1]["result"]["rankedIds"])
+        self.assertEqual([1], results[0]["result"]["rankedIds"])
+        self.assertEqual([4], results[1]["result"]["rankedIds"])
         self.assertNotIn("semanticScores", results[0]["result"])
 
         with patch("app.rank", side_effect=[{"rankedIds": [1]}, HTTPException(
@@ -272,7 +284,7 @@ class MentorRankerApiTests(unittest.TestCase):
         })
 
         self.assertEqual(200, response.status_code)
-        self.assertEqual([4, 9], response.json()["rankedIds"])
+        self.assertEqual([], response.json()["rankedIds"])
 
     def test_repeated_requests_do_not_reuse_prior_candidate_data(self):
         python_goal = self.client.post("/rank", json={
@@ -284,8 +296,8 @@ class MentorRankerApiTests(unittest.TestCase):
             "candidates": [{"id": 1, "skills": ["Python"]}, {"id": 2, "skills": ["gardening"]}],
         }).json()
 
-        self.assertEqual([1, 2], python_goal["rankedIds"])
-        self.assertEqual([2, 1], garden_goal["rankedIds"])
+        self.assertEqual([1], python_goal["rankedIds"])
+        self.assertEqual([2], garden_goal["rankedIds"])
 
     def test_blank_goal_empty_candidates_and_duplicate_ids_are_rejected(self):
         blank = self.client.post("/rank", json={"goal": "   ", "candidates": [{"id": 1}]})
@@ -324,7 +336,7 @@ class MentorRankerApiTests(unittest.TestCase):
             self.assertNotIn("Traceback", response.text)
             self.assertNotIn("app.py", response.text)
         self.assertEqual(200, max_skills.status_code)
-        self.assertEqual([2], max_skills.json()["rankedIds"])
+        self.assertEqual([], max_skills.json()["rankedIds"])
 
     def test_malformed_json_is_a_safe_validation_error(self):
         response = self.client.post("/rank", content="{", headers={"content-type": "application/json"})

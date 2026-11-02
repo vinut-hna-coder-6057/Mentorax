@@ -43,6 +43,13 @@ class InboxAssistantTests(unittest.TestCase):
         self.assertEqual("heuristic", heuristic["urgencyKind"])
         self.assertEqual("normal", ordinary["prioritySuggestion"])
 
+    def test_year_qualified_deadline_is_detected(self):
+        result = analyze(InboxAssistRequest(
+            messageId=4, content="Please review my resume on 31 December 2026."
+        ))
+        self.assertEqual("explicit_deadline", result["urgencyKind"])
+        self.assertEqual("on 31 December 2026", result["deadlineEvidence"])
+
     def test_summary_is_extractive_and_draft_is_safe_template(self):
         content = "I am applying for a role. I need help with the application."
         result = analyze(InboxAssistRequest(messageId=1, content=content))

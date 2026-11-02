@@ -61,6 +61,11 @@ To run these tests locally, set `MENTORAX_MYSQL_MIGRATION_TEST_URL`, `MENTORAX_M
 
 The test username is read from the supplied environment variables; it does not need to be `root`. Prefer a dedicated MySQL account with privileges limited to `mentorax_migration_test` and `mentorax_recovery_test`. The URLs must explicitly use MySQL on loopback port 3306 and the exact database name for that test; credentials and connection options must not be embedded in the URL. Missing credentials fail the tests rather than silently skipping them. The account must be able to read metadata and run Flyway DDL/history changes in those two schemas, but it does not need global privileges or permission to create or drop databases.
 
+For the optional mentor ranking service, configure the same random secret in
+`AI_MENTOR_API_TOKEN` (Spring Boot) and `MENTOR_RANKING_API_TOKEN` (Python).
+This protects `/rank` and `/rank/batch` without placing credentials in request
+URLs or source files.
+
 ## Railway runtime configuration
 
 Configure the Railway backend service root directory as `alumni-connect`. Build with `./mvnw package` and start the repackaged JAR with `java -jar target/alumni-connect-0.0.1-SNAPSHOT.jar`. Spring listens on Railway’s `PORT` environment value and defaults to port 8080 for local use. Configure the following environment variables in Railway’s secret/environment settings; do not place their values in repository files:

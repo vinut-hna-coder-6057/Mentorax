@@ -1,6 +1,11 @@
 # Optional Mentorax ranking service
 
-This service runs only after Spring has classified an authenticated student question as career mentorship and `AI_MENTOR_ENABLED=true`. Spring reads approved alumni in stable keyset batches of at most 500, backed by the `(role, status, id)` MySQL index. For semantic and hybrid strategies, it sends each approved page's professional fields to Python before applying the Java evidence and abstention gate; TF-IDF remains gated before ranking. Names and contact details stay in Spring. Java validates each page's full ranked-ID and score contract. Semantic cosine scores are comparable across pages and can be merged globally. TF-IDF cosine and hybrid rank percentiles are page-relative; when a search spans multiple pages, Java uses its global evidence ordering and marks the result as fallback because those batch scores cannot be compared safely. Similarity and rank-fusion scores are not calibrated probabilities. Keep the service on a private network reachable only by Spring; do not expose it to Flutter.
+This service runs only after Spring has classified an authenticated student question as career mentorship and `AI_MENTOR_ENABLED=true`. Spring reads approved alumni in stable keyset batches of at most 500, backed by the `(role, status, id)` MySQL index. For semantic and hybrid strategies, it sends each approved page's professional fields to Python before applying the Java evidence and abstention gate; TF-IDF remains gated before ranking. Names and contact details stay in Spring. Java validates each returned ranked ID and score against the submitted candidate universe. Semantic cosine scores are comparable across pages and can be merged globally. TF-IDF cosine and hybrid rank percentiles are page-relative; when a search spans multiple pages, Java uses its global evidence ordering and marks the result as fallback because those batch scores cannot be compared safely. Similarity and rank-fusion scores are not calibrated probabilities. Keep the service on a private network reachable only by Spring; do not expose it to Flutter.
+
+Set `MENTOR_RANKING_API_TOKEN` on this service and the same value as
+`AI_MENTOR_API_TOKEN` in Spring to authenticate `/rank` and `/rank/batch`.
+When the Python token is configured, requests without the matching bearer token
+are rejected. Keep the token in environment or secret-manager configuration.
 
 ## Experience evidence analysis
 

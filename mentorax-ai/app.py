@@ -4,7 +4,8 @@ import os
 from contextlib import asynccontextmanager
 from typing import List
 
-from fastapi import FastAPI, HTTPException, Request
+import hmac
+from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -215,9 +216,19 @@ def percentile_scores(scores: list[float]) -> list[float]:
     return result
 
 
+def _require_ranking_auth(authorization: str | None) -> None:
+    expected = os.getenv("MENTOR_RANKING_API_TOKEN", "").strip()
+    if expected and not hmac.compare_digest(
+            (authorization or "").removeprefix("Bearer ").encode("utf-8"),
+            expected.encode("utf-8")):
+        raise HTTPException(status_code=503, detail="Ranking service unavailable")
+
+
 @app.post("/rank")
-def rank(request: RankingRequest, strategy: str | None = None):
+def rank(request: RankingRequest, strategy: str | None = None,
+         authorization: str | None = Header(default=None)):
     """Rank one request; profile embeddings are bounded, process-local cache entries."""
+    _require_ranking_auth(authorization)
     selected_strategy = strategy or request.strategy or os.getenv("MENTOR_RANKING_STRATEGY", "tfidf").lower()
     if selected_strategy not in {"tfidf", "semantic", "hybrid"}:
         raise HTTPException(status_code=422, detail="Invalid ranking strategy")
@@ -264,12 +275,37 @@ def rank(request: RankingRequest, strategy: str | None = None):
             str(candidate.id): float(score)
             for candidate, score in zip(request.candidates, semantic_scores)
         }
+    minimum_score = _minimum_recommendation_score(selected_strategy)
+    eligible_ids = [
+        candidate_id for candidate_id in result["rankedIds"]
+        if result["scores"][str(candidate_id)] > minimum_score
+    ]
+    result["rankedIds"] = eligible_ids
+    result["scores"] = {str(candidate_id): result["scores"][str(candidate_id)] for candidate_id in eligible_ids}
+    if semantic_scores is not None:
+        result["semanticScores"] = {
+            str(candidate_id): result["semanticScores"][str(candidate_id)]
+            for candidate_id in eligible_ids
+        }
     return result
 
 
+def _minimum_recommendation_score(strategy: str) -> float:
+    variable = "MENTOR_MIN_RECOMMENDATION_SCORE"
+    default = "0.0"
+    try:
+        threshold = float(os.getenv(variable, default))
+    except ValueError:
+        raise HTTPException(status_code=503, detail="Ranking threshold configuration is invalid") from None
+    if not 0.0 <= threshold <= 1.0:
+        raise HTTPException(status_code=503, detail="Ranking threshold configuration is invalid")
+    return threshold
+
+
 @app.post("/rank/batch")
-def rank_batch(batch: RankingBatch):
+def rank_batch(batch: RankingBatch, authorization: str | None = Header(default=None)):
     """Rank up to five independent pages in one bounded HTTP request."""
+    _require_ranking_auth(authorization)
     results = []
     for request in batch.requests:
         try:

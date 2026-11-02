@@ -591,11 +591,16 @@ def analyze_document(claim: ClaimFields, data: bytes, content_type: str = "appli
         "extractedTextFingerprint": extracted_text_fingerprint,
         "documentClassification": document_type,
         "extractedDetails": {
-            "employeeName": claim.employeeName,
-            "companyName": claim.company,
-            "jobTitle": claim.jobTitle,
-            "startDate": claim.startMonth,
-            "endDate": claim.endMonth,
+            "employeeName": next((finding["extractedValue"] for finding in findings
+                                  if finding["field"] == "employeeName"), None),
+            "companyName": next((finding["extractedValue"] for finding in findings
+                                 if finding["field"] == "company"), None),
+            "jobTitle": next((finding["extractedValue"] for finding in findings
+                              if finding["field"] == "jobTitle"), None),
+            "startDate": next((finding["extractedValue"] for finding in findings
+                               if finding["field"] == "startMonth"), None),
+            "endDate": next((finding["extractedValue"] for finding in findings
+                             if finding["field"] == "endMonth"), None),
             "documentType": document_type,
         },
         "fieldAssessments": findings,
@@ -617,13 +622,15 @@ def analyze_document(claim: ClaimFields, data: bytes, content_type: str = "appli
 
 
 def _extract_labeled_value(text: str, expected: str | None, label_pattern: str) -> str | None:
-    if expected and re.search(re.escape(expected), text, re.IGNORECASE):
-        return expected
     match = re.search(
         rf"(?im)^\s*{label_pattern}\s*[:\-]\s*([^\r\n]{{1,255}})",
         text,
     )
-    return match.group(1).strip() if match else None
+    if match:
+        return match.group(1).strip()
+    if expected and re.search(rf"\b{re.escape(expected)}\b", text, re.IGNORECASE):
+        return expected
+    return None
 
 
 def _extract_employment_statements(text: str) -> str | None:

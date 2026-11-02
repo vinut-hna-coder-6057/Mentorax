@@ -39,7 +39,17 @@ _DEADLINE = re.compile(
     r"(?:today|tomorrow|tonight|next\s+(?:week|month)|\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?|"
     r"(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|"
     r"jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|"
-    r"dec(?:ember)?)\s+\d{1,2})\b", re.IGNORECASE)
+    r"dec(?:ember)?)\s+\d{1,2}(?:,?\s+\d{4})?|"
+    r"\d{1,2}\s+(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|"
+    r"jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|"
+    r"dec(?:ember)?)(?:,?\s+\d{4})?)\b|"
+    r"\bon\s+(?:\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?|"
+    r"(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|"
+    r"jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|"
+    r"dec(?:ember)?)\s+\d{1,2}(?:,?\s+\d{4})?|"
+    r"\d{1,2}\s+(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|"
+    r"jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|"
+    r"dec(?:ember)?)(?:,?\s+\d{4})?)\b", re.IGNORECASE)
 _URGENCY = re.compile(r"\b(?:urgent(?:ly)?|asap|as soon as possible|time[- ]sensitive)\b", re.I)
 _SAFE_DRAFT = "Hi, thanks for reaching out. Could you share any additional context that would help me understand your request?"
 
