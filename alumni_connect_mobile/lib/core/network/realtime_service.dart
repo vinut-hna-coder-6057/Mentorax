@@ -19,25 +19,24 @@ class RealtimeService {
         !uri.hasAuthority ||
         (uri.scheme != 'http' && uri.scheme != 'https')) {
       throw ArgumentError.value(
-          apiBaseUrl, 'apiBaseUrl', 'Expected an HTTP(S) URL.');
+        apiBaseUrl,
+        'apiBaseUrl',
+        'Expected an HTTP(S) URL.',
+      );
     }
     final basePath = uri.path.replaceFirst(RegExp(r'/+$'), '');
     return uri
-        .replace(
-          path: '$basePath/chat',
-          query: null,
-          fragment: null,
-        )
+        .replace(path: '$basePath/chat', query: null, fragment: null)
         .toString();
   }
 
   RealtimeService({RealtimeStompClientFactory? clientFactory})
-      : _clientFactory = clientFactory ?? _StompClientAdapter.new;
+    : _clientFactory = clientFactory ?? _StompClientAdapter.new;
 
   final RealtimeStompClientFactory _clientFactory;
   static Map<String, String> stompHeadersForToken(String token) => {
-        'Authorization': 'Bearer $token',
-      };
+    'Authorization': 'Bearer $token',
+  };
 
   final _state = StreamController<RealtimeState>.broadcast();
   final _messages = StreamController<ChatMessage>.broadcast();
@@ -124,9 +123,11 @@ class RealtimeService {
         _awaitingConnect = false;
         _subscribed = false;
         _pendingReceipts.clear();
-        _set(_token == null
-            ? RealtimeState.disconnected
-            : RealtimeState.reconnecting);
+        _set(
+          _token == null
+              ? RealtimeState.disconnected
+              : RealtimeState.reconnecting,
+        );
       },
       onStompError: (frame) {
         if (!_isActiveSession(sessionVersion)) return;
@@ -159,11 +160,7 @@ class RealtimeService {
       client,
       messagesDestination,
       RealtimeFailure.subscription,
-      (body) => _decodeMessage(
-        sessionVersion,
-        connectionVersion,
-        body,
-      ),
+      (body) => _decodeMessage(sessionVersion, connectionVersion, body),
     );
     if (_terminalFailure) return;
     _subscribe(
@@ -172,11 +169,7 @@ class RealtimeService {
       client,
       notificationsDestination,
       RealtimeFailure.subscription,
-      (body) => _decodeNotification(
-        sessionVersion,
-        connectionVersion,
-        body,
-      ),
+      (body) => _decodeNotification(sessionVersion, connectionVersion, body),
     );
   }
 
@@ -211,11 +204,7 @@ class RealtimeService {
     }
   }
 
-  void _decodeMessage(
-    int sessionVersion,
-    int connectionVersion,
-    String body,
-  ) {
+  void _decodeMessage(int sessionVersion, int connectionVersion, String body) {
     if (!isCurrentSession(sessionVersion, connectionVersion)) return;
     try {
       final json = jsonDecode(body);
@@ -223,7 +212,7 @@ class RealtimeService {
         final message = ChatMessage.fromJson(Map<String, dynamic>.from(json));
         final key = message.id == null
             ? '${message.senderEmail}|${message.receiverEmail}|'
-                '${message.timestamp}|${message.content}'
+                  '${message.timestamp}|${message.content}'
             : 'id:${message.id}';
         if (!_seenMessages.add(key)) return;
         if (_seenMessages.length > 2000) _seenMessages.clear();
@@ -234,7 +223,8 @@ class RealtimeService {
       }
     } catch (error) {
       debugPrint(
-          'Ignoring malformed STOMP message frame (${error.runtimeType}).');
+        'Ignoring malformed STOMP message frame (${error.runtimeType}).',
+      );
     }
   }
 
@@ -247,16 +237,15 @@ class RealtimeService {
     try {
       final json = jsonDecode(body);
       if (json is Map) {
-        final notification =
-            NotificationItem.fromJson(Map<String, dynamic>.from(json));
+        final notification = NotificationItem.fromJson(
+          Map<String, dynamic>.from(json),
+        );
         if (!_seenNotifications.add('id:${notification.id}')) return;
         if (_seenNotifications.length > 2000) _seenNotifications.clear();
         _notifications.add(notification);
-        _notificationEvents.add(RealtimeSessionEvent(
-          sessionVersion,
-          connectionVersion,
-          notification,
-        ));
+        _notificationEvents.add(
+          RealtimeSessionEvent(sessionVersion, connectionVersion, notification),
+        );
       }
     } catch (error) {
       debugPrint(
@@ -275,28 +264,29 @@ class RealtimeService {
     final failure = _awaitingConnect
         ? RealtimeFailure.authentication
         : _pendingReceipts.values.isEmpty
-            ? RealtimeFailure.connection
-            : _pendingReceipts.values.first;
+        ? RealtimeFailure.connection
+        : _pendingReceipts.values.first;
     final phase = _awaitingConnect
         ? 'CONNECT'
         : failure == RealtimeFailure.subscription
-            ? 'SUBSCRIBE'
-            : failure == RealtimeFailure.send
-                ? 'SEND'
-                : 'connected session';
+        ? 'SUBSCRIBE'
+        : failure == RealtimeFailure.send
+        ? 'SEND'
+        : 'connected session';
     _reportFailure(
       failure,
       'STOMP ERROR during $phase (command ${frame.command}).',
-      terminal: failure == RealtimeFailure.authentication ||
+      terminal:
+          failure == RealtimeFailure.authentication ||
           failure == RealtimeFailure.subscription,
     );
   }
 
   void _onWebSocketError(dynamic error) {
     final details = error.toString().replaceAll(
-          RegExp(r'Bearer\s+\S+', caseSensitive: false),
-          'Bearer [REDACTED]',
-        );
+      RegExp(r'Bearer\s+\S+', caseSensitive: false),
+      'Bearer [REDACTED]',
+    );
     final statusCode = _httpStatusCode(details);
     debugPrint(
       'Realtime WebSocket transport failed'
@@ -372,11 +362,14 @@ class RealtimeService {
         client?.deactivate();
       } catch (error) {
         debugPrint(
-            'Unable to stop failed STOMP client (${error.runtimeType}).');
+          'Unable to stop failed STOMP client (${error.runtimeType}).',
+        );
       }
-      _set(failure == RealtimeFailure.authentication
-          ? RealtimeState.authenticationRejected
-          : RealtimeState.subscriptionFailed);
+      _set(
+        failure == RealtimeFailure.authentication
+            ? RealtimeState.authenticationRejected
+            : RealtimeState.subscriptionFailed,
+      );
     }
   }
 
@@ -432,9 +425,8 @@ class RealtimeSessionEvent<T> {
   final T value;
 }
 
-typedef RealtimeStompClientFactory = RealtimeStompClient Function(
-  StompConfig config,
-);
+typedef RealtimeStompClientFactory =
+    RealtimeStompClient Function(StompConfig config);
 
 abstract interface class RealtimeStompClient {
   bool get connected;
@@ -458,7 +450,7 @@ abstract interface class RealtimeStompClient {
 
 class _StompClientAdapter implements RealtimeStompClient {
   _StompClientAdapter(StompConfig config)
-      : _client = StompClient(config: config);
+    : _client = StompClient(config: config);
 
   final StompClient _client;
 
@@ -476,24 +468,18 @@ class _StompClientAdapter implements RealtimeStompClient {
     required String destination,
     required StompFrameCallback callback,
     Map<String, String>? headers,
-  }) =>
-      _client.subscribe(
-        destination: destination,
-        callback: callback,
-        headers: headers,
-      );
+  }) => _client.subscribe(
+    destination: destination,
+    callback: callback,
+    headers: headers,
+  );
 
   @override
   void send({
     required String destination,
     Map<String, String>? headers,
     String? body,
-  }) =>
-      _client.send(
-        destination: destination,
-        headers: headers,
-        body: body,
-      );
+  }) => _client.send(destination: destination, headers: headers, body: body);
 }
 
 enum RealtimeFailure { connection, authentication, subscription, send }

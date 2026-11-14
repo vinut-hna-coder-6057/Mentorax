@@ -69,36 +69,26 @@ void main() {
       (server) => server.replyCallback(
         200,
         (_) => [
-          {...event, 'attendeeCount': attendeeCount}
+          {...event, 'attendeeCount': attendeeCount},
         ],
       ),
       queryParameters: {'page': 0, 'size': 50},
     );
     adapter.onGet(
       '/events/10/registration-status',
-      (server) => server.replyCallback(
-        200,
-        (_) => {'registered': registered},
-      ),
+      (server) => server.replyCallback(200, (_) => {'registered': registered}),
     );
-    adapter.onPost(
-      '/events/register',
-      (server) {
-        if (failRegistration) {
-          server.reply(500, {'error': 'Internal server error'});
-          return;
-        }
-        server.replyCallback(
-          200,
-          (_) {
-            registered = true;
-            attendeeCount++;
-            return {'message': 'Registered successfully'};
-          },
-        );
-      },
-      queryParameters: {'eventId': 10},
-    );
+    adapter.onPost('/events/register', (server) {
+      if (failRegistration) {
+        server.reply(500, {'error': 'Internal server error'});
+        return;
+      }
+      server.replyCallback(200, (_) {
+        registered = true;
+        attendeeCount++;
+        return {'message': 'Registered successfully'};
+      });
+    }, queryParameters: {'eventId': 10});
 
     final storage = SecureStorageService(const FlutterSecureStorage());
     final repository = AppRepository(ApiClient(storage, dio: dio));
@@ -123,8 +113,9 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('registration status loads and refreshes after successful RSVP',
-      (tester) async {
+  testWidgets('registration status loads and refreshes after successful RSVP', (
+    tester,
+  ) async {
     await pumpDetails(tester, failRegistration: false);
 
     expect(find.text('Register'), findsOneWidget);
@@ -134,8 +125,9 @@ void main() {
     expect(find.text('Cancel registration'), findsOneWidget);
     expect(find.text('4 attendees'), findsOneWidget);
     expect(
-      requestLog
-          .where((request) => request == 'GET /events/10/registration-status'),
+      requestLog.where(
+        (request) => request == 'GET /events/10/registration-status',
+      ),
       hasLength(2),
     );
     expect(
@@ -144,18 +136,20 @@ void main() {
     );
   });
 
-  testWidgets('failed RSVP shows an error and does not change registered state',
-      (tester) async {
-    await pumpDetails(tester, failRegistration: true);
+  testWidgets(
+    'failed RSVP shows an error and does not change registered state',
+    (tester) async {
+      await pumpDetails(tester, failRegistration: true);
 
-    await tester.tap(find.text('Register'));
-    await tester.pumpAndSettle();
+      await tester.tap(find.text('Register'));
+      await tester.pumpAndSettle();
 
-    expect(find.text('Register'), findsOneWidget);
-    expect(find.text('Cancel registration'), findsNothing);
-    expect(
-      find.text('The service is temporarily unavailable. Try again shortly.'),
-      findsOneWidget,
-    );
-  });
+      expect(find.text('Register'), findsOneWidget);
+      expect(find.text('Cancel registration'), findsNothing);
+      expect(
+        find.text('The service is temporarily unavailable. Try again shortly.'),
+        findsOneWidget,
+      );
+    },
+  );
 }

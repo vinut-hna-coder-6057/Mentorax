@@ -1,0 +1,335 @@
+{
+  "corpusVersion": 1,
+  "name": "Mentorax synthetic experience document quality corpus",
+  "syntheticOnly": true,
+  "realWorldAccuracyClaim": false,
+  "confidenceCalibration": "not evaluated",
+  "documents": [
+    {
+      "id": "internship_completion_month_year",
+      "category": "internship completion certificate",
+      "format": "digital_pdf",
+      "claimType": "INTERNSHIP",
+      "company": "Northstar Synthetic Labs",
+      "jobTitle": "Software Intern",
+      "employeeName": "Synthetic Candidate",
+      "startMonth": "2025-01",
+      "endMonth": "2025-06",
+      "text": "INTERNSHIP COMPLETION CERTIFICATE\nName: Synthetic Candidate\nOrganization: Northstar Synthetic Labs\nRole: Software Intern\nStart Date: January 2025\nEnd Date: June 2025\nIssue Date: July 1, 2025\nIssued By: Northstar Synthetic Labs Training Office\nCertificate No: SYN-INT-2025-001\nThis certificate confirms completion of a synthetic internship program.",
+      "expectedClassification": "INTERNSHIP_CERTIFICATE",
+      "expectedFields": {
+        "personName": {"status": "FOUND", "value": "Synthetic Candidate"},
+        "organisation": {"status": "FOUND", "value": "Northstar Synthetic Labs"},
+        "role": {"status": "FOUND", "value": "Software Intern"},
+        "startDate": {"status": "FOUND", "value": "January 2025"},
+        "endDate": {"status": "FOUND", "value": "June 2025"},
+        "issueDate": {"status": "FOUND", "value": "July 1, 2025"},
+        "issuer": {"status": "FOUND", "value": "Northstar Synthetic Labs Training Office"},
+        "certificateReferenceId": {"status": "FOUND", "value": "SYN-INT-2025-001"}
+      },
+      "expectedComparisons": {
+        "employeeName": "MATCH",
+        "company": "MATCH",
+        "jobTitle": "MATCH",
+        "startMonth": "MATCH",
+        "endMonth": "MATCH"
+      }
+    },
+    {
+      "id": "internship_offer_iso_date",
+      "category": "internship offer letter",
+      "format": "digital_pdf",
+      "claimType": "INTERNSHIP",
+      "company": "Northstar Synthetic Labs",
+      "jobTitle": "Data Intern",
+      "employeeName": "Synthetic Candidate",
+      "startMonth": "2025-06",
+      "text": "INTERNSHIP OFFER LETTER\nName: Synthetic Candidate\nEmployer: Northstar Synthetic Labs\nPosition: Data Intern\nStart Date: 2025-06-01\nIssue Date: June 1, 2025\nIssued By: Northstar Synthetic Labs Recruiting\nThis synthetic offer describes a proposed internship; it does not prove that the role was completed.",
+      "expectedClassification": "OFFER_LETTER",
+      "expectedFields": {
+        "personName": {"status": "FOUND", "value": "Synthetic Candidate"},
+        "organisation": {"status": "FOUND", "value": "Northstar Synthetic Labs"},
+        "role": {"status": "FOUND", "value": "Data Intern"},
+        "startDate": {"status": "FOUND", "value": "2025-06-01"},
+        "endDate": {"status": "NOT_PRESENT", "value": null},
+        "issueDate": {"status": "FOUND", "value": "June 1, 2025"}
+      },
+      "expectedComparisons": {
+        "employeeName": "MATCH",
+        "company": "MATCH",
+        "jobTitle": "MATCH",
+        "startMonth": "MATCH",
+        "endMonth": "MISSING"
+      }
+    },
+    {
+      "id": "experience_letter_day_month_year",
+      "category": "experience letter",
+      "format": "digital_pdf",
+      "claimType": "INTERNSHIP",
+      "company": "Northstar Synthetic Labs",
+      "jobTitle": "Platform Engineer",
+      "employeeName": "Synthetic Candidate",
+      "startMonth": "2024-06",
+      "endMonth": "2025-05",
+      "text": "WORK EXPERIENCE LETTER\nEmployee Name: Synthetic Candidate\nEmployer: Northstar Synthetic Labs\nDesignation: Platform Engineer\nJoining Date: 1 June 2024\nEnd Date: 31 May 2025\nIssued By: Northstar Synthetic Labs People Team\nThis synthetic letter describes a fixed-term professional experience.",
+      "expectedClassification": "EXPERIENCE_CERTIFICATE",
+      "expectedFields": {
+        "personName": {"status": "FOUND", "value": "Synthetic Candidate"},
+        "organisation": {"status": "FOUND", "value": "Northstar Synthetic Labs"},
+        "role": {"status": "FOUND", "value": "Platform Engineer"},
+        "startDate": {"status": "FOUND", "value": "1 June 2024"},
+        "endDate": {"status": "FOUND", "value": "31 May 2025"}
+      },
+      "expectedComparisons": {
+        "employeeName": "MATCH",
+        "company": "MATCH",
+        "jobTitle": "MATCH",
+        "startMonth": "MATCH",
+        "endMonth": "MATCH"
+      }
+    },
+    {
+      "id": "employment_confirmation_iso_dates",
+      "category": "employment confirmation letter",
+      "format": "digital_pdf",
+      "claimType": "UNSPECIFIED",
+      "company": "Northstar Synthetic Labs",
+      "jobTitle": "Quality Analyst",
+      "employeeName": "Synthetic Candidate",
+      "startMonth": "2025-02",
+      "endMonth": "2025-08",
+      "text": "EMPLOYMENT CONFIRMATION LETTER\nEmployee Name: Synthetic Candidate\nCompany: Northstar Synthetic Labs\nJob Title: Quality Analyst\nStart Date: 2025-02-01\nEnd Date: 2025-08-31\nIssued By: Northstar Synthetic Labs Human Resources\nThis synthetic letter confirms the stated employment dates in its text only.",
+      "expectedClassification": "EMPLOYMENT_CERTIFICATE",
+      "expectedFields": {
+        "personName": {"status": "FOUND", "value": "Synthetic Candidate"},
+        "organisation": {"status": "FOUND", "value": "Northstar Synthetic Labs"},
+        "role": {"status": "FOUND", "value": "Quality Analyst"},
+        "startDate": {"status": "FOUND", "value": "2025-02-01"},
+        "endDate": {"status": "FOUND", "value": "2025-08-31"}
+      },
+      "expectedComparisons": {
+        "employeeName": "MATCH",
+        "company": "MATCH",
+        "jobTitle": "MATCH",
+        "startMonth": "MATCH",
+        "endMonth": "MATCH"
+      }
+    },
+    {
+      "id": "relieving_letter",
+      "category": "relieving letter",
+      "format": "digital_pdf",
+      "claimType": "UNSPECIFIED",
+      "company": "Northstar Synthetic Labs",
+      "jobTitle": "Operations Associate",
+      "employeeName": "Synthetic Candidate",
+      "startMonth": "2023-09",
+      "endMonth": "2025-02",
+      "text": "RELIEVING LETTER\nEmployee Name: Synthetic Candidate\nOrganization: Northstar Synthetic Labs\nRole: Operations Associate\nJoining Date: 2023-09-01\nEnd Date: 2025-02-28\nIssued By: Northstar Synthetic Labs People Operations\nThis synthetic letter records an end-of-employment date.",
+      "expectedClassification": "RELIEVING_LETTER",
+      "expectedFields": {
+        "personName": {"status": "FOUND", "value": "Synthetic Candidate"},
+        "organisation": {"status": "FOUND", "value": "Northstar Synthetic Labs"},
+        "role": {"status": "FOUND", "value": "Operations Associate"},
+        "startDate": {"status": "FOUND", "value": "2023-09-01"},
+        "endDate": {"status": "FOUND", "value": "2025-02-28"}
+      },
+      "expectedComparisons": {
+        "employeeName": "MATCH",
+        "company": "MATCH",
+        "jobTitle": "MATCH",
+        "startMonth": "MATCH",
+        "endMonth": "MATCH"
+      }
+    },
+    {
+      "id": "mentorship_certificate",
+      "category": "mentorship certificate",
+      "format": "digital_pdf",
+      "claimType": "MENTORSHIP",
+      "company": "Northstar Synthetic Labs",
+      "jobTitle": "Data Science Mentee",
+      "employeeName": "Synthetic Candidate",
+      "startMonth": "2025-03",
+      "endMonth": "2025-09",
+      "text": "MENTORSHIP CERTIFICATE\nMentee: Synthetic Candidate\nOrganization: Northstar Synthetic Labs\nRole: Data Science Mentee\nMentor: Synthetic Mentor\nStart Date: March 2025\nEnd Date: September 2025\nThis synthetic certificate records participation in a mentorship program.",
+      "expectedClassification": "MENTORSHIP_CERTIFICATE",
+      "expectedFields": {
+        "personName": {"status": "FOUND", "value": "Synthetic Candidate"},
+        "organisation": {"status": "FOUND", "value": "Northstar Synthetic Labs"},
+        "role": {"status": "FOUND", "value": "Data Science Mentee"},
+        "mentorSupervisor": {"status": "FOUND", "value": "Synthetic Mentor"},
+        "startDate": {"status": "FOUND", "value": "March 2025"},
+        "endDate": {"status": "FOUND", "value": "September 2025"}
+      },
+      "expectedComparisons": {
+        "employeeName": "MATCH",
+        "company": "MATCH",
+        "jobTitle": "MATCH",
+        "startMonth": "MATCH",
+        "endMonth": "MATCH"
+      }
+    },
+    {
+      "id": "missing_fields",
+      "category": "internship certificate with missing fields",
+      "format": "digital_pdf",
+      "claimType": "INTERNSHIP",
+      "company": "Northstar Synthetic Labs",
+      "jobTitle": "Software Intern",
+      "employeeName": "Synthetic Candidate",
+      "startMonth": "2025-01",
+      "endMonth": "2025-06",
+      "text": "INTERNSHIP COMPLETION LETTER\nStudent: Synthetic Candidate\nOrganization: Northstar Synthetic Labs\nThis synthetic letter confirms program participation. The role and dates were intentionally omitted.",
+      "expectedClassification": "INTERNSHIP_CERTIFICATE",
+      "expectedFields": {
+        "personName": {"status": "FOUND", "value": "Synthetic Candidate"},
+        "organisation": {"status": "FOUND", "value": "Northstar Synthetic Labs"},
+        "role": {"status": "NOT_PRESENT", "value": null},
+        "startDate": {"status": "NOT_PRESENT", "value": null},
+        "endDate": {"status": "NOT_PRESENT", "value": null}
+      },
+      "expectedComparisons": {
+        "employeeName": "MATCH",
+        "company": "MATCH",
+        "jobTitle": "MISSING",
+        "startMonth": "MISSING",
+        "endMonth": "MISSING"
+      }
+    },
+    {
+      "id": "ambiguous_multiple_start_dates",
+      "category": "internship certificate with conflicting date mentions",
+      "format": "digital_pdf",
+      "claimType": "INTERNSHIP",
+      "company": "Northstar Synthetic Labs",
+      "jobTitle": "Software Intern",
+      "employeeName": "Synthetic Candidate",
+      "startMonth": "2025-01",
+      "endMonth": "2025-06",
+      "text": "INTERNSHIP CERTIFICATE\nName: Synthetic Candidate\nOrganization: Northstar Synthetic Labs\nRole: Software Intern\nStart Date: January 2025\nStart Date: March 2025\nEnd Date: June 2025\nThis synthetic certificate deliberately contains two distinct start dates.",
+      "expectedClassification": "INTERNSHIP_CERTIFICATE",
+      "expectedFields": {
+        "startDate": {"status": "AMBIGUOUS", "value": null},
+        "endDate": {"status": "FOUND", "value": "June 2025"}
+      },
+      "expectedComparisons": {
+        "startMonth": "INCONCLUSIVE",
+        "endMonth": "MATCH"
+      }
+    },
+    {
+      "id": "sensitive_values_redacted",
+      "category": "synthetic sensitive-data filtering",
+      "format": "digital_pdf",
+      "claimType": "INTERNSHIP",
+      "company": "Northstar Synthetic Labs",
+      "jobTitle": "Software Intern",
+      "employeeName": "Synthetic Candidate",
+      "startMonth": "2025-01",
+      "endMonth": "2025-06",
+      "text": "INTERNSHIP CERTIFICATE\nName: Synthetic Candidate\nOrganization: Northstar Synthetic Labs\nRole: Software Intern\nStart Date: January 2025\nEnd Date: June 2025\nOTP: 735904\nPIN: 4812\nPassword: fake-passphrase-42\nBearer fake-bearer-token-abc123\nAPI key: sk-test_fake_api_key_123456\nBank Account Number: 123456789012\nCard Number: 4111 1111 1111 1111\nAll planted credentials and account values in this synthetic fixture are fictitious.",
+      "expectedClassification": "INTERNSHIP_CERTIFICATE",
+      "expectedFields": {
+        "personName": {"status": "FOUND", "value": "Synthetic Candidate"},
+        "organisation": {"status": "FOUND", "value": "Northstar Synthetic Labs"},
+        "startDate": {"status": "FOUND", "value": "January 2025"},
+        "endDate": {"status": "FOUND", "value": "June 2025"}
+      },
+      "expectedComparisons": {
+        "employeeName": "MATCH",
+        "company": "MATCH",
+        "jobTitle": "MATCH",
+        "startMonth": "MATCH",
+        "endMonth": "MATCH"
+      },
+      "plantedSensitiveValues": [
+        "735904",
+        "4812",
+        "fake-passphrase-42",
+        "fake-bearer-token-abc123",
+        "sk-test_fake_api_key_123456",
+        "123456789012",
+        "4111 1111 1111 1111"
+      ]
+    },
+    {
+      "id": "scanned_internship_certificate",
+      "category": "scanned internship certificate (OCR)",
+      "format": "scanned_pdf",
+      "claimType": "INTERNSHIP",
+      "company": "Northstar Synthetic Labs",
+      "jobTitle": "Research Intern",
+      "employeeName": "Synthetic Candidate",
+      "startMonth": "2025-01",
+      "endMonth": "2025-06",
+      "text": "INTERNSHIP CERTIFICATE\nName: Synthetic Candidate\nOrganization: Northstar Synthetic Labs\nRole: Research Intern\nStart Date: January 2025\nEnd Date: June 2025\nThis scanned synthetic certificate tests OCR text extraction.",
+      "expectedClassification": "INTERNSHIP_CERTIFICATE",
+      "expectedFields": {
+        "personName": {"status": "FOUND", "value": "Synthetic Candidate"},
+        "organisation": {"status": "FOUND", "value": "Northstar Synthetic Labs"},
+        "role": {"status": "FOUND", "value": "Research Intern"},
+        "startDate": {"status": "FOUND", "value": "January 2025"},
+        "endDate": {"status": "FOUND", "value": "June 2025"}
+      },
+      "expectedComparisons": {
+        "employeeName": "MATCH",
+        "company": "MATCH",
+        "jobTitle": "MATCH",
+        "startMonth": "MATCH",
+        "endMonth": "MATCH"
+      }
+    },
+    {
+      "id": "conflicting_document_start_month",
+      "category": "second document with conflicting start month",
+      "format": "digital_pdf",
+      "claimType": "INTERNSHIP",
+      "company": "Northstar Synthetic Labs",
+      "jobTitle": "Software Intern",
+      "employeeName": "Synthetic Candidate",
+      "startMonth": "2025-01",
+      "endMonth": "2025-06",
+      "text": "INTERNSHIP CERTIFICATE\nName: Synthetic Candidate\nOrganization: Northstar Synthetic Labs\nRole: Software Intern\nStart Date: March 2025\nEnd Date: June 2025\nThis synthetic second certificate intentionally differs on the start month.",
+      "expectedClassification": "INTERNSHIP_CERTIFICATE",
+      "expectedFields": {
+        "startDate": {"status": "FOUND", "value": "March 2025"},
+        "endDate": {"status": "FOUND", "value": "June 2025"}
+      },
+      "expectedComparisons": {
+        "startMonth": "MISMATCH",
+        "endMonth": "MATCH"
+      }
+    },
+    {
+      "id": "compatible_support_letter",
+      "category": "compatible complementary support letter",
+      "format": "digital_pdf",
+      "claimType": "INTERNSHIP",
+      "company": "Northstar Synthetic Labs",
+      "jobTitle": "Software Intern",
+      "employeeName": "Synthetic Candidate",
+      "startMonth": "2025-01",
+      "endMonth": "2025-06",
+      "text": "EMPLOYMENT SUPPORT LETTER\nEmployee Name: Synthetic Candidate\nOrganization: Northstar Synthetic Labs\nRole: Software Intern\nStart Date: January 2025\nEnd Date: June 2025\nThis synthetic support letter describes the same dates and is compatible evidence.",
+      "expectedClassification": "OTHER_SUPPORTING_EVIDENCE",
+      "expectedFields": {
+        "personName": {"status": "FOUND", "value": "Synthetic Candidate"},
+        "organisation": {"status": "FOUND", "value": "Northstar Synthetic Labs"},
+        "role": {"status": "FOUND", "value": "Software Intern"},
+        "startDate": {"status": "FOUND", "value": "January 2025"},
+        "endDate": {"status": "FOUND", "value": "June 2025"}
+      },
+      "expectedComparisons": {
+        "startMonth": "MATCH",
+        "endMonth": "MATCH"
+      }
+    }
+  ],
+  "invalidDocuments": [
+    {"id": "empty_file", "format": "empty_pdf", "contentType": "application/pdf", "expectedHttpStatus": 422},
+    {"id": "corrupted_pdf", "format": "corrupt_pdf", "contentType": "application/pdf", "expectedHttpStatus": 422},
+    {"id": "unsupported_text_file", "format": "plain_text", "contentType": "text/plain", "expectedHttpStatus": 415}
+  ]
+}

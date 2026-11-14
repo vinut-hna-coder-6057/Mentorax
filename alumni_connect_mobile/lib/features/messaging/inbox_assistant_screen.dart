@@ -49,11 +49,8 @@ class _InboxAssistantScreenState extends ConsumerState<InboxAssistantScreen> {
                     .read(conversationsProvider(null).notifier)
                     .loadFirstPage(),
               ),
-              data: (items) => _buildConversationResults(
-                context,
-                items,
-                category,
-              ),
+              data: (items) =>
+                  _buildConversationResults(context, items, category),
             ),
     );
   }
@@ -112,13 +109,15 @@ class _InboxAssistantScreenState extends ConsumerState<InboxAssistantScreen> {
 
     return FutureBuilder<List<_ConversationClassification>>(
       key: ValueKey(
-        items.map((conversation) {
-          return [
-            conversation.email,
-            conversation.timestamp ?? '',
-            conversation.latestMessage,
-          ].join('\u0000');
-        }).join('\u0001'),
+        items
+            .map((conversation) {
+              return [
+                conversation.email,
+                conversation.timestamp ?? '',
+                conversation.latestMessage,
+              ].join('\u0000');
+            })
+            .join('\u0001'),
       ),
       future: _classifyConversations(items),
       builder: (context, snapshot) {
@@ -260,8 +259,8 @@ class _InboxAssistantScreenState extends ConsumerState<InboxAssistantScreen> {
               onTap: conversation.email.isEmpty
                   ? null
                   : () => context.push(
-                        '/chat/${Uri.encodeComponent(conversation.email)}',
-                      ),
+                      '/chat/${Uri.encodeComponent(conversation.email)}',
+                    ),
             );
           },
         ),
@@ -312,8 +311,9 @@ class _InboxAssistantScreenState extends ConsumerState<InboxAssistantScreen> {
       conversation.latestMessage,
     ].join('\u0000');
     return _classificationCache.putIfAbsent(key, () async {
-      final latestCategory =
-          classifyConversationMessages([conversation.latestMessage]);
+      final latestCategory = classifyConversationMessages([
+        conversation.latestMessage,
+      ]);
       if (latestCategory != InboxCategory.other ||
           userEmail == null ||
           userEmail.isEmpty ||
@@ -321,12 +321,9 @@ class _InboxAssistantScreenState extends ConsumerState<InboxAssistantScreen> {
         return _ConversationClassification(latestCategory);
       }
       try {
-        final recentMessages = await ref.read(appRepositoryProvider).messages(
-              userEmail,
-              conversation.email,
-              page: 0,
-              size: 20,
-            );
+        final recentMessages = await ref
+            .read(appRepositoryProvider)
+            .messages(userEmail, conversation.email, page: 0, size: 20);
         if (!mounted || generation != _classificationGeneration) {
           return _ConversationClassification(latestCategory);
         }
@@ -347,10 +344,7 @@ class _InboxAssistantScreenState extends ConsumerState<InboxAssistantScreen> {
 }
 
 class _ConversationClassification {
-  const _ConversationClassification(
-    this.category, {
-    this.historyError,
-  });
+  const _ConversationClassification(this.category, {this.historyError});
 
   final InboxCategory category;
   final String? historyError;

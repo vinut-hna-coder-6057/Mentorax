@@ -57,8 +57,10 @@ void main() {
       expect(endpoint, 'https://mentorax-production.up.railway.app/chat');
 
       final config = StompConfig.sockJS(url: endpoint);
-      expect(config.connectUrl,
-          startsWith('wss://mentorax-production.up.railway.app/chat/'));
+      expect(
+        config.connectUrl,
+        startsWith('wss://mentorax-production.up.railway.app/chat/'),
+      );
       expect(config.connectUrl, endsWith('/websocket'));
     });
 
@@ -75,10 +77,9 @@ void main() {
     });
 
     test('places the bearer token in the STOMP CONNECT headers', () {
-      expect(
-        RealtimeService.stompHeadersForToken('test.jwt.value'),
-        {'Authorization': 'Bearer test.jwt.value'},
-      );
+      expect(RealtimeService.stompHeadersForToken('test.jwt.value'), {
+        'Authorization': 'Bearer test.jwt.value',
+      });
     });
 
     test('rejects a missing token without creating a STOMP client', () async {
@@ -120,89 +121,100 @@ void main() {
       );
     });
 
-    test('stale sessions and reconnect subscriptions cannot publish events',
-        () async {
-      final clients = <_FakeStompClient>[];
-      final service = RealtimeService(
-        clientFactory: (config) {
-          final client = _FakeStompClient(config);
-          clients.add(client);
-          return client;
-        },
-      );
-      final messages = <RealtimeSessionEvent<ChatMessage>>[];
-      final notifications = <RealtimeSessionEvent<NotificationItem>>[];
-      final messageSubscription = service.messageEvents.listen(messages.add);
-      final notificationSubscription =
-          service.notificationEvents.listen(notifications.add);
-      addTearDown(() async {
-        await messageSubscription.cancel();
-        await notificationSubscription.cancel();
-        await service.dispose();
-      });
+    test(
+      'stale sessions and reconnect subscriptions cannot publish events',
+      () async {
+        final clients = <_FakeStompClient>[];
+        final service = RealtimeService(
+          clientFactory: (config) {
+            final client = _FakeStompClient(config);
+            clients.add(client);
+            return client;
+          },
+        );
+        final messages = <RealtimeSessionEvent<ChatMessage>>[];
+        final notifications = <RealtimeSessionEvent<NotificationItem>>[];
+        final messageSubscription = service.messageEvents.listen(messages.add);
+        final notificationSubscription = service.notificationEvents.listen(
+          notifications.add,
+        );
+        addTearDown(() async {
+          await messageSubscription.cancel();
+          await notificationSubscription.cancel();
+          await service.dispose();
+        });
 
-      service.connect('first-token');
-      service.connect('first-token');
-      expect(clients, hasLength(1));
-      final firstClient = clients.single;
-      await firstClient.open();
-      firstClient.config.onConnect(StompFrame(command: 'CONNECTED'));
-      expect(
-          firstClient.subscriptions.values.fold(0, (n, x) => n + x.length), 2);
+        service.connect('first-token');
+        service.connect('first-token');
+        expect(clients, hasLength(1));
+        final firstClient = clients.single;
+        await firstClient.open();
+        firstClient.config.onConnect(StompFrame(command: 'CONNECTED'));
+        expect(
+          firstClient.subscriptions.values.fold(0, (n, x) => n + x.length),
+          2,
+        );
 
-      final firstMessageCallback = firstClient
-          .subscriptions[RealtimeService.messagesDestination]!.single;
-      firstMessageCallback(_messageFrame(1));
-      firstMessageCallback(_messageFrame(1));
-      await pumpEventQueue();
-      expect(messages, hasLength(1));
+        final firstMessageCallback = firstClient
+            .subscriptions[RealtimeService.messagesDestination]!
+            .single;
+        firstMessageCallback(_messageFrame(1));
+        firstMessageCallback(_messageFrame(1));
+        await pumpEventQueue();
+        expect(messages, hasLength(1));
 
-      firstClient.config.onWebSocketDone();
-      await firstClient.open();
-      expect(
-          firstClient.subscriptions.values.fold(0, (n, x) => n + x.length), 4);
-      final reconnectedCallback =
-          firstClient.subscriptions[RealtimeService.messagesDestination]!.last;
-      firstMessageCallback(_messageFrame(2));
-      reconnectedCallback(_messageFrame(2));
-      await pumpEventQueue();
-      expect(messages.map((event) => event.value.id), [1, 2]);
+        firstClient.config.onWebSocketDone();
+        await firstClient.open();
+        expect(
+          firstClient.subscriptions.values.fold(0, (n, x) => n + x.length),
+          4,
+        );
+        final reconnectedCallback = firstClient
+            .subscriptions[RealtimeService.messagesDestination]!
+            .last;
+        firstMessageCallback(_messageFrame(2));
+        reconnectedCallback(_messageFrame(2));
+        await pumpEventQueue();
+        expect(messages.map((event) => event.value.id), [1, 2]);
 
-      service.connect('replacement-token');
-      expect(firstClient.deactivated, isTrue);
-      final replacement = clients.last;
-      await replacement.open();
-      final replacementCallback = replacement
-          .subscriptions[RealtimeService.messagesDestination]!.single;
-      firstClient.subscriptions[RealtimeService.messagesDestination]!.last(
-        _messageFrame(3),
-      );
-      replacementCallback(_messageFrame(3));
-      final notificationCallback = replacement
-          .subscriptions[RealtimeService.notificationsDestination]!.single;
-      notificationCallback(_notificationFrame(9));
-      notificationCallback(_notificationFrame(9));
-      await pumpEventQueue();
-      expect(messages.map((event) => event.value.id), [1, 2, 3]);
-      expect(notifications, hasLength(1));
+        service.connect('replacement-token');
+        expect(firstClient.deactivated, isTrue);
+        final replacement = clients.last;
+        await replacement.open();
+        final replacementCallback = replacement
+            .subscriptions[RealtimeService.messagesDestination]!
+            .single;
+        firstClient.subscriptions[RealtimeService.messagesDestination]!.last(
+          _messageFrame(3),
+        );
+        replacementCallback(_messageFrame(3));
+        final notificationCallback = replacement
+            .subscriptions[RealtimeService.notificationsDestination]!
+            .single;
+        notificationCallback(_notificationFrame(9));
+        notificationCallback(_notificationFrame(9));
+        await pumpEventQueue();
+        expect(messages.map((event) => event.value.id), [1, 2, 3]);
+        expect(notifications, hasLength(1));
 
-      service.disconnect();
-      replacementCallback(_messageFrame(4));
-      await pumpEventQueue();
-      expect(messages.map((event) => event.value.id), [1, 2, 3]);
-      expect(replacement.deactivated, isTrue);
-    });
+        service.disconnect();
+        replacementCallback(_messageFrame(4));
+        await pumpEventQueue();
+        expect(messages.map((event) => event.value.id), [1, 2, 3]);
+        expect(replacement.deactivated, isTrue);
+      },
+    );
   });
 }
 
 StompFrame _messageFrame(int id) => StompFrame(
-      command: 'MESSAGE',
-      body:
-          '{"id":$id,"senderEmail":"alice@example.test","receiverEmail":"bob@example.test","content":"hello","timestamp":"2026-10-11T10:00:00"}',
-    );
+  command: 'MESSAGE',
+  body:
+      '{"id":$id,"senderEmail":"alice@example.test","receiverEmail":"bob@example.test","content":"hello","timestamp":"2026-10-11T10:00:00"}',
+);
 
 StompFrame _notificationFrame(int id) => StompFrame(
-      command: 'MESSAGE',
-      body:
-          '{"id":$id,"message":"hello","read":false,"type":"MESSAGE","timestamp":"2026-10-11T10:00:00"}',
-    );
+  command: 'MESSAGE',
+  body:
+      '{"id":$id,"message":"hello","read":false,"type":"MESSAGE","timestamp":"2026-10-11T10:00:00"}',
+);

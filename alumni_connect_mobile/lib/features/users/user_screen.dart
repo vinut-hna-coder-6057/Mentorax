@@ -26,19 +26,20 @@ class _UserScreenState extends ConsumerState<UserScreen> {
     try {
       await action();
       if (!mounted) return;
-      final refreshedConnections =
-          await ref.refresh(connectionsProvider.future);
+      final refreshedConnections = await ref.refresh(
+        connectionsProvider.future,
+      );
       if (!context.mounted) return;
       if (refreshedConnections.isNotEmpty || successMessage.isNotEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(successMessage)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(successMessage)));
       }
     } catch (error) {
       if (mounted && context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(userFacingError(error))),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(userFacingError(error))));
       }
     } finally {
       if (mounted) {
@@ -108,15 +109,11 @@ class _UserScreenState extends ConsumerState<UserScreen> {
               tooltip: 'Accept connection request',
               onPressed: _connectionActionInProgress
                   ? null
-                  : () => _performConnectionAction(
-                        c,
-                        () async {
-                          await r
-                              .read(appRepositoryProvider)
-                              .respondConnection(connection.id, 'ACCEPTED');
-                        },
-                        'Connection accepted',
-                      ),
+                  : () => _performConnectionAction(c, () async {
+                      await r
+                          .read(appRepositoryProvider)
+                          .respondConnection(connection.id, 'ACCEPTED');
+                    }, 'Connection accepted'),
               icon: _connectionActionInProgress
                   ? const SizedBox(
                       width: 20,
@@ -130,15 +127,9 @@ class _UserScreenState extends ConsumerState<UserScreen> {
               tooltip: 'Connect',
               onPressed: _connectionActionInProgress
                   ? null
-                  : () => _performConnectionAction(
-                        c,
-                        () async {
-                          await r
-                              .read(appRepositoryProvider)
-                              .requestConnection(id);
-                        },
-                        'Connection requested',
-                      ),
+                  : () => _performConnectionAction(c, () async {
+                      await r.read(appRepositoryProvider).requestConnection(id);
+                    }, 'Connection requested'),
               icon: _connectionActionInProgress
                   ? const SizedBox(
                       width: 20,
@@ -181,9 +172,11 @@ class _UserScreenState extends ConsumerState<UserScreen> {
                       radius: 42,
                     ),
                     const SizedBox(height: AppSpacing.md),
-                    Text(user.name,
-                        style: Theme.of(c).textTheme.headlineSmall,
-                        textAlign: TextAlign.center),
+                    Text(
+                      user.name,
+                      style: Theme.of(c).textTheme.headlineSmall,
+                      textAlign: TextAlign.center,
+                    ),
                     const SizedBox(height: AppSpacing.xs),
                     if ((isOwnProfile || currentUser?.role == UserRole.admin) &&
                         user.email.isNotEmpty)
@@ -255,10 +248,12 @@ class _UserScreenState extends ConsumerState<UserScreen> {
                               .split(RegExp(r'[,;]'))
                               .map((value) => value.trim())
                               .where((value) => value.isNotEmpty)
-                              .map((value) => Chip(
-                                    avatar: Icon(section.$3, size: 16),
-                                    label: Text(value),
-                                  ))
+                              .map(
+                                (value) => Chip(
+                                  avatar: Icon(section.$3, size: 16),
+                                  label: Text(value),
+                                ),
+                              )
                               .toList(),
                         ),
                       ],

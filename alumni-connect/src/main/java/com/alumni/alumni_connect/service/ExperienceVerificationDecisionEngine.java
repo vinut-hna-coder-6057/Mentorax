@@ -22,6 +22,9 @@ public class ExperienceVerificationDecisionEngine {
     private static final String SCHEMA_VERSION = "mentorax.document-understanding.v1";
     private static final BigDecimal MIN_RELIABLE_CONFIDENCE = new BigDecimal("0.5");
     private static final Pattern YEAR_MONTH = Pattern.compile("(\\d{4})[-/.](\\d{1,2})");
+    private static final Pattern MONTH_NAME_YEAR = Pattern.compile(
+            "(?i)\\b(January|Jan|February|Feb|March|Mar|April|Apr|May|June|Jun|July|Jul|"
+                    + "August|Aug|September|Sept|Sep|October|Oct|November|Nov|December|Dec)\\.?\\s+(\\d{4})\\b");
     private static final Set<String> REQUIRED_FIELDS = Set.of("employeeName", "company", "jobTitle");
     private static final Map<String, String> EXTRACTED_TO_CLAIM_FIELD = Map.of(
             "personName", "employeeName",
@@ -53,6 +56,7 @@ public class ExperienceVerificationDecisionEngine {
         Set<String> unprocessedFields = new LinkedHashSet<>();
         Set<String> lowConfidenceFields = new LinkedHashSet<>();
         Map<String, Set<String>> valuesByField = new LinkedHashMap<>();
+        Set<Integer> declaredConflictVersions = declaredConflictVersions(activeEvidence);
         boolean hasMissingExtraction = false;
         boolean hasUnreadableDocument = false;
         boolean hasUnsafeDocument = false;
@@ -82,29 +86,34 @@ public class ExperienceVerificationDecisionEngine {
 
             for (StructuredEvidenceExtraction.Field field : extraction.fields()) {
                 String claimField = EXTRACTED_TO_CLAIM_FIELD.get(field.name());
-                if (claimField == null) continue;
+                String comparisonField = claimField;
+                if (comparisonField == null && Set.of("duration", "issuer").contains(field.name())) {
+                    comparisonField = field.name();
+                }
+                if (comparisonField == null) continue;
 
                 switch (field.status()) {
                     case "FOUND" -> {
                         if (isLowConfidence(field)) {
-                            lowConfidenceFields.add(claimField);
+                            lowConfidenceFields.add(comparisonField);
                             continue;
                         }
-                        String extractedValue = normalizeForComparison(claimField, field.value());
+                        String extractedValue = normalizeForComparison(comparisonField, field.value());
                         if (extractedValue.isEmpty()) continue;
-                        valuesByField.computeIfAbsent(claimField, ignored -> new LinkedHashSet<>())
+                        valuesByField.computeIfAbsent(comparisonField, ignored -> new LinkedHashSet<>())
                                 .add(extractedValue);
-                        String expectedValue = normalizeForComparison(claimField, claimValue(claim, claimField));
+                        String expectedValue = claimField == null
+                                ? "" : normalizeForComparison(claimField, claimValue(claim, claimField));
                         if (expectedValue.isEmpty() || expectedValue.equals(extractedValue)) {
-                            matchedFields.add(claimField);
+                            matchedFields.add(comparisonField);
                         } else {
-                            mismatchedFields.add(claimField);
+                            mismatchedFields.add(comparisonField);
                         }
                     }
-                    case "AMBIGUOUS" -> ambiguousFields.add(claimField);
-                    case "UNREADABLE" -> unreadableFields.add(claimField);
-                    case "NOT_PRESENT" -> missingFields.add(claimField);
-                    case "NOT_PROCESSED" -> unprocessedFields.add(claimField);
+                    case "AMBIGUOUS" -> ambiguousFields.add(comparisonField);
+                    case "UNREADABLE" -> unreadableFields.add(comparisonField);
+                    case "NOT_PRESENT" -> missingFields.add(comparisonField);
+                    case "NOT_PROCESSED" -> unprocessedFields.add(comparisonField);
                     default -> throw new IllegalArgumentException("Persisted extraction has an unsupported field status");
                 }
             }
@@ -120,6 +129,22 @@ public class ExperienceVerificationDecisionEngine {
         valuesByField.forEach((field, values) -> {
             if (values.size() > 1) mismatchedFields.add(field);
         });
+        if (!declaredConflictVersions.isEmpty()) {
+            String versions = declaredConflictVersions.stream()
+                    .sorted()
+                    .map(String::valueOf)
+                    .reduce((first, second) -> first + " and " + second)
+                    .orElseThrow();
+            String extractedConflict = mismatchedFields.isEmpty()
+                    ? ""
+                    : " Extracted information also differs for: " + String.join(", ", mismatchedFields) + ".";
+            return new Decision(
+                    "INCONSISTENT",
+                    "Active evidence versions " + versions
+                            + " were explicitly marked as conflicting. This requires clarification and is not a finding of fraud."
+                            + extractedConflict,
+                    List.of("Provide corrected or clarifying evidence for the reported conflict."));
+        }
         if (!mismatchedFields.isEmpty()) {
             List<String> requested = mismatchedFields.stream()
                     .map(ExperienceVerificationDecisionEngine::evidenceFor)
@@ -235,6 +260,7 @@ public class ExperienceVerificationDecisionEngine {
                 || extraction.classificationProvenance() == null || extraction.warnings() == null) {
             throw new IllegalArgumentException("Persisted extraction does not match the active evidence version");
         }
+
         List<StructuredEvidenceExtraction.Provenance> provenance = new ArrayList<>(
                 extraction.classificationProvenance());
         for (StructuredEvidenceExtraction.Field field : extraction.fields()) {
@@ -254,6 +280,28 @@ public class ExperienceVerificationDecisionEngine {
                 || item.evidenceVersion() != input.evidenceVersion())) {
             throw new IllegalArgumentException("Persisted extraction provenance does not match its evidence version");
         }
+    }
+
+    private static Set<Integer> declaredConflictVersions(List<EvidenceInput> activeEvidence) {
+        Set<Long> activeIds = activeEvidence.stream()
+                .map(EvidenceInput::evidenceId)
+                .filter(id -> id != null && id > 0)
+                .collect(java.util.stream.Collectors.toSet());
+        Set<Integer> versions = new LinkedHashSet<>();
+        for (EvidenceInput input : activeEvidence) {
+            if (!"CONFLICTS_WITH".equalsIgnoreCase(input.relationshipType())
+                    || input.relatedEvidenceId() == null
+                    || !activeIds.contains(input.relatedEvidenceId())) {
+                continue;
+            }
+            versions.add(input.evidenceVersion());
+            activeEvidence.stream()
+                    .filter(related -> input.relatedEvidenceId().equals(related.evidenceId()))
+                    .map(EvidenceInput::evidenceVersion)
+                    .findFirst()
+                    .ifPresent(versions::add);
+        }
+        return versions;
     }
 
     private static boolean isPrimaryDocument(ExperienceClaimType claimType, String classification) {
@@ -319,12 +367,35 @@ public class ExperienceVerificationDecisionEngine {
                     return matcher.group(1) + "-" + String.format(Locale.ROOT, "%02d", month);
                 }
             }
+            matcher = MONTH_NAME_YEAR.matcher(value);
+            if (matcher.find()) {
+                int month = monthNumber(matcher.group(1));
+                return matcher.group(2) + "-" + String.format(Locale.ROOT, "%02d", month);
+            }
         }
         String normalized = Normalizer.normalize(value, Normalizer.Form.NFKC)
                 .toLowerCase(Locale.ROOT)
                 .replaceAll("[^\\p{L}\\p{N}]+", " ")
                 .trim();
         return normalized.replaceAll("\\s+", " ");
+    }
+
+    private static int monthNumber(String monthName) {
+        return switch (monthName.substring(0, 3).toLowerCase(Locale.ROOT)) {
+            case "jan" -> 1;
+            case "feb" -> 2;
+            case "mar" -> 3;
+            case "apr" -> 4;
+            case "may" -> 5;
+            case "jun" -> 6;
+            case "jul" -> 7;
+            case "aug" -> 8;
+            case "sep" -> 9;
+            case "oct" -> 10;
+            case "nov" -> 11;
+            case "dec" -> 12;
+            default -> throw new IllegalArgumentException("Unsupported month name");
+        };
     }
 
     private static String evidenceFor(String field) {
@@ -365,7 +436,17 @@ public class ExperienceVerificationDecisionEngine {
             Long evidenceId,
             int evidenceVersion,
             String evidenceStatus,
-            StructuredEvidenceExtraction extraction) {}
+            StructuredEvidenceExtraction extraction,
+            String relationshipType,
+            Long relatedEvidenceId) {
+        public EvidenceInput(
+                Long evidenceId,
+                int evidenceVersion,
+                String evidenceStatus,
+                StructuredEvidenceExtraction extraction) {
+            this(evidenceId, evidenceVersion, evidenceStatus, extraction, null, null);
+        }
+    }
 
     public record Decision(String status, String explanation, List<String> requestedEvidence) {}
 }

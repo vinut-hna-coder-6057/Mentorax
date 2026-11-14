@@ -2,6 +2,7 @@
 import hashlib
 import hmac
 import json
+import logging
 from io import BytesIO
 import multiprocessing
 import os
@@ -14,6 +15,7 @@ from urllib import error, request
 from fastapi import APIRouter, File, Form, Header, HTTPException, UploadFile
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from pypdf import PdfReader
+from starlette.concurrency import run_in_threadpool
 
 from document_understanding import (
     BoundingBox,
@@ -33,22 +35,37 @@ from document_understanding import (
     sanitize_sensitive_content,
     sanitize_sensitive_text,
 )
+from document_understanding import analyze_document as analyze_document_v1
 
 MAX_EVIDENCE_BYTES = 5 * 1024 * 1024
 MAX_EXTRACTED_CHARS = 100_000
 MAX_DOCUMENT_PAGES = 20
+MAX_RENDERED_IMAGE_PIXELS = 25_000_000
 MIN_TEXT_CHARACTERS = 80
-OCR_TIMEOUT_SECONDS = 30
+OCR_TIMEOUT_SECONDS = 60
+DOCUMENT_TIMEOUT_SECONDS = 90
 LLM_TIMEOUT_SECONDS = 45
 LLM_RETRIES = 2
 _slots = threading.BoundedSemaphore(2)
 _router = APIRouter()
+_logger = logging.getLogger(__name__)
+_YEAR_MONTH = re.compile(r"\b(\d{4})[-/.](\d{1,2})\b")
+_NUMERIC_MONTH_YEAR = re.compile(r"\b(0?[1-9]|1[0-2])[-/.](\d{4})\b")
+_MONTH_NAME_YEAR = re.compile(
+    r"(?i)\b(January|Jan|February|Feb|March|Mar|April|Apr|May|June|Jun|July|Jul|"
+    r"August|Aug|September|Sept|Sep|October|Oct|November|Nov|December|Dec)\.?\s+"
+    r"(?:\d{1,2}(?:st|nd|rd|th)?[,]?\s+)?(\d{4})\b")
+_MONTH_NUMBERS = {
+    "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+    "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
+}
 
 
 class ClaimFields(BaseModel):
     model_config = ConfigDict(extra="forbid")
     evidenceId: int = Field(gt=0)
     evidenceVersion: int = Field(gt=0)
+    sha256: str | None = Field(default=None, pattern=r"^[a-fA-F0-9]{64}$")
     claimType: ClaimType = ClaimType.UNSPECIFIED
     company: str = Field(min_length=1, max_length=150)
     jobTitle: str = Field(min_length=1, max_length=150)
@@ -63,6 +80,22 @@ def _normalise(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", folded).strip()
 
 
+def _normalise_month(value: str) -> str:
+    match = _YEAR_MONTH.search(value)
+    if match:
+        month = int(match.group(2))
+        if 1 <= month <= 12:
+            return f"{match.group(1)}-{month:02d}"
+    match = _NUMERIC_MONTH_YEAR.search(value)
+    if match:
+        return f"{match.group(2)}-{int(match.group(1)):02d}"
+    match = _MONTH_NAME_YEAR.search(value)
+    if match:
+        month = _MONTH_NUMBERS[match.group(1)[:3].lower()]
+        return f"{match.group(2)}-{month:02d}"
+    return _normalise(value)
+
+
 def _field_finding(field: str, claimed: str | None, extracted: str | None) -> dict:
     if not claimed:
         return {"field": field, "claimValue": None, "extractedValue": extracted,
@@ -70,8 +103,9 @@ def _field_finding(field: str, claimed: str | None, extracted: str | None) -> di
     if not extracted:
         return {"field": field, "claimValue": claimed, "extractedValue": None,
                 "outcome": "MISSING", "explanation": "No matching text could be extracted from the document."}
-    claim_text, extracted_text = _normalise(claimed), _normalise(extracted)
-    matches = claim_text in extracted_text or extracted_text in claim_text
+    normalize = _normalise_month if field in {"startMonth", "endMonth"} else _normalise
+    claim_text, extracted_text = normalize(claimed), normalize(extracted)
+    matches = claim_text == extracted_text
     return {"field": field, "claimValue": claimed, "extractedValue": extracted[:255],
             "outcome": "MATCH" if matches else "MISMATCH",
             "explanation": "Text similarity only; issuer authenticity is not verified."}
@@ -107,7 +141,8 @@ def _ocr_worker(connection) -> None:
             image = ImageOps.autocontrast(image.convert("L")).convert("RGB")
             best_text = ""
             best_words = []
-            for angle in (0, 90, 180, 270):
+            angles = (90, 0, 180, 270) if height > width else (0, 180, 90, 270)
+            for angle in angles:
                 candidate = image.rotate(angle, expand=True) if angle else image
                 result, _ = engine(np.asarray(candidate))
                 words = []
@@ -142,14 +177,22 @@ def _ocr_worker(connection) -> None:
                 if len(candidate_text) > len(best_text):
                     best_text = candidate_text
                     best_words = words
+                confidences = [
+                    word["confidence"] for word in words if word["confidence"] is not None
+                ]
+                if (len(words) >= 3 and len(candidate_text) >= 24 and confidences
+                        and sum(confidences) / len(confidences) >= 0.65):
+                    best_text = candidate_text
+                    best_words = words
+                    break
             connection.send((True, {
                 "page": page_number,
                 "text": best_text,
                 "words": best_words,
             }))
-    except BaseException:
+    except Exception as exception:
         try:
-            connection.send((False, None))
+            connection.send((False, type(exception).__name__))
         except (BrokenPipeError, EOFError, OSError):
             pass
     finally:
@@ -184,7 +227,10 @@ class BoundedOCRWorker:
             if remaining <= 0 or not self.parent.poll(remaining):
                 raise OCRExecutionError("OCR worker exceeded its time limit")
             succeeded, result = self.parent.recv()
-            if not succeeded or not isinstance(result, dict):
+            if not succeeded:
+                error_type = result if isinstance(result, str) and result.isidentifier() else "WorkerError"
+                raise OCRExecutionError(f"OCR worker failed ({error_type})")
+            if not isinstance(result, dict):
                 raise OCRExecutionError("OCR worker could not process the document")
             return result
         except (BrokenPipeError, EOFError, OSError) as exception:
@@ -209,51 +255,19 @@ class BoundedOCRWorker:
             self.process.close()
 
 
-def _ocr_rotated_image(image) -> str:
-    try:
-        import numpy as np
-        from rapidocr_onnxruntime import RapidOCR
-    except Exception as exc:  # pragma: no cover - dependency failure is surfaced as OCR failure
-        raise RuntimeError("OCR engine is unavailable") from exc
-
-    engine = RapidOCR()
-    best_text = ""
-    for angle in (0, 90, 180, 270):
-        candidate = image.rotate(angle, expand=True) if angle else image
-        result, _ = engine(np.asarray(candidate.convert("RGB")))
-        candidate_text = "\n".join(
-            str(entry[1]).strip()
-            for entry in (result or [])
-            if len(entry) >= 2 and str(entry[1]).strip()
-        )
-        if len(candidate_text) > len(best_text):
-            best_text = candidate_text
-    return best_text
-
-
-def _normalized_pdf_words(page, width: float, height: float) -> list[dict]:
-    words = []
-    for item in page.get_text("words"):
-        if len(item) < 5 or not str(item[4]).strip():
-            continue
-        words.append({
-            "text": str(item[4]),
-            "bbox": [
-                max(0.0, min(1.0, float(item[0]) / width)),
-                max(0.0, min(1.0, float(item[1]) / height)),
-                max(0.0, min(1.0, float(item[2]) / width)),
-                max(0.0, min(1.0, float(item[3]) / height)),
-            ],
-            "confidence": None,
-        })
-    return words
-
-
 def _extract_document(data: bytes, content_type: str) -> tuple[str, list[str], list[dict], str]:
     pages: list[dict] = []
     suspicious_features: list[str] = []
     ocr_used = False
     ocr_failed = False
+    ocr_worker: BoundedOCRWorker | None = None
+
+    def extract_ocr(page_number: int, image_bytes: bytes, width: int, height: int) -> dict:
+        nonlocal ocr_worker
+        if ocr_worker is None:
+            ocr_worker = BoundedOCRWorker()
+        return ocr_worker.extract(page_number, image_bytes, width, height)
+
     try:
         if content_type == "application/pdf":
             if not data.startswith(b"%PDF-"):
@@ -270,21 +284,37 @@ def _extract_document(data: bytes, content_type: str) -> tuple[str, list[str], l
                 text = page.get_text("text").strip()
                 page_method = "PDF_TEXT"
                 page_ocr_failed = False
+                page_words = []
                 if len(text) < MIN_TEXT_CHARACTERS:
                     ocr_used = True
                     page_method = "OCR"
                     try:
-                        scale = min(2, 4000 / max(page.rect.width, page.rect.height))
+                        page_width = page.rect.width
+                        page_height = page.rect.height
+                        if page_width <= 0 or page_height <= 0:
+                            raise ValueError("PDF page dimensions are invalid")
+                        scale = min(
+                            2,
+                            4000 / max(page_width, page_height),
+                            (MAX_RENDERED_IMAGE_PIXELS / (page_width * page_height)) ** 0.5,
+                        )
                         pixmap = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False)
+                        image_bytes = pixmap.tobytes("png")
                         from PIL import Image
-                        image = Image.open(BytesIO(pixmap.tobytes("png"))).convert("RGB")
-                        text = _ocr_rotated_image(image).strip()
-                    except Exception:
+                        image = Image.open(BytesIO(image_bytes))
+                        page_result = extract_ocr(
+                            index + 1, image_bytes, image.width, image.height)
+                        text = str(page_result.get("text", "")).strip()
+                        page_words = page_result.get("words", [])
+                    except (OCRExecutionError, OSError, ValueError) as exception:
+                        _logger.warning("OCR failed for evidence page %s: %s", index + 1, exception)
                         ocr_failed = True
                         page_ocr_failed = True
-                pages.append({"page": index + 1, "text": text, "method": page_method, "ocrFailed": page_ocr_failed})
+                pages.append({"page": index + 1, "text": text, "method": page_method,
+                              "ocrFailed": page_ocr_failed, "words": page_words})
                 if sum(len(item["text"]) for item in pages) > MAX_EXTRACTED_CHARS:
                     break
+            document.close()
         elif content_type in {"image/jpeg", "image/png"}:
             from PIL import Image, ImageOps
             expected_signature = b"\xff\xd8\xff" if content_type == "image/jpeg" else b"\x89PNG\r\n\x1a\n"
@@ -297,17 +327,27 @@ def _extract_document(data: bytes, content_type: str) -> tuple[str, list[str], l
             image = ImageOps.exif_transpose(Image.open(BytesIO(data))).convert("RGB")
             ocr_used = True
             try:
-                extracted = _ocr_rotated_image(image).strip()
-                pages.append({"page": 1, "text": extracted, "method": "OCR", "ocrFailed": False})
-            except Exception:
+                rendered = BytesIO()
+                image.save(rendered, format="PNG")
+                page_result = extract_ocr(
+                    1, rendered.getvalue(), image.width, image.height)
+                extracted = str(page_result.get("text", "")).strip()
+                pages.append({"page": 1, "text": extracted, "method": "OCR",
+                              "ocrFailed": False, "words": page_result.get("words", [])})
+            except (OCRExecutionError, OSError, ValueError) as exception:
+                _logger.warning("OCR failed for image evidence: %s", exception)
                 ocr_failed = True
-                pages.append({"page": 1, "text": "", "method": "OCR", "ocrFailed": True})
+                pages.append({"page": 1, "text": "", "method": "OCR",
+                              "ocrFailed": True, "words": []})
         else:
             raise HTTPException(status_code=415, detail="Unsupported evidence format")
     except HTTPException:
         raise
     except Exception as exc:
         raise HTTPException(status_code=422, detail="Evidence could not be safely extracted") from exc
+    finally:
+        if ocr_worker is not None:
+            ocr_worker.close()
 
     for page in pages:
         page["text"] = sanitize_sensitive_text(page["text"])
@@ -320,9 +360,83 @@ def _extract_document(data: bytes, content_type: str) -> tuple[str, list[str], l
     return text, suspicious_features, pages, ocr_status
 
 
-def _extract_pdf(data: bytes) -> tuple[str, list[str]]:
-    text, suspicious_features, _, _ = _extract_document(data, "application/pdf")
-    return text, suspicious_features
+def _document_extraction_worker(connection, data: bytes, content_type: str) -> None:
+    try:
+        connection.send((True, _extract_document(data, content_type), None))
+    except HTTPException as exception:
+        connection.send((False, exception.status_code, str(exception.detail)))
+    except Exception as exception:
+        _logger.warning("Document extraction worker failed (%s)", type(exception).__name__)
+        connection.send((False, 422, "Evidence could not be safely extracted"))
+    finally:
+        connection.close()
+
+
+class BoundedDocumentExtractor:
+    def __init__(self, data: bytes, content_type: str) -> None:
+        try:
+            timeout = int(os.getenv(
+                "EXPERIENCE_ANALYSIS_DOCUMENT_TIMEOUT_SECONDS", DOCUMENT_TIMEOUT_SECONDS))
+        except (TypeError, ValueError) as exception:
+            raise HTTPException(status_code=503, detail="Evidence analysis is unavailable") from exception
+        if not 1 <= timeout <= DOCUMENT_TIMEOUT_SECONDS:
+            raise HTTPException(status_code=503, detail="Evidence analysis is unavailable")
+        self.timeout = timeout
+        self.context = multiprocessing.get_context("spawn")
+        self.parent, child = self.context.Pipe(duplex=False)
+        self.process = self.context.Process(
+            target=_document_extraction_worker, args=(child, data, content_type))
+        try:
+            self.process.start()
+        except (OSError, RuntimeError) as exception:
+            self.parent.close()
+            child.close()
+            raise HTTPException(status_code=503, detail="Evidence analysis is unavailable") from exception
+        child.close()
+        self.deadline = time.monotonic() + timeout
+
+    def extract(self) -> tuple[str, list[str], list[dict], str]:
+        try:
+            remaining = self.deadline - time.monotonic()
+            if remaining <= 0 or not self.parent.poll(remaining):
+                raise HTTPException(status_code=503, detail="Evidence analysis exceeded its time limit")
+            response = self.parent.recv()
+        except (EOFError, OSError) as exception:
+            raise HTTPException(status_code=503, detail="Evidence analysis worker stopped unexpectedly") from exception
+        if not isinstance(response, tuple) or len(response) != 3:
+            raise HTTPException(status_code=503, detail="Evidence analysis worker returned an invalid result")
+        succeeded, result, detail = response
+        if not succeeded:
+            status_code = result if isinstance(result, int) and 400 <= result <= 599 else 503
+            safe_detail = detail if isinstance(detail, str) else "Evidence could not be safely extracted"
+            raise HTTPException(status_code=status_code, detail=safe_detail)
+        if (not isinstance(result, tuple) or len(result) != 4
+                or not isinstance(result[0], str) or not isinstance(result[1], list)
+                or not isinstance(result[2], list) or not isinstance(result[3], str)):
+            raise HTTPException(status_code=503, detail="Evidence analysis worker returned an invalid result")
+        return result
+
+    def close(self) -> None:
+        try:
+            if self.process.is_alive():
+                self.process.join(timeout=1)
+            if self.process.is_alive():
+                self.process.terminate()
+                self.process.join(timeout=1)
+            if self.process.is_alive():
+                self.process.kill()
+                self.process.join(timeout=1)
+        finally:
+            self.parent.close()
+            self.process.close()
+
+
+def _bounded_extract_document(data: bytes, content_type: str) -> tuple[str, list[str], list[dict], str]:
+    worker = BoundedDocumentExtractor(data, content_type)
+    try:
+        return worker.extract()
+    finally:
+        worker.close()
 
 
 def _provider_settings() -> dict:
@@ -477,7 +591,7 @@ def analyze_document(claim: ClaimFields, data: bytes, content_type: str = "appli
         for page in pages
     ]
     normalized_text = re.sub(r"\s+", " ", text or "").strip().lower()
-    evidence_sha256 = hashlib.sha256(normalized_text.encode("utf-8")).hexdigest()
+    evidence_sha256 = hashlib.sha256(data).hexdigest()
     readable = any(page.get("text", "").strip() for page in pages)
     partial = readable and (ocr_status == "FAILED" or any(page.get("ocrFailed") for page in pages))
     analysis_status = "UNREADABLE" if not readable else "PARTIAL" if partial else "COMPLETE"
@@ -600,6 +714,8 @@ def analyze_document(claim: ClaimFields, data: bytes, content_type: str = "appli
         FieldName.START_DATE: "startMonth",
         FieldName.END_DATE: "endMonth",
         FieldName.ISSUE_DATE: "issueDate",
+        FieldName.ISSUER: "issuer",
+        FieldName.DURATION: "duration",
     }
     claim_values = {
         "employeeName": claim.employeeName,
@@ -695,7 +811,9 @@ def analyze_document(claim: ClaimFields, data: bytes, content_type: str = "appli
         })
         extracted_details["employmentStatements"] = employment_statements[:500]
     payload["analysisMethod"] = "OCR_PLUS_HEURISTIC" if ocr_status in {"SUCCESS", "FAILED"} else "HEURISTIC_FALLBACK"
-    payload["extractedTextFingerprint"] = hashlib.sha256(re.sub(r"\s+", " ", text or "").strip().lower().encode("utf-8")).hexdigest()
+    payload["extractedTextFingerprint"] = hashlib.sha256(
+        normalized_text.encode("utf-8")
+    ).hexdigest()
     payload["documentType"] = response.documentClassification.value
     payload["trustedIssuerValidation"] = False
     payload["verificationDecision"] = "NONE"
@@ -818,15 +936,126 @@ async def analyze_experience_document(
         claim_fields = ClaimFields.model_validate_json(claim)
     except ValidationError as exc:
         raise HTTPException(status_code=422, detail="Invalid experience claim") from exc
+    claim_hash = claim_fields.sha256
+    if claim_hash is None:
+        raise HTTPException(status_code=422, detail="Evidence hash is required")
     data = await file.read(MAX_EVIDENCE_BYTES + 1)
     if len(data) > MAX_EVIDENCE_BYTES:
         raise HTTPException(status_code=413, detail="Evidence file is too large")
     if not data:
         raise HTTPException(status_code=422, detail="Evidence file is empty")
+    actual_hash = hashlib.sha256(data).hexdigest()
+    if not hmac.compare_digest(actual_hash, claim_hash.lower()):
+        raise HTTPException(status_code=422, detail="Evidence integrity validation failed")
     if not _slots.acquire(blocking=False):
         raise HTTPException(status_code=429, detail="Experience analysis busy")
     try:
-        return analyze_document(claim_fields, data, file.content_type)
+        extraction_request = ExtractionRequest(
+            schemaVersion="mentorax.document-understanding.v1",
+            evidenceId=claim_fields.evidenceId,
+            evidenceVersion=claim_fields.evidenceVersion,
+            sha256=claim_hash,
+            claimType=claim_fields.claimType,
+            company=claim_fields.company,
+            jobTitle=claim_fields.jobTitle,
+            startMonth=claim_fields.startMonth,
+            endMonth=claim_fields.endMonth,
+            summary=claim_fields.summary,
+            personName=claim_fields.employeeName,
+        )
+        extracted_document = {}
+
+        def extract_with_capture(document_bytes: bytes, content_type: str):
+            result = _bounded_extract_document(document_bytes, content_type)
+            extracted_document["result"] = result
+            return result
+
+        response = await run_in_threadpool(
+            analyze_document_v1,
+            extraction_request, data, file.content_type, extract_with_capture)
+        payload = response.model_dump(mode="json", exclude_none=True)
+        text, suspicious, _, ocr_status = extracted_document["result"]
+        payload["analysisMethod"] = (
+            "OCR_PLUS_HEURISTIC" if ocr_status in {"SUCCESS", "FAILED"}
+            else "HEURISTIC_FALLBACK")
+        payload["extractedTextFingerprint"] = hashlib.sha256(
+            re.sub(r"\s+", " ", sanitize_sensitive_text(text)).strip().lower().encode("utf-8")
+        ).hexdigest()
+        payload["documentType"] = response.documentClassification.value
+        payload["trustedIssuerValidation"] = False
+        payload["verificationDecision"] = "NONE"
+        payload["suspiciousFeatures"] = suspicious
+        payload["riskIndicators"] = suspicious
+        findings = []
+        legacy_names = {
+            FieldName.PERSON_NAME: "employeeName",
+            FieldName.ORGANISATION: "company",
+            FieldName.ROLE: "jobTitle",
+            FieldName.START_DATE: "startMonth",
+            FieldName.END_DATE: "endMonth",
+            FieldName.ISSUE_DATE: "issueDate",
+            FieldName.ISSUER: "issuer",
+            FieldName.DURATION: "duration",
+        }
+        claim_values = {
+            "employeeName": claim_fields.employeeName,
+            "company": claim_fields.company,
+            "jobTitle": claim_fields.jobTitle,
+            "startMonth": claim_fields.startMonth,
+            "endMonth": claim_fields.endMonth,
+            "issueDate": None,
+            "issuer": None,
+            "duration": None,
+        }
+        for field in response.fields:
+            if field.name not in legacy_names:
+                continue
+            provenance = field.provenance[0] if field.provenance else None
+            legacy_name = legacy_names[field.name]
+            extracted_value = field.value if field.status == FieldStatus.FOUND else None
+            if field.status == FieldStatus.NOT_PRESENT:
+                finding = {
+                    "field": legacy_name,
+                    "claimValue": claim_values.get(legacy_name),
+                    "extractedValue": None,
+                    "outcome": "MISSING",
+                    "explanation": "No matching text could be extracted from the document.",
+                }
+            elif field.status == FieldStatus.FOUND:
+                finding = _field_finding(
+                    legacy_name, claim_values.get(legacy_name), extracted_value)
+            else:
+                finding = {
+                    "field": legacy_name,
+                    "claimValue": claim_values.get(legacy_name),
+                    "extractedValue": None,
+                    "outcome": "INCONCLUSIVE",
+                    "explanation": "The source document contains ambiguous or unreadable content.",
+                }
+            findings.append({
+                **finding,
+                "evidenceReference": _evidence_reference(
+                    claim_fields.evidenceId, claim_fields.evidenceVersion,
+                    provenance.pageNumber if provenance else None),
+                "pageNumber": provenance.pageNumber if provenance else None,
+                "textExcerpt": provenance.textExcerpt if provenance else None,
+                "extractedValue": extracted_value,
+            })
+        for statement in response.extractedStatements:
+            source = statement.provenance[0]
+            findings.append({
+                "field": "employmentStatements",
+                "outcome": "INCONCLUSIVE",
+                "explanation": "A supporting statement was found; it is not issuer authentication.",
+                "evidenceReference": _evidence_reference(
+                    claim_fields.evidenceId, claim_fields.evidenceVersion, source.pageNumber),
+                "pageNumber": source.pageNumber,
+                "textExcerpt": source.textExcerpt,
+                "extractedValue": statement.text,
+            })
+        payload["findings"] = findings
+        payload["fieldAssessments"] = findings
+        return sanitize_sensitive_content(payload)
     finally:
         _slots.release()
 

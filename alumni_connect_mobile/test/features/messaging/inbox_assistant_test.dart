@@ -18,14 +18,14 @@ class _AssistantRepository extends AppRepository {
   _AssistantRepository({
     Map<int, List<Conversation>> pages = const {},
     Map<String, List<ChatMessage>> history = const {},
-  })  : _pages = pages,
-        _history = history,
-        super(
-          ApiClient(
-            SecureStorageService(const FlutterSecureStorage()),
-            dio: Dio(BaseOptions(baseUrl: 'https://api.example.test')),
-          ),
-        );
+  }) : _pages = pages,
+       _history = history,
+       super(
+         ApiClient(
+           SecureStorageService(const FlutterSecureStorage()),
+           dio: Dio(BaseOptions(baseUrl: 'https://api.example.test')),
+         ),
+       );
 
   final Map<int, List<Conversation>> _pages;
   final Map<String, List<ChatMessage>> _history;
@@ -91,11 +91,11 @@ const _alumnus = User(
 );
 
 Conversation _conversation(String email, String message) => Conversation(
-      email: email,
-      displayName: email.split('@').first,
-      latestMessage: message,
-      timestamp: '2026-10-20T12:00:00',
-    );
+  email: email,
+  displayName: email.split('@').first,
+  latestMessage: message,
+  timestamp: '2026-10-20T12:00:00',
+);
 
 Widget _assistantApp(_AssistantRepository repository) {
   final router = GoRouter(
@@ -173,24 +173,26 @@ void main() {
       );
     });
 
-    test('ignores greetings and repeated text, and defaults unclear messages',
-        () {
-      expect(
-        classifyConversationMessages(['Hi', 'Hello', 'Hi']),
-        InboxCategory.other,
-      );
-      expect(
-        classifyConversationMessages([
-          'Could you refer me for this role?',
-          'Could you refer me for this role?',
-        ]),
-        InboxCategory.referralRequests,
-      );
-      expect(
-        classifyConversationMessages(['Could you help me with this?']),
-        InboxCategory.other,
-      );
-    });
+    test(
+      'ignores greetings and repeated text, and defaults unclear messages',
+      () {
+        expect(
+          classifyConversationMessages(['Hi', 'Hello', 'Hi']),
+          InboxCategory.other,
+        );
+        expect(
+          classifyConversationMessages([
+            'Could you refer me for this role?',
+            'Could you refer me for this role?',
+          ]),
+          InboxCategory.referralRequests,
+        );
+        expect(
+          classifyConversationMessages(['Could you help me with this?']),
+          InboxCategory.other,
+        );
+      },
+    );
 
     test('uses meaningful messages from the recent conversation', () {
       expect(
@@ -204,8 +206,9 @@ void main() {
     });
   });
 
-  testWidgets('categories filter, open the existing chat, and return',
-      (tester) async {
+  testWidgets('categories filter, open the existing chat, and return', (
+    tester,
+  ) async {
     final referral = _conversation(
       'bala@example.test',
       'Could you refer me for this internship?',
@@ -240,8 +243,9 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Existing chat: bala@example.test'), findsOneWidget);
 
-    GoRouter.of(tester.element(find.text('Existing chat: bala@example.test')))
-        .pop();
+    GoRouter.of(
+      tester.element(find.text('Existing chat: bala@example.test')),
+    ).pop();
     await tester.pumpAndSettle();
     expect(find.text('bala'), findsOneWidget);
     await tester.tap(find.byTooltip('Back to categories'));
@@ -252,40 +256,43 @@ void main() {
     expect(find.text('chandra'), findsOneWidget);
   });
 
-  testWidgets('uses recent history when the latest preview is only a greeting',
-      (tester) async {
-    final hello = _conversation('bala@example.test', 'Hi');
-    final repository = _AssistantRepository(
-      pages: {
-        0: [hello],
-      },
-      history: {
-        'bala@example.test': const [
-          ChatMessage(
-            senderEmail: 'bala@example.test',
-            receiverEmail: 'asha@example.test',
-            content: 'Hello',
-          ),
-          ChatMessage(
-            senderEmail: 'asha@example.test',
-            receiverEmail: 'bala@example.test',
-            content: 'Can you refer me for this internship?',
-          ),
-        ],
-      },
-    );
-    await tester.pumpWidget(_assistantApp(repository));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Referral Requests'));
-    await tester.pumpAndSettle();
+  testWidgets(
+    'uses recent history when the latest preview is only a greeting',
+    (tester) async {
+      final hello = _conversation('bala@example.test', 'Hi');
+      final repository = _AssistantRepository(
+        pages: {
+          0: [hello],
+        },
+        history: {
+          'bala@example.test': const [
+            ChatMessage(
+              senderEmail: 'bala@example.test',
+              receiverEmail: 'asha@example.test',
+              content: 'Hello',
+            ),
+            ChatMessage(
+              senderEmail: 'asha@example.test',
+              receiverEmail: 'bala@example.test',
+              content: 'Can you refer me for this internship?',
+            ),
+          ],
+        },
+      );
+      await tester.pumpWidget(_assistantApp(repository));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Referral Requests'));
+      await tester.pumpAndSettle();
 
-    expect(find.text('bala'), findsOneWidget);
-    expect(repository.historyRequests, ['bala@example.test']);
-    expect(repository.assistantRequests, 0);
-  });
+      expect(find.text('bala'), findsOneWidget);
+      expect(repository.historyRequests, ['bala@example.test']);
+      expect(repository.assistantRequests, 0);
+    },
+  );
 
-  testWidgets('loads later conversation pages when a category has no matches',
-      (tester) async {
+  testWidgets('loads later conversation pages when a category has no matches', (
+    tester,
+  ) async {
     final firstPage = List.generate(
       50,
       (index) => _conversation(
@@ -293,8 +300,10 @@ void main() {
         'Could you help me with this?',
       ),
     );
-    final laterReferral =
-        _conversation('later@example.test', 'Please refer me for this role.');
+    final laterReferral = _conversation(
+      'later@example.test',
+      'Please refer me for this role.',
+    );
     final repository = _AssistantRepository(
       pages: {
         0: firstPage,
@@ -314,8 +323,9 @@ void main() {
     expect(repository.requestedPages, contains(1));
   });
 
-  testWidgets('shows an empty-category state for an empty inbox',
-      (tester) async {
+  testWidgets('shows an empty-category state for an empty inbox', (
+    tester,
+  ) async {
     await tester.pumpWidget(_assistantApp(_AssistantRepository()));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Other'));

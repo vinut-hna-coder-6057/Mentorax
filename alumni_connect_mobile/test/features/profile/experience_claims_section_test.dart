@@ -39,6 +39,8 @@ class _ClaimsRepository extends AppRepository {
   List<ExperienceClaim> claims;
   final Map<int, List<ExperienceClaimEvidence>> evidenceByClaim;
   int failedUploads;
+  int failedClaimFetches = 0;
+  int claimFetches = 0;
   final createdTypes = <ExperienceClaimType>[];
   final updatedTypes = <ExperienceClaimType>[];
   final uploadedRelationships = <String>[];
@@ -49,7 +51,14 @@ class _ClaimsRepository extends AppRepository {
   Future<List<ExperienceClaim>> experienceClaims({
     int page = 0,
     int size = 50,
-  }) async => claims;
+  }) async {
+    claimFetches++;
+    if (failedClaimFetches > 0) {
+      failedClaimFetches--;
+      throw Exception('Temporary claim refresh failure');
+    }
+    return claims;
+  }
 
   @override
   Future<ExperienceClaim> createExperienceClaim({
@@ -344,6 +353,85 @@ void main() {
 
     expect(repository.updatedTypes, [ExperienceClaimType.mentorship]);
     expect(find.text('Experience type: Mentorship'), findsOneWidget);
+  });
+
+  testWidgets('claim edits render the updated fields immediately', (
+    tester,
+  ) async {
+    final repository = _ClaimsRepository(claims: [_claim()]);
+    await _pumpClaims(tester, repository);
+
+    await tester.tap(find.text('Update requested information'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextFormField).at(0), 'Northstar Labs');
+    await tester.tap(find.text('Submit claim'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Engineer · Northstar Labs'), findsOneWidget);
+  });
+
+  testWidgets('processing refresh backs off, stops, and can be restarted', (
+    tester,
+  ) async {
+    final repository = _ClaimsRepository(
+      claims: [_claim(status: 'PROCESSING')],
+    );
+    await _pumpClaims(tester, repository);
+    expect(repository.claimFetches, 1);
+
+    for (final seconds in [5, 10, 20, 30, 30, 30, 30, 30]) {
+      await tester.pump(Duration(seconds: seconds));
+      await tester.pump();
+    }
+
+    expect(repository.claimFetches, 9);
+    expect(
+      find.text(
+        'Automatic status checks stopped. Refresh claims to check again.',
+      ),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byTooltip('Refresh claims'));
+    await tester.pumpAndSettle();
+
+    expect(repository.claimFetches, 10);
+    expect(
+      find.text(
+        'Automatic status checks stopped. Refresh claims to check again.',
+      ),
+      findsNothing,
+    );
+  });
+
+  testWidgets('processing refresh shows a network failure and retries', (
+    tester,
+  ) async {
+    final repository = _ClaimsRepository(
+      claims: [_claim(status: 'PROCESSING')],
+    );
+    await _pumpClaims(tester, repository);
+    repository.failedClaimFetches = 1;
+
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pump();
+    expect(repository.claimFetches, 2);
+    expect(
+      find.text(
+        'Could not refresh processing status. It will retry automatically.',
+      ),
+      findsOneWidget,
+    );
+
+    await tester.pump(const Duration(seconds: 10));
+    await tester.pump();
+    expect(repository.claimFetches, 3);
+    expect(
+      find.text(
+        'Could not refresh processing status. It will retry automatically.',
+      ),
+      findsNothing,
+    );
   });
 
   testWidgets(

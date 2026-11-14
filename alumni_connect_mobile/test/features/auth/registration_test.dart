@@ -30,8 +30,9 @@ void main() {
       );
     });
 
-    testWidgets('verification screen presents email and one-time code inputs',
-        (tester) async {
+    testWidgets('verification screen presents email and one-time code inputs', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         const ProviderScope(
           child: MaterialApp(
@@ -46,21 +47,19 @@ void main() {
       expect(find.byType(TextFormField), findsNWidgets(2));
     });
 
-    testWidgets('login confirms email verification before sign in',
-        (tester) async {
+    testWidgets('login confirms email verification before sign in', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         const ProviderScope(
-          child: MaterialApp(
-            home: LoginScreen(emailVerified: true),
-          ),
+          child: MaterialApp(home: LoginScreen(emailVerified: true)),
         ),
       );
 
       expect(find.text('Email verified. You can now sign in.'), findsOneWidget);
     });
 
-    test('email verification and resend use separate backend endpoints',
-        () async {
+    test('email verification and resend use separate backend endpoints', () async {
       final dio = Dio(
         BaseOptions(
           baseUrl: 'https://api.example.test',
@@ -69,12 +68,14 @@ void main() {
       );
       final adapter = DioAdapter(dio: dio);
       final requests = <RequestOptions>[];
-      dio.interceptors.add(InterceptorsWrapper(
-        onRequest: (options, handler) {
-          requests.add(options);
-          handler.next(options);
-        },
-      ));
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            requests.add(options);
+            handler.next(options);
+          },
+        ),
+      );
       adapter.onPost(
         '/verify-email',
         (server) => server.reply(200, {
@@ -94,10 +95,7 @@ void main() {
         data: const {'email': 'priya@example.com'},
       );
       final repository = AppRepository(
-        ApiClient(
-          SecureStorageService(const FlutterSecureStorage()),
-          dio: dio,
-        ),
+        ApiClient(SecureStorageService(const FlutterSecureStorage()), dio: dio),
       );
 
       final result = await repository.verifyEmail(
@@ -113,10 +111,7 @@ void main() {
         '/verify-email',
         '/resend-verification',
       ]);
-      expect(requests[0].data, {
-        'email': 'priya@example.com',
-        'otp': '123456',
-      });
+      expect(requests[0].data, {'email': 'priya@example.com', 'otp': '123456'});
       expect(requests[1].data, {'email': 'priya@example.com'});
     });
 
@@ -161,16 +156,10 @@ void main() {
       );
 
       final repository = AppRepository(
-        ApiClient(
-          SecureStorageService(const FlutterSecureStorage()),
-          dio: dio,
-        ),
+        ApiClient(SecureStorageService(const FlutterSecureStorage()), dio: dio),
       );
 
-      final response = await repository.signup(
-        studentUser,
-        'ValidPassword123',
-      );
+      final response = await repository.signup(studentUser, 'ValidPassword123');
 
       expect(sentRequest, isNotNull);
       expect(sentRequest!.method, 'POST');
@@ -235,16 +224,10 @@ void main() {
       );
 
       final repository = AppRepository(
-        ApiClient(
-          SecureStorageService(const FlutterSecureStorage()),
-          dio: dio,
-        ),
+        ApiClient(SecureStorageService(const FlutterSecureStorage()), dio: dio),
       );
 
-      final response = await repository.signup(
-        alumniUser,
-        'StrongAlumniPass8',
-      );
+      final response = await repository.signup(alumniUser, 'StrongAlumniPass8');
 
       expect(sentRequest, isNotNull);
       expect(sentRequest!.method, 'POST');
@@ -295,10 +278,7 @@ void main() {
       );
 
       final repository = AppRepository(
-        ApiClient(
-          SecureStorageService(const FlutterSecureStorage()),
-          dio: dio,
-        ),
+        ApiClient(SecureStorageService(const FlutterSecureStorage()), dio: dio),
       );
 
       expect(
@@ -334,10 +314,7 @@ void main() {
       );
 
       final repository = AppRepository(
-        ApiClient(
-          SecureStorageService(const FlutterSecureStorage()),
-          dio: dio,
-        ),
+        ApiClient(SecureStorageService(const FlutterSecureStorage()), dio: dio),
       );
 
       await expectLater(

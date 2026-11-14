@@ -59,10 +59,7 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
                     value: UserRole.student,
                     label: Text('Students'),
                   ),
-                  ButtonSegment(
-                    value: UserRole.alumni,
-                    label: Text('Alumni'),
-                  ),
+                  ButtonSegment(value: UserRole.alumni, label: Text('Alumni')),
                 ],
                 selected: {role},
                 onSelectionChanged: (selection) =>
@@ -130,8 +127,8 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
                                   onTap: conversation.email.isEmpty
                                       ? null
                                       : () => context.push(
-                                            '/chat/${Uri.encodeComponent(conversation.email)}',
-                                          ),
+                                          '/chat/${Uri.encodeComponent(conversation.email)}',
+                                        ),
                                 );
                               },
                             ),
@@ -221,10 +218,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       final m = event.value;
       final me = ref.read(authProvider).valueOrNull?.email ?? '';
       final other = widget.email;
-      final involves = (m.senderEmail == me && m.receiverEmail == other) ||
+      final involves =
+          (m.senderEmail == me && m.receiverEmail == other) ||
           (m.senderEmail == other && m.receiverEmail == me);
       if (!involves || !mounted) return;
-      final confirmsPendingSend = _pendingContent != null &&
+      final confirmsPendingSend =
+          _pendingContent != null &&
           m.senderEmail == me &&
           m.receiverEmail == other &&
           m.content == _pendingContent;
@@ -266,12 +265,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       return;
     }
     try {
-      final list = await ref.read(appRepositoryProvider).messages(
-            me,
-            widget.email,
-            page: 0,
-            size: _historyPageSize,
-          );
+      final list = await ref
+          .read(appRepositoryProvider)
+          .messages(me, widget.email, page: 0, size: _historyPageSize);
       if (!mounted) return;
       setState(() {
         final liveMessages = List<ChatMessage>.of(_messages);
@@ -306,13 +302,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (me == null || me.isEmpty) return;
 
     _loadingOlder = true;
-    final oldPixels =
-        _scrollController.hasClients ? _scrollController.position.pixels : 0.0;
+    final oldPixels = _scrollController.hasClients
+        ? _scrollController.position.pixels
+        : 0.0;
     final oldMaxExtent = _scrollController.hasClients
         ? _scrollController.position.maxScrollExtent
         : 0.0;
     try {
-      final older = await ref.read(appRepositoryProvider).messages(
+      final older = await ref
+          .read(appRepositoryProvider)
+          .messages(
             me,
             widget.email,
             page: _nextHistoryPage,
@@ -384,7 +383,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       return;
     }
     final msg = ChatMessage(
-        senderEmail: me, receiverEmail: widget.email, content: text);
+      senderEmail: me,
+      receiverEmail: widget.email,
+      content: text,
+    );
     setState(() {
       _sendError = null;
       _pendingContent = text;
@@ -458,20 +460,26 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Inbox assistant',
-                        style: Theme.of(context).textTheme.titleLarge),
+                    Text(
+                      'Inbox assistant',
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
                     const SizedBox(height: AppSpacing.md),
-                    Text('Original message',
-                        style: Theme.of(context).textTheme.titleSmall),
+                    Text(
+                      'Original message',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
                     Text(message.content),
                     if (loading) ...[
                       const SizedBox(height: AppSpacing.lg),
                       const Center(child: CircularProgressIndicator()),
                     ] else if (error != null || unavailable) ...[
                       const SizedBox(height: AppSpacing.md),
-                      Text(error ??
-                          (result?['message'] as String? ??
-                              'AI assistance is unavailable.')),
+                      Text(
+                        error ??
+                            (result?['message'] as String? ??
+                                'AI assistance is unavailable.'),
+                      ),
                       TextButton.icon(
                         onPressed: load,
                         icon: const Icon(Icons.refresh),
@@ -481,38 +489,49 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       const SizedBox(height: AppSpacing.md),
                       Text('Category: ${result!['categoryLabel']}'),
                       Text(
-                          'Confidence: ${result!['confidence']}${result!['uncertain'] == true ? ' · uncertain; review manually' : ''}'),
+                        'Confidence: ${result!['confidence']}${result!['uncertain'] == true ? ' · uncertain; review manually' : ''}',
+                      ),
                       if ((result!['categoryEvidence'] as List? ?? const [])
                           .isNotEmpty)
                         Text(
-                            'Evidence: ${(result!['categoryEvidence'] as List).join(', ')}'),
+                          'Evidence: ${(result!['categoryEvidence'] as List).join(', ')}',
+                        ),
                       Text(
-                          'Suggested priority: ${result!['prioritySuggestion']} · ${result!['urgencyKind']}'),
+                        'Suggested priority: ${result!['prioritySuggestion']} · ${result!['urgencyKind']}',
+                      ),
                       if (result!['urgencyEvidence'] != null)
                         Text('Urgency evidence: ${result!['urgencyEvidence']}'),
                       const SizedBox(height: AppSpacing.sm),
-                      Text('Summary',
-                          style: Theme.of(context).textTheme.titleSmall),
+                      Text(
+                        'Summary',
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
                       Text(result!['summary'] as String? ?? ''),
                       Text(result!['missingInformation'] as String? ?? ''),
                       const SizedBox(height: AppSpacing.sm),
-                      Text('Suggested reply draft · review before use',
-                          style: Theme.of(context).textTheme.titleSmall),
+                      Text(
+                        'Suggested reply draft · review before use',
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
                       TextField(
-                          controller: draftController,
-                          minLines: 2,
-                          maxLines: 5),
+                        controller: draftController,
+                        minLines: 2,
+                        maxLines: 5,
+                      ),
                       Align(
                         alignment: Alignment.centerRight,
                         child: TextButton.icon(
                           onPressed: () async {
-                            await Clipboard.setData(ClipboardData(
-                                text: draftController?.text ?? ''));
+                            await Clipboard.setData(
+                              ClipboardData(text: draftController?.text ?? ''),
+                            );
                             if (context.mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(
-                                    content:
-                                        Text('Draft copied. It was not sent.')),
+                                  content: Text(
+                                    'Draft copied. It was not sent.',
+                                  ),
+                                ),
                               );
                             }
                           },
@@ -550,21 +569,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       RealtimeState.connected => scheme.tertiaryContainer,
       RealtimeState.disconnected => scheme.errorContainer,
       RealtimeState.authenticationRejected ||
-      RealtimeState.subscriptionFailed =>
-        scheme.errorContainer,
+      RealtimeState.subscriptionFailed => scheme.errorContainer,
       RealtimeState.connecting ||
-      RealtimeState.reconnecting =>
-        scheme.secondaryContainer,
+      RealtimeState.reconnecting => scheme.secondaryContainer,
     };
     final statusForeground = switch (_realtimeState) {
       RealtimeState.connected => scheme.onTertiaryContainer,
       RealtimeState.disconnected => scheme.onErrorContainer,
       RealtimeState.authenticationRejected ||
-      RealtimeState.subscriptionFailed =>
-        scheme.onErrorContainer,
+      RealtimeState.subscriptionFailed => scheme.onErrorContainer,
       RealtimeState.connecting ||
-      RealtimeState.reconnecting =>
-        scheme.onSecondaryContainer,
+      RealtimeState.reconnecting => scheme.onSecondaryContainer,
     };
     final statusText = switch (_realtimeState) {
       RealtimeState.connected => 'Connected',
@@ -614,9 +629,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   Text(
                     statusText,
                     style: Theme.of(c).textTheme.labelMedium?.copyWith(
-                          color: statusForeground,
-                          fontWeight: FontWeight.w600,
-                        ),
+                      color: statusForeground,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ],
               ),
@@ -630,100 +645,86 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             child: _loading
                 ? const LoadingState()
                 : _error != null
-                    ? ErrorState(
-                        message: _error!,
-                        onRetry: _loadHistory,
-                      )
-                    : _messages.isEmpty
-                        ? const EmptyState(
-                            title: 'Start the conversation',
-                            message: 'Send a message to begin chatting.',
-                            icon: Icons.chat_bubble_outline,
-                          )
-                        : ListView.builder(
-                            controller: _scrollController,
-                            padding: const EdgeInsets.all(AppSpacing.lg),
-                            itemCount: _messages.length,
-                            itemBuilder: (_, index) {
-                              final message = _messages[index];
-                              final me =
-                                  ref.read(authProvider).valueOrNull?.email;
-                              final mine = message.senderEmail == me;
-                              final colors = Theme.of(c).colorScheme;
-                              return Padding(
-                                padding: const EdgeInsets.only(
-                                    bottom: AppSpacing.sm),
-                                child: Align(
-                                  alignment: mine
-                                      ? Alignment.centerRight
-                                      : Alignment.centerLeft,
-                                  child: ConstrainedBox(
-                                    constraints: BoxConstraints(
-                                      maxWidth:
-                                          MediaQuery.sizeOf(c).width * .78,
-                                    ),
-                                    child: DecoratedBox(
-                                      decoration: BoxDecoration(
-                                        color: mine
-                                            ? colors.primaryContainer
-                                            : colors.surfaceContainerHighest,
-                                        borderRadius: BorderRadius.only(
-                                          topLeft: const Radius.circular(18),
-                                          topRight: const Radius.circular(18),
-                                          bottomLeft:
-                                              Radius.circular(mine ? 18 : 4),
-                                          bottomRight:
-                                              Radius.circular(mine ? 4 : 18),
-                                        ),
-                                      ),
-                                      child: Padding(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: AppSpacing.lg,
-                                          vertical: AppSpacing.md,
-                                        ),
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.end,
-                                          children: [
-                                            Text(message.content),
-                                            if (!mine &&
-                                                ref
-                                                        .read(authProvider)
-                                                        .valueOrNull
-                                                        ?.role ==
-                                                    UserRole.alumni &&
-                                                message.id != null)
-                                              TextButton.icon(
-                                                onPressed: () =>
-                                                    _showInboxAssistant(
-                                                        message),
-                                                icon: const Icon(
-                                                    Icons.auto_awesome_outlined,
-                                                    size: 16),
-                                                label: const Text(
-                                                    'Inbox assistant'),
-                                              ),
-                                            if (message.timestamp?.isNotEmpty ==
-                                                true) ...[
-                                              const SizedBox(
-                                                  height: AppSpacing.xs),
-                                              Text(
-                                                formatTimestamp(
-                                                    message.timestamp!),
-                                                style: Theme.of(c)
-                                                    .textTheme
-                                                    .labelSmall,
-                                              ),
-                                            ],
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                                  ),
+                ? ErrorState(message: _error!, onRetry: _loadHistory)
+                : _messages.isEmpty
+                ? const EmptyState(
+                    title: 'Start the conversation',
+                    message: 'Send a message to begin chatting.',
+                    icon: Icons.chat_bubble_outline,
+                  )
+                : ListView.builder(
+                    controller: _scrollController,
+                    padding: const EdgeInsets.all(AppSpacing.lg),
+                    itemCount: _messages.length,
+                    itemBuilder: (_, index) {
+                      final message = _messages[index];
+                      final me = ref.read(authProvider).valueOrNull?.email;
+                      final mine = message.senderEmail == me;
+                      final colors = Theme.of(c).colorScheme;
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                        child: Align(
+                          alignment: mine
+                              ? Alignment.centerRight
+                              : Alignment.centerLeft,
+                          child: ConstrainedBox(
+                            constraints: BoxConstraints(
+                              maxWidth: MediaQuery.sizeOf(c).width * .78,
+                            ),
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(
+                                color: mine
+                                    ? colors.primaryContainer
+                                    : colors.surfaceContainerHighest,
+                                borderRadius: BorderRadius.only(
+                                  topLeft: const Radius.circular(18),
+                                  topRight: const Radius.circular(18),
+                                  bottomLeft: Radius.circular(mine ? 18 : 4),
+                                  bottomRight: Radius.circular(mine ? 4 : 18),
                                 ),
-                              );
-                            },
+                              ),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: AppSpacing.lg,
+                                  vertical: AppSpacing.md,
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: [
+                                    Text(message.content),
+                                    if (!mine &&
+                                        ref
+                                                .read(authProvider)
+                                                .valueOrNull
+                                                ?.role ==
+                                            UserRole.alumni &&
+                                        message.id != null)
+                                      TextButton.icon(
+                                        onPressed: () =>
+                                            _showInboxAssistant(message),
+                                        icon: const Icon(
+                                          Icons.auto_awesome_outlined,
+                                          size: 16,
+                                        ),
+                                        label: const Text('Inbox assistant'),
+                                      ),
+                                    if (message.timestamp?.isNotEmpty ==
+                                        true) ...[
+                                      const SizedBox(height: AppSpacing.xs),
+                                      Text(
+                                        formatTimestamp(message.timestamp!),
+                                        style: Theme.of(c).textTheme.labelSmall,
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                            ),
                           ),
+                        ),
+                      );
+                    },
+                  ),
           ),
           if (_sendError != null)
             Material(
@@ -743,10 +744,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         ),
                       ),
                     ),
-                    TextButton(
-                      onPressed: _send,
-                      child: const Text('Retry'),
-                    ),
+                    TextButton(onPressed: _send, child: const Text('Retry')),
                   ],
                 ),
               ),

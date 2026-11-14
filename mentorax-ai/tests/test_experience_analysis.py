@@ -3,7 +3,8 @@ import json
 import os
 import unittest
 from copy import deepcopy
-from unittest.mock import patch
+from pathlib import Path
+from unittest.mock import Mock, patch
 
 from fastapi.testclient import TestClient
 from pypdf import PdfWriter
@@ -20,7 +21,14 @@ from document_understanding import (
     analyze_document as strict_analyze_document,
     sanitize_sensitive_content,
 )
-from experience_analysis import ClaimFields, _legacy_to_strict_document_response, analyze_document, _validate_llm_response
+from experience_analysis import (
+    ClaimFields,
+    _field_finding,
+    _legacy_to_strict_document_response,
+    analyze_document,
+    _validate_llm_response,
+)
+from experience_analysis import BoundedDocumentExtractor, BoundedOCRWorker, OCRExecutionError
 
 
 def blank_pdf() -> bytes:
@@ -34,7 +42,25 @@ def blank_pdf() -> bytes:
 def employment_image() -> bytes:
     image = Image.new("RGB", (1400, 500), "white")
     draw = ImageDraw.Draw(image)
-    font = ImageFont.truetype("C:\\Windows\\Fonts\\arial.ttf", 48)
+    font = None
+    for font_path in (
+        "C:/Windows/Fonts/arial.ttf",
+        "C:/Windows/Fonts/segoeui.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+    ):
+        try:
+            font = ImageFont.truetype(str(Path(font_path)), 48)
+            break
+        except OSError:
+            continue
+    if font is None:
+        try:
+            font = ImageFont.load_default(size=48)
+        except TypeError:
+            font = ImageFont.load_default()
     draw.text((60, 35), "EXPERIENCE CERTIFICATE", fill="black", font=font)
     draw.text((60, 145), "Employee Name: Example User", fill="black", font=font)
     draw.text((60, 245), "Employer: Northstar", fill="black", font=font)
@@ -77,6 +103,24 @@ def text_pdf() -> bytes:
     page.insert_text((60, 100), "Employee Name: Example User", fontsize=14)
     page.insert_text((60, 130), "Employer: Northstar", fontsize=14)
     page.insert_text((60, 160), "Position: Engineer", fontsize=14)
+    document.save(output)
+    document.close()
+    return output.getvalue()
+
+
+def certificate_details_pdf() -> bytes:
+    output = BytesIO()
+    document = fitz.open()
+    page = document.new_page()
+    for line_number, line in enumerate((
+        "EXPERIENCE CERTIFICATE",
+        "Employee Name: Example User",
+        "Organization: Northstar",
+        "Role: Engineer",
+        "Issuer: Northstar Human Resources",
+        "Duration: 6 months",
+    )):
+        page.insert_text((60, 60 + line_number * 24), line, fontsize=12)
     document.save(output)
     document.close()
     return output.getvalue()
@@ -145,6 +189,13 @@ class ExperienceAnalysisTests(unittest.TestCase):
     def _upload(self, content: bytes, *, mime="application/pdf", authorization="Bearer test-service-token",
                 claim='{"evidenceId":42,"evidenceVersion":7,"company":"Northstar","jobTitle":"Engineer","summary":"Built systems"}',
                 filename="evidence.pdf"):
+        try:
+            claim_body = json.loads(claim)
+            if isinstance(claim_body, dict):
+                claim_body.setdefault("sha256", hashlib.sha256(content).hexdigest())
+                claim = json.dumps(claim_body)
+        except (json.JSONDecodeError, TypeError):
+            pass
         return self.client.post(
             "/experience/analyze",
             headers={"Authorization": authorization} if authorization else {},
@@ -263,6 +314,39 @@ class ExperienceAnalysisTests(unittest.TestCase):
         self.assertEqual(2, kinds["EMPLOYMENT"].provenance[0].pageNumber)
         self.assertEqual(3, kinds["MENTORSHIP"].provenance[0].pageNumber)
 
+    def test_strict_classifier_recognizes_supported_employment_and_mentorship_documents(self):
+        examples = (
+            ("INTERNSHIP_CERTIFICATE", "Internship Completion Letter"),
+            ("EXPERIENCE_CERTIFICATE", "Work Experience Letter"),
+            ("EMPLOYMENT_CERTIFICATE", "Appointment Letter"),
+            ("OFFER_LETTER", "Internship Offer Letter"),
+            ("PAYSLIP", "Monthly Pay Slip"),
+            ("MENTORSHIP_CERTIFICATE", "Mentorship Completion Letter"),
+            ("MENTOR_CONFIRMATION", "Mentor Assignment"),
+            ("PROJECT_REPORT", "Project Completion Certificate"),
+        )
+        for expected, title in examples:
+            data = title.encode()
+            text = f"{title}\nAdditional synthetic supporting details are present."
+            request = ExtractionRequest(
+                schemaVersion="mentorax.document-understanding.v1",
+                evidenceId=21,
+                evidenceVersion=2,
+                sha256=hashlib.sha256(data).hexdigest(),
+                claimType="UNSPECIFIED",
+            )
+            response = strict_analyze_document(
+                request,
+                data,
+                "application/pdf",
+                lambda _data, _content_type, source=text: (
+                    source, [], [{"page": 1, "text": source, "method": "PDF_TEXT"}], "NOT_NEEDED"),
+            )
+
+            with self.subTest(classification=expected):
+                self.assertEqual(expected, response.documentClassification.value)
+                self.assertTrue(response.classificationProvenance)
+
     def test_blank_pdf_is_unreadable_when_ocr_is_unavailable(self):
         response = self._upload(blank_pdf())
         self.assertEqual(200, response.status_code)
@@ -292,6 +376,11 @@ class ExperienceAnalysisTests(unittest.TestCase):
         self.assertEqual("MISMATCH", outcomes["company"])
         self.assertEqual("MISMATCH", outcomes["jobTitle"])
         self.assertEqual("MISMATCH", outcomes["startMonth"])
+
+    def test_named_month_date_matches_claim_year_month(self):
+        self.assertEqual("MATCH", _field_finding("startMonth", "2025-06", "June 2025")["outcome"])
+        self.assertEqual("MATCH", _field_finding("endMonth", "2025-08", "Aug 2025")["outcome"])
+        self.assertEqual("MISMATCH", _field_finding("startMonth", "2025-06", "July 2025")["outcome"])
 
     def test_contradictory_labeled_values_are_not_replaced_by_claim_values(self):
         fields = ClaimFields(evidenceId=42, evidenceVersion=7, company="Northstar", jobTitle="Engineer",
@@ -370,8 +459,25 @@ class ExperienceAnalysisTests(unittest.TestCase):
         self.assertEqual("COMPLETE", body["analysisStatus"])
         self.assertEqual("NOT_NEEDED", body["ocrStatus"])
         self.assertEqual("HEURISTIC_FALLBACK", body["analysisMethod"])
-        self.assertEqual("EMPLOYMENT_CERTIFICATE", body["documentClassification"])
+        self.assertEqual("EXPERIENCE_CERTIFICATE", body["documentClassification"])
         self.assertTrue(body["findings"][0]["evidenceReference"].startswith("evidence-42-v7-page-"))
+
+    def test_authenticated_route_exposes_issuer_and_duration_with_source_provenance(self):
+        response = self._upload(certificate_details_pdf())
+
+        self.assertEqual(200, response.status_code)
+        body = response.json()
+        fields = {field["name"]: field for field in body["fields"]}
+        for field_name, expected in (
+                ("issuer", "Northstar Human Resources"),
+                ("duration", "6 months")):
+            self.assertEqual("FOUND", fields[field_name]["status"])
+            self.assertEqual(expected, fields[field_name]["value"])
+            self.assertEqual(42, fields[field_name]["provenance"][0]["sourceEvidenceId"])
+            self.assertEqual(7, fields[field_name]["provenance"][0]["evidenceVersion"])
+        findings = {finding["field"]: finding for finding in body["findings"]}
+        self.assertEqual("Northstar Human Resources", findings["issuer"]["extractedValue"])
+        self.assertEqual("6 months", findings["duration"]["extractedValue"])
 
     def test_authenticated_route_returns_spring_contract_and_redacts_credentials(self):
         response = self._upload(credential_pdf())
@@ -382,7 +488,7 @@ class ExperienceAnalysisTests(unittest.TestCase):
         self.assertEqual("COMPLETE", body["analysisStatus"])
         self.assertEqual(42, body["evidenceId"])
         self.assertEqual(7, body["evidenceVersion"])
-        self.assertEqual("EMPLOYMENT_CERTIFICATE", body["documentClassification"])
+        self.assertEqual("EXPERIENCE_CERTIFICATE", body["documentClassification"])
         self.assertTrue(all(
             item["status"] in {"FOUND", "NOT_PRESENT", "UNREADABLE"}
             for item in body["fields"]
@@ -406,6 +512,48 @@ class ExperienceAnalysisTests(unittest.TestCase):
             self.assertIn(ordinary_value, serialized)
         self.assertIn("[REDACTED]", serialized)
 
+    def test_authenticated_route_returns_original_file_hash_and_rejects_mismatch(self):
+        content = text_pdf()
+        response = self._upload(content)
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual(hashlib.sha256(content).hexdigest(), response.json()["sha256"])
+        self.assertRegex(response.json()["extractedTextFingerprint"], r"^[a-f0-9]{64}$")
+        self.assertNotEqual(
+            response.json()["sha256"], response.json()["extractedTextFingerprint"])
+
+        mismatch = self._upload(
+            content,
+            claim=json.dumps({
+                "evidenceId": 42,
+                "evidenceVersion": 7,
+                "company": "Northstar",
+                "jobTitle": "Engineer",
+                "summary": "Built systems",
+                "sha256": "0" * 64,
+            }),
+        )
+        self.assertEqual(422, mismatch.status_code)
+        self.assertEqual(
+            {"detail": "Evidence integrity validation failed"}, mismatch.json())
+
+    def test_authenticated_route_requires_hash_metadata(self):
+        response = self.client.post(
+            "/experience/analyze",
+            headers={"Authorization": "Bearer test-service-token"},
+            data={"claim": json.dumps({
+                "evidenceId": 42,
+                "evidenceVersion": 7,
+                "company": "Northstar",
+                "jobTitle": "Engineer",
+                "summary": "Built systems",
+            })},
+            files={"file": ("evidence.pdf", text_pdf(), "application/pdf")},
+        )
+
+        self.assertEqual(422, response.status_code)
+        self.assertEqual({"detail": "Evidence hash is required"}, response.json())
+
     def test_route_maps_complete_partial_and_unreadable_extraction_statuses(self):
         readable_text = (
             "Experience Certificate\nEmployee Name: Synthetic Student\n"
@@ -419,7 +567,7 @@ class ExperienceAnalysisTests(unittest.TestCase):
         for text, ocr_status, expected_status in cases:
             page = {"page": 1, "text": text, "method": "PDF_TEXT", "ocrFailed": ocr_status == "FAILED"}
             with self.subTest(expected_status=expected_status), patch(
-                    "experience_analysis._extract_document",
+                    "experience_analysis._bounded_extract_document",
                     return_value=(text, [], [page], ocr_status)):
                 response = self._upload(b"%PDF-synthetic")
 
@@ -540,6 +688,49 @@ class ExperienceAnalysisTests(unittest.TestCase):
         self.assertEqual("OCR_PLUS_HEURISTIC", body["analysisMethod"])
         self.assertEqual("MATCH", next(item["outcome"] for item in body["findings"]
                                       if item["field"] == "employeeName"))
+        person = next(field for field in body["fields"] if field["name"] == "personName")
+        self.assertIsNotNone(person["provenance"][0]["boundingBox"])
+
+    def test_bounded_ocr_timeout_terminates_its_worker_process(self):
+        parent = Mock()
+        parent.poll.return_value = False
+        child = Mock()
+        process = Mock()
+        process.is_alive.side_effect = [True, True, True]
+        context = Mock()
+        context.Pipe.return_value = (parent, child)
+        context.Process.return_value = process
+
+        with patch("experience_analysis.multiprocessing.get_context", return_value=context):
+            worker = BoundedOCRWorker()
+            with self.assertRaises(OCRExecutionError):
+                worker.extract(1, b"synthetic-image", 10, 10)
+            worker.close()
+
+        process.terminate.assert_called_once()
+        process.kill.assert_called_once()
+        process.close.assert_called_once()
+
+    def test_bounded_document_timeout_terminates_its_worker_process(self):
+        parent = Mock()
+        parent.poll.return_value = False
+        child = Mock()
+        process = Mock()
+        process.is_alive.side_effect = [True, True, True]
+        context = Mock()
+        context.Pipe.return_value = (parent, child)
+        context.Process.return_value = process
+
+        with patch("experience_analysis.multiprocessing.get_context", return_value=context):
+            worker = BoundedDocumentExtractor(b"synthetic evidence", "application/pdf")
+            with self.assertRaises(HTTPException) as raised:
+                worker.extract()
+            worker.close()
+
+        self.assertEqual(503, raised.exception.status_code)
+        process.terminate.assert_called_once()
+        process.kill.assert_called_once()
+        process.close.assert_called_once()
 
     def test_rotated_jpeg_executes_ocr_after_orientation_recovery(self):
         image = Image.open(BytesIO(employment_image())).rotate(90, expand=True)

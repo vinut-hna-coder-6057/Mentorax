@@ -1,0 +1,590 @@
+{
+  "corpus": "Mentorax synthetic experience document quality corpus",
+  "syntheticOnly": true,
+  "realWorldAccuracyClaim": false,
+  "documentCount": 12,
+  "documentChecks": 188,
+  "passingDocumentChecks": 188,
+  "categoryResults": {
+    "internship completion certificate": {
+      "fixtures": 1,
+      "checks": 19,
+      "passed": 19
+    },
+    "internship offer letter": {
+      "fixtures": 1,
+      "checks": 17,
+      "passed": 17
+    },
+    "experience letter": {
+      "fixtures": 1,
+      "checks": 16,
+      "passed": 16
+    },
+    "employment confirmation letter": {
+      "fixtures": 1,
+      "checks": 16,
+      "passed": 16
+    },
+    "relieving letter": {
+      "fixtures": 1,
+      "checks": 16,
+      "passed": 16
+    },
+    "mentorship certificate": {
+      "fixtures": 1,
+      "checks": 17,
+      "passed": 17
+    },
+    "internship certificate with missing fields": {
+      "fixtures": 1,
+      "checks": 16,
+      "passed": 16
+    },
+    "internship certificate with conflicting date mentions": {
+      "fixtures": 1,
+      "checks": 10,
+      "passed": 10
+    },
+    "synthetic sensitive-data filtering": {
+      "fixtures": 1,
+      "checks": 22,
+      "passed": 22
+    },
+    "scanned internship certificate (OCR)": {
+      "fixtures": 1,
+      "checks": 16,
+      "passed": 16
+    },
+    "second document with conflicting start month": {
+      "fixtures": 1,
+      "checks": 10,
+      "passed": 10
+    },
+    "compatible complementary support letter": {
+      "fixtures": 1,
+      "checks": 13,
+      "passed": 13
+    }
+  },
+  "documents": [
+    {
+      "id": "internship_completion_month_year",
+      "category": "internship completion certificate",
+      "expectedClassification": "INTERNSHIP_CERTIFICATE",
+      "actualClassification": "INTERNSHIP_CERTIFICATE",
+      "ocrStatus": "NOT_NEEDED",
+      "analysisStatus": "COMPLETE",
+      "checks": {
+        "classification": true,
+        "verification_is_none": true,
+        "issuer_not_authenticated": true,
+        "fields": true,
+        "comparisons": true,
+        "sensitive_values_redacted": true
+      },
+      "fieldChecks": {
+        "personName": true,
+        "organisation": true,
+        "role": true,
+        "startDate": true,
+        "endDate": true,
+        "issueDate": true,
+        "issuer": true,
+        "certificateReferenceId": true
+      },
+      "comparisonChecks": {
+        "employeeName": true,
+        "company": true,
+        "jobTitle": true,
+        "startMonth": true,
+        "endMonth": true
+      },
+      "sensitiveChecks": {},
+      "findings": {
+        "employeeName": "MATCH",
+        "company": "MATCH",
+        "issuer": "INCONCLUSIVE",
+        "jobTitle": "MATCH",
+        "startMonth": "MATCH",
+        "endMonth": "MATCH",
+        "duration": "MISSING",
+        "issueDate": "INCONCLUSIVE",
+        "employmentStatements": "INCONCLUSIVE"
+      }
+    },
+    {
+      "id": "internship_offer_iso_date",
+      "category": "internship offer letter",
+      "expectedClassification": "OFFER_LETTER",
+      "actualClassification": "OFFER_LETTER",
+      "ocrStatus": "NOT_NEEDED",
+      "analysisStatus": "COMPLETE",
+      "checks": {
+        "classification": true,
+        "verification_is_none": true,
+        "issuer_not_authenticated": true,
+        "fields": true,
+        "comparisons": true,
+        "sensitive_values_redacted": true
+      },
+      "fieldChecks": {
+        "personName": true,
+        "organisation": true,
+        "role": true,
+        "startDate": true,
+        "endDate": true,
+        "issueDate": true
+      },
+      "comparisonChecks": {
+        "employeeName": true,
+        "company": true,
+        "jobTitle": true,
+        "startMonth": true,
+        "endMonth": true
+      },
+      "sensitiveChecks": {},
+      "findings": {
+        "employeeName": "MATCH",
+        "company": "MATCH",
+        "issuer": "INCONCLUSIVE",
+        "jobTitle": "MATCH",
+        "startMonth": "MATCH",
+        "endMonth": "MISSING",
+        "duration": "MISSING",
+        "issueDate": "INCONCLUSIVE",
+        "employmentStatements": "INCONCLUSIVE"
+      }
+    },
+    {
+      "id": "experience_letter_day_month_year",
+      "category": "experience letter",
+      "expectedClassification": "EXPERIENCE_CERTIFICATE",
+      "actualClassification": "EXPERIENCE_CERTIFICATE",
+      "ocrStatus": "NOT_NEEDED",
+      "analysisStatus": "COMPLETE",
+      "checks": {
+        "classification": true,
+        "verification_is_none": true,
+        "issuer_not_authenticated": true,
+        "fields": true,
+        "comparisons": true,
+        "sensitive_values_redacted": true
+      },
+      "fieldChecks": {
+        "personName": true,
+        "organisation": true,
+        "role": true,
+        "startDate": true,
+        "endDate": true
+      },
+      "comparisonChecks": {
+        "employeeName": true,
+        "company": true,
+        "jobTitle": true,
+        "startMonth": true,
+        "endMonth": true
+      },
+      "sensitiveChecks": {},
+      "findings": {
+        "employeeName": "MATCH",
+        "company": "MATCH",
+        "issuer": "INCONCLUSIVE",
+        "jobTitle": "MATCH",
+        "startMonth": "MATCH",
+        "endMonth": "MATCH",
+        "duration": "MISSING",
+        "issueDate": "MISSING"
+      }
+    },
+    {
+      "id": "employment_confirmation_iso_dates",
+      "category": "employment confirmation letter",
+      "expectedClassification": "EMPLOYMENT_CERTIFICATE",
+      "actualClassification": "EMPLOYMENT_CERTIFICATE",
+      "ocrStatus": "NOT_NEEDED",
+      "analysisStatus": "COMPLETE",
+      "checks": {
+        "classification": true,
+        "verification_is_none": true,
+        "issuer_not_authenticated": true,
+        "fields": true,
+        "comparisons": true,
+        "sensitive_values_redacted": true
+      },
+      "fieldChecks": {
+        "personName": true,
+        "organisation": true,
+        "role": true,
+        "startDate": true,
+        "endDate": true
+      },
+      "comparisonChecks": {
+        "employeeName": true,
+        "company": true,
+        "jobTitle": true,
+        "startMonth": true,
+        "endMonth": true
+      },
+      "sensitiveChecks": {},
+      "findings": {
+        "employeeName": "MATCH",
+        "company": "MATCH",
+        "issuer": "INCONCLUSIVE",
+        "jobTitle": "MATCH",
+        "startMonth": "MATCH",
+        "endMonth": "MATCH",
+        "duration": "MISSING",
+        "issueDate": "MISSING",
+        "employmentStatements": "INCONCLUSIVE"
+      }
+    },
+    {
+      "id": "relieving_letter",
+      "category": "relieving letter",
+      "expectedClassification": "RELIEVING_LETTER",
+      "actualClassification": "RELIEVING_LETTER",
+      "ocrStatus": "NOT_NEEDED",
+      "analysisStatus": "COMPLETE",
+      "checks": {
+        "classification": true,
+        "verification_is_none": true,
+        "issuer_not_authenticated": true,
+        "fields": true,
+        "comparisons": true,
+        "sensitive_values_redacted": true
+      },
+      "fieldChecks": {
+        "personName": true,
+        "organisation": true,
+        "role": true,
+        "startDate": true,
+        "endDate": true
+      },
+      "comparisonChecks": {
+        "employeeName": true,
+        "company": true,
+        "jobTitle": true,
+        "startMonth": true,
+        "endMonth": true
+      },
+      "sensitiveChecks": {},
+      "findings": {
+        "employeeName": "MATCH",
+        "company": "MATCH",
+        "issuer": "INCONCLUSIVE",
+        "jobTitle": "MATCH",
+        "startMonth": "MATCH",
+        "endMonth": "MATCH",
+        "duration": "MISSING",
+        "issueDate": "MISSING",
+        "employmentStatements": "INCONCLUSIVE"
+      }
+    },
+    {
+      "id": "mentorship_certificate",
+      "category": "mentorship certificate",
+      "expectedClassification": "MENTORSHIP_CERTIFICATE",
+      "actualClassification": "MENTORSHIP_CERTIFICATE",
+      "ocrStatus": "NOT_NEEDED",
+      "analysisStatus": "COMPLETE",
+      "checks": {
+        "classification": true,
+        "verification_is_none": true,
+        "issuer_not_authenticated": true,
+        "fields": true,
+        "comparisons": true,
+        "sensitive_values_redacted": true
+      },
+      "fieldChecks": {
+        "personName": true,
+        "organisation": true,
+        "role": true,
+        "mentorSupervisor": true,
+        "startDate": true,
+        "endDate": true
+      },
+      "comparisonChecks": {
+        "employeeName": true,
+        "company": true,
+        "jobTitle": true,
+        "startMonth": true,
+        "endMonth": true
+      },
+      "sensitiveChecks": {},
+      "findings": {
+        "employeeName": "MATCH",
+        "company": "MATCH",
+        "issuer": "MISSING",
+        "jobTitle": "MATCH",
+        "startMonth": "MATCH",
+        "endMonth": "MATCH",
+        "duration": "MISSING",
+        "issueDate": "MISSING",
+        "employmentStatements": "INCONCLUSIVE"
+      }
+    },
+    {
+      "id": "missing_fields",
+      "category": "internship certificate with missing fields",
+      "expectedClassification": "INTERNSHIP_CERTIFICATE",
+      "actualClassification": "INTERNSHIP_CERTIFICATE",
+      "ocrStatus": "NOT_NEEDED",
+      "analysisStatus": "COMPLETE",
+      "checks": {
+        "classification": true,
+        "verification_is_none": true,
+        "issuer_not_authenticated": true,
+        "fields": true,
+        "comparisons": true,
+        "sensitive_values_redacted": true
+      },
+      "fieldChecks": {
+        "personName": true,
+        "organisation": true,
+        "role": true,
+        "startDate": true,
+        "endDate": true
+      },
+      "comparisonChecks": {
+        "employeeName": true,
+        "company": true,
+        "jobTitle": true,
+        "startMonth": true,
+        "endMonth": true
+      },
+      "sensitiveChecks": {},
+      "findings": {
+        "employeeName": "MATCH",
+        "company": "MATCH",
+        "issuer": "MISSING",
+        "jobTitle": "MISSING",
+        "startMonth": "MISSING",
+        "endMonth": "MISSING",
+        "duration": "MISSING",
+        "issueDate": "MISSING",
+        "employmentStatements": "INCONCLUSIVE"
+      }
+    },
+    {
+      "id": "ambiguous_multiple_start_dates",
+      "category": "internship certificate with conflicting date mentions",
+      "expectedClassification": "INTERNSHIP_CERTIFICATE",
+      "actualClassification": "INTERNSHIP_CERTIFICATE",
+      "ocrStatus": "NOT_NEEDED",
+      "analysisStatus": "COMPLETE",
+      "checks": {
+        "classification": true,
+        "verification_is_none": true,
+        "issuer_not_authenticated": true,
+        "fields": true,
+        "comparisons": true,
+        "sensitive_values_redacted": true
+      },
+      "fieldChecks": {
+        "startDate": true,
+        "endDate": true
+      },
+      "comparisonChecks": {
+        "startMonth": true,
+        "endMonth": true
+      },
+      "sensitiveChecks": {},
+      "findings": {
+        "employeeName": "MATCH",
+        "company": "MATCH",
+        "issuer": "MISSING",
+        "jobTitle": "MATCH",
+        "startMonth": "INCONCLUSIVE",
+        "endMonth": "MATCH",
+        "duration": "MISSING",
+        "issueDate": "MISSING"
+      }
+    },
+    {
+      "id": "sensitive_values_redacted",
+      "category": "synthetic sensitive-data filtering",
+      "expectedClassification": "INTERNSHIP_CERTIFICATE",
+      "actualClassification": "INTERNSHIP_CERTIFICATE",
+      "ocrStatus": "NOT_NEEDED",
+      "analysisStatus": "COMPLETE",
+      "checks": {
+        "classification": true,
+        "verification_is_none": true,
+        "issuer_not_authenticated": true,
+        "fields": true,
+        "comparisons": true,
+        "sensitive_values_redacted": true
+      },
+      "fieldChecks": {
+        "personName": true,
+        "organisation": true,
+        "startDate": true,
+        "endDate": true
+      },
+      "comparisonChecks": {
+        "employeeName": true,
+        "company": true,
+        "jobTitle": true,
+        "startMonth": true,
+        "endMonth": true
+      },
+      "sensitiveChecks": {
+        "735904": true,
+        "4812": true,
+        "fake-passphrase-42": true,
+        "fake-bearer-token-abc123": true,
+        "sk-test_fake_api_key_123456": true,
+        "123456789012": true,
+        "4111 1111 1111 1111": true
+      },
+      "findings": {
+        "employeeName": "MATCH",
+        "company": "MATCH",
+        "issuer": "MISSING",
+        "jobTitle": "MATCH",
+        "startMonth": "MATCH",
+        "endMonth": "MATCH",
+        "duration": "MISSING",
+        "issueDate": "MISSING"
+      }
+    },
+    {
+      "id": "scanned_internship_certificate",
+      "category": "scanned internship certificate (OCR)",
+      "expectedClassification": "INTERNSHIP_CERTIFICATE",
+      "actualClassification": "INTERNSHIP_CERTIFICATE",
+      "ocrStatus": "SUCCESS",
+      "analysisStatus": "COMPLETE",
+      "checks": {
+        "classification": true,
+        "verification_is_none": true,
+        "issuer_not_authenticated": true,
+        "fields": true,
+        "comparisons": true,
+        "sensitive_values_redacted": true
+      },
+      "fieldChecks": {
+        "personName": true,
+        "organisation": true,
+        "role": true,
+        "startDate": true,
+        "endDate": true
+      },
+      "comparisonChecks": {
+        "employeeName": true,
+        "company": true,
+        "jobTitle": true,
+        "startMonth": true,
+        "endMonth": true
+      },
+      "sensitiveChecks": {},
+      "findings": {
+        "employeeName": "MATCH",
+        "company": "MATCH",
+        "issuer": "MISSING",
+        "jobTitle": "MATCH",
+        "startMonth": "MATCH",
+        "endMonth": "MATCH",
+        "duration": "MISSING",
+        "issueDate": "MISSING"
+      }
+    },
+    {
+      "id": "conflicting_document_start_month",
+      "category": "second document with conflicting start month",
+      "expectedClassification": "INTERNSHIP_CERTIFICATE",
+      "actualClassification": "INTERNSHIP_CERTIFICATE",
+      "ocrStatus": "NOT_NEEDED",
+      "analysisStatus": "COMPLETE",
+      "checks": {
+        "classification": true,
+        "verification_is_none": true,
+        "issuer_not_authenticated": true,
+        "fields": true,
+        "comparisons": true,
+        "sensitive_values_redacted": true
+      },
+      "fieldChecks": {
+        "startDate": true,
+        "endDate": true
+      },
+      "comparisonChecks": {
+        "startMonth": true,
+        "endMonth": true
+      },
+      "sensitiveChecks": {},
+      "findings": {
+        "employeeName": "MATCH",
+        "company": "MATCH",
+        "issuer": "MISSING",
+        "jobTitle": "MATCH",
+        "startMonth": "MISMATCH",
+        "endMonth": "MATCH",
+        "duration": "MISSING",
+        "issueDate": "MISSING"
+      }
+    },
+    {
+      "id": "compatible_support_letter",
+      "category": "compatible complementary support letter",
+      "expectedClassification": "OTHER_SUPPORTING_EVIDENCE",
+      "actualClassification": "OTHER_SUPPORTING_EVIDENCE",
+      "ocrStatus": "NOT_NEEDED",
+      "analysisStatus": "COMPLETE",
+      "checks": {
+        "classification": true,
+        "verification_is_none": true,
+        "issuer_not_authenticated": true,
+        "fields": true,
+        "comparisons": true,
+        "sensitive_values_redacted": true
+      },
+      "fieldChecks": {
+        "personName": true,
+        "organisation": true,
+        "role": true,
+        "startDate": true,
+        "endDate": true
+      },
+      "comparisonChecks": {
+        "startMonth": true,
+        "endMonth": true
+      },
+      "sensitiveChecks": {},
+      "findings": {
+        "employeeName": "MATCH",
+        "company": "MATCH",
+        "issuer": "MISSING",
+        "jobTitle": "MATCH",
+        "startMonth": "MATCH",
+        "endMonth": "MATCH",
+        "duration": "MISSING",
+        "issueDate": "MISSING",
+        "employmentStatements": "INCONCLUSIVE"
+      }
+    }
+  ],
+  "invalidDocumentResults": [
+    {
+      "id": "empty_file",
+      "expectedHttpStatus": 422,
+      "actualHttpStatus": 422,
+      "passed": true
+    },
+    {
+      "id": "corrupted_pdf",
+      "expectedHttpStatus": 422,
+      "actualHttpStatus": 422,
+      "passed": true
+    },
+    {
+      "id": "unsupported_text_file",
+      "expectedHttpStatus": 415,
+      "actualHttpStatus": 415,
+      "passed": true
+    }
+  ],
+  "allInvalidCasesPassed": true,
+  "allCoreChecksPassed": true
+}

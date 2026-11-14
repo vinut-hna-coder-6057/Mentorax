@@ -503,6 +503,7 @@ public class ExperienceClaimController {
         job.setAttemptCount(0);
         job.setNextAttemptAt(LocalDateTime.now());
         job.setLeaseUntil(null);
+        job.setLeaseToken(null);
         job.setLastError(null);
         job.setUpdatedAt(LocalDateTime.now());
         processingRepository.save(job);

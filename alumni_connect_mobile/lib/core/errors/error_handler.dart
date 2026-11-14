@@ -41,18 +41,22 @@ ApiException toApiException(Object error, {String? requestPath}) {
         'account not active' => 'Your account is not active.',
         _ => 'You do not have permission to do that.',
       };
-      return ApiException(ApiErrorKind.forbidden, forbiddenMessage,
-          statusCode: status);
+      return ApiException(
+        ApiErrorKind.forbidden,
+        forbiddenMessage,
+        statusCode: status,
+      );
     }
     if (status == 404) {
       return ApiException(
-          ApiErrorKind.notFound, 'The requested item was not found.',
-          statusCode: status);
+        ApiErrorKind.notFound,
+        'The requested item was not found.',
+        statusCode: status,
+      );
     }
     if (status == 409) {
-      final conflictMessage = message
-              .toLowerCase()
-              .contains('email already exists')
+      final conflictMessage =
+          message.toLowerCase().contains('email already exists')
           ? 'If this address is eligible, verification instructions will be sent shortly.'
           : message;
       return ApiException(
@@ -65,8 +69,8 @@ ApiException toApiException(Object error, {String? requestPath}) {
     if (status == 429) {
       final retryAfter = error.response?.headers.value('retry-after');
 
-      final rateLimitMessage = retryAfter != null &&
-              retryAfter.trim().isNotEmpty
+      final rateLimitMessage =
+          retryAfter != null && retryAfter.trim().isNotEmpty
           ? 'Too many requests. Please wait $retryAfter seconds and try again.'
           : 'Too many requests. Please wait a moment and try again.';
 
@@ -78,28 +82,32 @@ ApiException toApiException(Object error, {String? requestPath}) {
     }
 
     if (status == 400 || status == 422) {
-      return ApiException(
-        ApiErrorKind.validation,
-        message,
-        statusCode: status,
-      );
+      return ApiException(ApiErrorKind.validation, message, statusCode: status);
     }
     if (status != null && status >= 500) {
-      return ApiException(ApiErrorKind.server,
-          'The service is temporarily unavailable. Try again shortly.',
-          statusCode: status);
+      return ApiException(
+        ApiErrorKind.server,
+        'The service is temporarily unavailable. Try again shortly.',
+        statusCode: status,
+      );
     }
     if (error.type == DioExceptionType.connectionTimeout ||
         error.type == DioExceptionType.receiveTimeout ||
         error.type == DioExceptionType.sendTimeout) {
-      return const ApiException(ApiErrorKind.timeout,
-          'The request timed out. Check your connection and retry.');
+      return const ApiException(
+        ApiErrorKind.timeout,
+        'The request timed out. Check your connection and retry.',
+      );
     }
-    return const ApiException(ApiErrorKind.network,
-        'Unable to reach Alumni Connect. Check your connection and retry.');
+    return const ApiException(
+      ApiErrorKind.network,
+      'Unable to reach Alumni Connect. Check your connection and retry.',
+    );
   }
   return const ApiException(
-      ApiErrorKind.unknown, 'Something went wrong. Please try again.');
+    ApiErrorKind.unknown,
+    'Something went wrong. Please try again.',
+  );
 }
 
 String _message(dynamic data) {

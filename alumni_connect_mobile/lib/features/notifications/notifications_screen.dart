@@ -19,7 +19,11 @@ class NotificationsScreen extends ConsumerWidget {
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(
-                AppSpacing.lg, AppSpacing.sm, AppSpacing.lg, AppSpacing.md),
+              AppSpacing.lg,
+              AppSpacing.sm,
+              AppSpacing.lg,
+              AppSpacing.md,
+            ),
             child: Row(
               children: [
                 const Icon(Icons.notifications_active_outlined),
@@ -99,9 +103,7 @@ class NotificationsScreen extends ConsumerWidget {
                           } catch (error) {
                             if (c.mounted) {
                               ScaffoldMessenger.of(c).showSnackBar(
-                                SnackBar(
-                                  content: Text(userFacingError(error)),
-                                ),
+                                SnackBar(content: Text(userFacingError(error))),
                               );
                             }
                           }
@@ -124,8 +126,8 @@ class NotificationsScreen extends ConsumerWidget {
 }
 
 IconData _notificationIcon(String? type) => switch (type?.toUpperCase()) {
-      'MESSAGE' => Icons.chat_bubble_outline,
-      'EVENT' => Icons.event_outlined,
-      'CONNECTION' => Icons.people_outline,
-      _ => Icons.notifications_outlined,
-    };
+  'MESSAGE' => Icons.chat_bubble_outline,
+  'EVENT' => Icons.event_outlined,
+  'CONNECTION' => Icons.people_outline,
+  _ => Icons.notifications_outlined,
+};

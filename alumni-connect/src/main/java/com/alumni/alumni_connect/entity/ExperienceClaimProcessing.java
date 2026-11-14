@@ -26,6 +26,9 @@ public class ExperienceClaimProcessing {
     @Column(name = "lease_until")
     private LocalDateTime leaseUntil;
 
+    @Column(name = "lease_token", length = 36)
+    private String leaseToken;
+
     @Column(name = "last_error", length = 500)
     private String lastError;
 
@@ -54,6 +57,8 @@ public class ExperienceClaimProcessing {
     public void setNextAttemptAt(LocalDateTime nextAttemptAt) { this.nextAttemptAt = nextAttemptAt; }
     public LocalDateTime getLeaseUntil() { return leaseUntil; }
     public void setLeaseUntil(LocalDateTime leaseUntil) { this.leaseUntil = leaseUntil; }
+    public String getLeaseToken() { return leaseToken; }
+    public void setLeaseToken(String leaseToken) { this.leaseToken = leaseToken; }
     public String getLastError() { return lastError; }
     public void setLastError(String lastError) { this.lastError = lastError; }
     public LocalDateTime getCreatedAt() { return createdAt; }

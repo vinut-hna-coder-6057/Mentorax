@@ -28,9 +28,7 @@ class SplashScreen extends ConsumerWidget {
       );
     }
 
-    return const Scaffold(
-      body: LoadingState(),
-    );
+    return const Scaffold(body: LoadingState());
   }
 }
 
@@ -38,6 +36,7 @@ class InvalidRouteScreen extends StatelessWidget {
   const InvalidRouteScreen({super.key});
   @override
   Widget build(BuildContext context) => Scaffold(
-      appBar: AppBar(title: const Text('Not found')),
-      body: const Center(child: Text('The requested resource is invalid.')));
+    appBar: AppBar(title: const Text('Not found')),
+    body: const Center(child: Text('The requested resource is invalid.')),
+  );
 }

@@ -28,14 +28,14 @@ class _EventsScreenState extends ConsumerState<EventsScreen> {
       await action();
       if (!context.mounted) return;
       ref.invalidate(adminEventsProvider);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(successMessage)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(successMessage)));
     } catch (error) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(userFacingError(error))),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(userFacingError(error))));
       }
     } finally {
       if (mounted) {
@@ -62,8 +62,10 @@ class _EventsScreenState extends ConsumerState<EventsScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Community events',
-                          style: Theme.of(c).textTheme.headlineSmall),
+                      Text(
+                        'Community events',
+                        style: Theme.of(c).textTheme.headlineSmall,
+                      ),
                       const SizedBox(height: AppSpacing.xs),
                       const Text('Find your next opportunity to connect.'),
                     ],
@@ -98,14 +100,17 @@ class _EventsScreenState extends ConsumerState<EventsScreen> {
                         ),
                       ),
                     ListTile(
-                      contentPadding:
-                          const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.lg,
+                      ),
                       leading: Icon(
                         Icons.event_outlined,
                         color: Theme.of(c).colorScheme.primary,
                       ),
-                      title: Text(event.title,
-                          style: const TextStyle(fontWeight: FontWeight.w700)),
+                      title: Text(
+                        event.title,
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
                       subtitle: Padding(
                         padding: const EdgeInsets.only(top: AppSpacing.xs),
                         child: Text(
@@ -127,7 +132,11 @@ class _EventsScreenState extends ConsumerState<EventsScreen> {
                         event.status?.isNotEmpty == true)
                       Padding(
                         padding: const EdgeInsets.fromLTRB(
-                            AppSpacing.lg, 0, AppSpacing.lg, AppSpacing.md),
+                          AppSpacing.lg,
+                          0,
+                          AppSpacing.lg,
+                          AppSpacing.md,
+                        ),
                         child: Wrap(
                           spacing: AppSpacing.sm,
                           children: [
@@ -141,7 +150,11 @@ class _EventsScreenState extends ConsumerState<EventsScreen> {
                     if (user?.role == UserRole.admin)
                       Padding(
                         padding: const EdgeInsets.fromLTRB(
-                            AppSpacing.sm, 0, AppSpacing.sm, AppSpacing.sm),
+                          AppSpacing.sm,
+                          0,
+                          AppSpacing.sm,
+                          AppSpacing.sm,
+                        ),
                         child: Wrap(
                           alignment: WrapAlignment.end,
                           children: [
@@ -158,32 +171,34 @@ class _EventsScreenState extends ConsumerState<EventsScreen> {
                               ),
                             IconButton(
                               tooltip: 'Approve',
-                              onPressed: _workingEventIds.contains(event.id) ||
+                              onPressed:
+                                  _workingEventIds.contains(event.id) ||
                                       event.status?.toUpperCase() != 'PENDING'
                                   ? null
                                   : () => _runAdminAction(
-                                        c,
-                                        event.id,
-                                        'Event approved',
-                                        () => r
-                                            .read(appRepositoryProvider)
-                                            .approveEvent(event.id),
-                                      ),
+                                      c,
+                                      event.id,
+                                      'Event approved',
+                                      () => r
+                                          .read(appRepositoryProvider)
+                                          .approveEvent(event.id),
+                                    ),
                               icon: const Icon(Icons.check_circle_outline),
                             ),
                             IconButton(
                               tooltip: 'Reject',
-                              onPressed: _workingEventIds.contains(event.id) ||
+                              onPressed:
+                                  _workingEventIds.contains(event.id) ||
                                       event.status?.toUpperCase() != 'PENDING'
                                   ? null
                                   : () => _runAdminAction(
-                                        c,
-                                        event.id,
-                                        'Event rejected',
-                                        () => r
-                                            .read(appRepositoryProvider)
-                                            .rejectEvent(event.id),
-                                      ),
+                                      c,
+                                      event.id,
+                                      'Event rejected',
+                                      () => r
+                                          .read(appRepositoryProvider)
+                                          .rejectEvent(event.id),
+                                    ),
                               icon: const Icon(Icons.cancel_outlined),
                             ),
                             IconButton(
@@ -237,9 +252,9 @@ Future<void> _eventAction(
     refresh();
   } catch (error) {
     if (c.mounted) {
-      ScaffoldMessenger.of(c).showSnackBar(
-        SnackBar(content: Text(userFacingError(error))),
-      );
+      ScaffoldMessenger.of(
+        c,
+      ).showSnackBar(SnackBar(content: Text(userFacingError(error))));
     }
   }
 }
@@ -281,7 +296,10 @@ Future<void> _deleteEvent(BuildContext c, WidgetRef r, int id) async {
 }
 
 Future<void> _eventEditor(
-    BuildContext context, WidgetRef ref, EventItem? existing) async {
+  BuildContext context,
+  WidgetRef ref,
+  EventItem? existing,
+) async {
   final repository = ref.read(appRepositoryProvider);
   final result = await showDialog<EventItem>(
     context: context,
@@ -298,18 +316,13 @@ Future<void> _eventEditor(
   ref.invalidate(adminEventsProvider);
   ScaffoldMessenger.of(context).showSnackBar(
     SnackBar(
-      content: Text(
-        existing == null ? 'Event created' : 'Event updated',
-      ),
+      content: Text(existing == null ? 'Event created' : 'Event updated'),
     ),
   );
 }
 
 class _EventEditorDialog extends StatefulWidget {
-  const _EventEditorDialog({
-    required this.existing,
-    required this.onSave,
-  });
+  const _EventEditorDialog({required this.existing, required this.onSave});
 
   final EventItem? existing;
   final Future<EventItem> Function(EventItem event) onSave;
@@ -372,9 +385,9 @@ class _EventEditorDialogState extends State<_EventEditorDialog> {
     } catch (error) {
       if (!mounted) return;
       setState(() => _saving = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(userFacingError(error))),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(userFacingError(error))));
     }
   }
 
@@ -461,8 +474,9 @@ class _EventDetailsState extends ConsumerState<_EventDetails> {
     final isAdmin = ref.watch(authProvider).valueOrNull?.role == UserRole.admin;
     final events = ref.watch(isAdmin ? adminEventsProvider : eventsProvider);
     final registrationStatus = ref.watch(eventRegistrationStatusProvider(id));
-    final eventsProviderToRefresh =
-        isAdmin ? adminEventsProvider : eventsProvider;
+    final eventsProviderToRefresh = isAdmin
+        ? adminEventsProvider
+        : eventsProvider;
     return Scaffold(
       appBar: AppBar(title: const Text('Event details')),
       body: events.when(
@@ -548,9 +562,8 @@ class _EventDetailsState extends ConsumerState<_EventDetails> {
               const SizedBox(height: AppSpacing.xl),
               if (event.status?.toUpperCase() == 'APPROVED')
                 registrationStatus.when(
-                  loading: () => const Center(
-                    child: CircularProgressIndicator(),
-                  ),
+                  loading: () =>
+                      const Center(child: CircularProgressIndicator()),
                   error: (error, _) => Column(
                     children: [
                       Text(userFacingError(error)),
@@ -568,25 +581,26 @@ class _EventDetailsState extends ConsumerState<_EventDetails> {
                             onPressed: _registering
                                 ? null
                                 : () => _updateRegistration(
-                                      id,
-                                      register: false,
-                                      refreshProvider: () async {
-                                        final refreshedStatus =
-                                            await ref.refresh(
-                                                eventRegistrationStatusProvider(
-                                                        id)
-                                                    .future);
-                                        if (refreshedStatus) {
-                                          throw StateError(
-                                            'Event registration status did not update.',
-                                          );
-                                        }
-                                        await ref
-                                            .read(eventsProviderToRefresh
-                                                .notifier)
-                                            .loadFirstPage();
-                                      },
-                                    ),
+                                    id,
+                                    register: false,
+                                    refreshProvider: () async {
+                                      final refreshedStatus = await ref.refresh(
+                                        eventRegistrationStatusProvider(
+                                          id,
+                                        ).future,
+                                      );
+                                      if (refreshedStatus) {
+                                        throw StateError(
+                                          'Event registration status did not update.',
+                                        );
+                                      }
+                                      await ref
+                                          .read(
+                                            eventsProviderToRefresh.notifier,
+                                          )
+                                          .loadFirstPage();
+                                    },
+                                  ),
                             icon: _registering
                                 ? const SizedBox(
                                     width: 18,
@@ -596,33 +610,36 @@ class _EventDetailsState extends ConsumerState<_EventDetails> {
                                     ),
                                   )
                                 : const Icon(Icons.event_busy_outlined),
-                            label: Text(_registering
-                                ? 'Please wait…'
-                                : 'Cancel registration'),
+                            label: Text(
+                              _registering
+                                  ? 'Please wait…'
+                                  : 'Cancel registration',
+                            ),
                           )
                         : FilledButton.icon(
                             onPressed: _registering
                                 ? null
                                 : () => _updateRegistration(
-                                      id,
-                                      register: true,
-                                      refreshProvider: () async {
-                                        final refreshedStatus =
-                                            await ref.refresh(
-                                                eventRegistrationStatusProvider(
-                                                        id)
-                                                    .future);
-                                        if (!refreshedStatus) {
-                                          throw StateError(
-                                            'Event registration status did not update.',
-                                          );
-                                        }
-                                        await ref
-                                            .read(eventsProviderToRefresh
-                                                .notifier)
-                                            .loadFirstPage();
-                                      },
-                                    ),
+                                    id,
+                                    register: true,
+                                    refreshProvider: () async {
+                                      final refreshedStatus = await ref.refresh(
+                                        eventRegistrationStatusProvider(
+                                          id,
+                                        ).future,
+                                      );
+                                      if (!refreshedStatus) {
+                                        throw StateError(
+                                          'Event registration status did not update.',
+                                        );
+                                      }
+                                      await ref
+                                          .read(
+                                            eventsProviderToRefresh.notifier,
+                                          )
+                                          .loadFirstPage();
+                                    },
+                                  ),
                             icon: _registering
                                 ? const SizedBox(
                                     width: 18,
@@ -633,7 +650,8 @@ class _EventDetailsState extends ConsumerState<_EventDetails> {
                                   )
                                 : const Icon(Icons.event_available_outlined),
                             label: Text(
-                                _registering ? 'Please wait…' : 'Register'),
+                              _registering ? 'Please wait…' : 'Register',
+                            ),
                           ),
                   ),
                 ),
@@ -667,9 +685,9 @@ class _EventDetailsState extends ConsumerState<_EventDetails> {
       }
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(userFacingError(error))),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(userFacingError(error))));
       }
       if (mounted) setState(() => _registering = false);
       return;
@@ -698,7 +716,8 @@ class _EventDetailsState extends ConsumerState<_EventDetails> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-              register ? 'Registered for event' : 'Registration cancelled'),
+            register ? 'Registered for event' : 'Registration cancelled',
+          ),
         ),
       );
     }
@@ -726,7 +745,8 @@ class _EventDetailsState extends ConsumerState<_EventDetails> {
                         ListTile(
                           leading: UserAvatar(name: attendee.name),
                           title: Text(
-                              attendee.name ?? attendee.email ?? 'Attendee'),
+                            attendee.name ?? attendee.email ?? 'Attendee',
+                          ),
                           subtitle: attendee.registeredAt == null
                               ? null
                               : Text(formatTimestamp(attendee.registeredAt!)),
@@ -744,9 +764,9 @@ class _EventDetailsState extends ConsumerState<_EventDetails> {
       );
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(userFacingError(error))),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(userFacingError(error))));
       }
     }
   }

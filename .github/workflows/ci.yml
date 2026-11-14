@@ -29,6 +29,17 @@ jobs:
           --health-interval=10s
           --health-timeout=5s
           --health-retries=10
+      lifecycle_mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: mentorax-lifecycle-ci-root-password
+        ports:
+          - 3308:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -pmentorax-lifecycle-ci-root-password"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
     env:
       MYSQL_ROOT_PASSWORD: mentorax-ci-root-password
       MENTORAX_MYSQL_MIGRATION_TEST_URL: jdbc:mysql://127.0.0.1:3306/mentorax_migration_test
@@ -37,6 +48,9 @@ jobs:
       MENTORAX_MYSQL_RECOVERY_TEST_URL: jdbc:mysql://127.0.0.1:3306/mentorax_recovery_test
       MENTORAX_MYSQL_RECOVERY_TEST_USERNAME: root
       MENTORAX_MYSQL_RECOVERY_TEST_PASSWORD: mentorax-ci-root-password
+      PHASE26_PROCESSING_MYSQL_URL: jdbc:mysql://127.0.0.1:3308/mentorax_phase26_lifecycle_test
+      PHASE26_PROCESSING_MYSQL_USERNAME: root
+      PHASE26_PROCESSING_MYSQL_PASSWORD: mentorax-lifecycle-ci-root-password
 
     defaults:
       run:
@@ -73,6 +87,15 @@ jobs:
       - name: Run real-MySQL migration tests
         run: ./mvnw -q "-Dtest=FreshMySqlMigrationTest" test
 
+      - name: Create isolated lifecycle test schema
+        run: |
+          mysql --host=127.0.0.1 --port=3308 --user=root \
+            --password="$PHASE26_PROCESSING_MYSQL_PASSWORD" \
+            --execute="CREATE DATABASE mentorax_phase26_lifecycle_test;"
+
+      - name: Run database-backed processing lifecycle tests
+        run: ./mvnw "-Dphase26.processing.mysql=true" "-Dtest=ExperienceClaimProcessingMySqlLifecycleTest" test
+
       - name: Recreate disposable schemas before full backend suite
         run: |
           MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql --host=127.0.0.1 --port=3306 --user=root \
@@ -80,6 +103,40 @@ jobs:
 
       - name: Run backend tests
         run: ./mvnw test
+
+
+  python:
+    name: Python Analysis Tests
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: mentorax-ai
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12.8'
+          cache: pip
+          cache-dependency-path: |
+            mentorax-ai/requirements.txt
+            mentorax-ai/requirements-test.txt
+
+      - name: Install Python dependencies
+        run: python -m pip install -r requirements.txt -r requirements-test.txt
+
+      - name: Check Python syntax and imports
+        run: python -m compileall -q .
+
+      - name: Run Python unit and API tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Run Python evaluation tests
+        run: python -m unittest discover -s evaluation -v
 
 
   flutter:
@@ -97,8 +154,11 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          channel: stable
+          flutter-version: '3.47.9'
           cache: true
+
+      - name: Verify Flutter version
+        run: flutter --version | grep -F 'Flutter 3.47.9'
 
       - name: Get dependencies
         run: flutter pub get
@@ -128,7 +188,7 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          channel: stable
+          flutter-version: '3.47.9'
           cache: true
 
       - name: Get dependencies

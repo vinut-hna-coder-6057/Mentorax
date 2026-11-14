@@ -11,6 +11,8 @@ are rejected. Keep the token in environment or secret-manager configuration.
 
 The same private FastAPI service also extracts experience evidence. PDF text is extracted first; pages with insufficient text and supported JPG/JPEG/PNG uploads are processed by local RapidOCR. OCR does not require an external credential. The backend evaluates all versions attached to a claim together, compares supported employee/employer/role/date/employment details, and reports identical normalized extracted text with its document versions. The backend applies its evidence policy and persists the decision; neither the Python service nor an LLM confirms employment with an employer.
 
+The authenticated extraction route runs document parsing in a killable worker with a 90-second total deadline. It limits uploads to 5 MiB, PDFs to 20 pages, page renders to 25 million pixels, and extracted text to 100,000 characters. These limits do not provide an operating-system-enforced memory ceiling for PDF parser internals; deploy behind a process/container memory limit before accepting untrusted public traffic.
+
 Use Python 3.10–3.12 for the pinned project dependencies. From the repository root in Windows PowerShell:
 
 ```powershell
@@ -41,7 +43,7 @@ $env:EXPERIENCE_EVIDENCE_ENCRYPTION_KEY = "<stored-base64-key>"
 .\mvnw.cmd spring-boot:run
 ```
 
-Without an LLM provider, analysis is explicitly reported as `HEURISTIC_FALLBACK` or `OCR_PLUS_HEURISTIC`; no employer confirmation is inferred. To enable an OpenAI-compatible provider, set `EXPERIENCE_ANALYSIS_LLM_PROVIDER=openai-compatible`, `EXPERIENCE_ANALYSIS_LLM_MODEL=<model>`, `EXPERIENCE_ANALYSIS_LLM_BASE_URL=<private-or-provider-v1-url>`, and `EXPERIENCE_ANALYSIS_LLM_API_KEY=<secret>`. The provider may be `openai`, `openrouter`, or `ollama` as well; Ollama defaults to `http://127.0.0.1:11434/v1` and does not require an API key. Provider requests use a 45-second per-attempt timeout and retry once. Invalid responses and provider errors fail closed and never trigger a verification decision. Spring's evidence-analysis HTTP read timeout is longer than both provider attempts.
+Experience extraction currently uses the canonical, source-grounded local rules and bounded local OCR pipeline. It does not call an LLM. The legacy `EXPERIENCE_ANALYSIS_LLM_*` settings are not an active provider interface; setting a non-local provider currently returns HTTP 503. Do not configure or document an external provider as active. A local or OpenAI-compatible provider adapter requires a separately reviewed implementation, source-grounding validation, and explicit privacy authorization before use. Spring remains the final decision authority, and issuer authentication is not inferred.
 
 After both services are running, upload or add evidence to a claim. The enabled backend scheduler processes queued claims automatically, persists analysis status/method and findings, then notifies the claimant. Use **Retry analysis** when a terminal processing failure is shown. To run focused verification tests:
 

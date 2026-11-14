@@ -5,6 +5,7 @@ import com.alumni.alumni_connect.entity.ExperienceClaimType;
 public record ExperienceEvidenceAnalysisRequest(
         Long evidenceId,
         Integer evidenceVersion,
+        String sha256,
         ExperienceClaimType claimType,
         String company,
         String jobTitle,

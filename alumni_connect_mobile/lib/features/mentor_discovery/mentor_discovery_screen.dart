@@ -34,20 +34,19 @@ class MentorMatch {
   final String messageDraft;
 
   factory MentorMatch.fromJson(Map<String, dynamic> json) => MentorMatch(
-        id: (json['id'] as num).toInt(),
-        name: json['name'] as String? ?? 'Mentorax alum',
-        jobTitle: json['jobTitle'] as String?,
-        company: json['company'] as String?,
-        skills:
-            (json['skills'] as List? ?? const []).whereType<String>().toList(),
-        evidence: (json['evidence'] as List? ?? const [])
-            .whereType<String>()
-            .toList(),
-        relevanceEstimate: (json['relevanceEstimate'] as num?)?.toDouble() ?? 0,
-        uncertainty: json['uncertainty'] as String? ?? '',
-        conversationTopic: json['conversationTopic'] as String? ?? '',
-        messageDraft: json['messageDraft'] as String? ?? '',
-      );
+    id: (json['id'] as num).toInt(),
+    name: json['name'] as String? ?? 'Mentorax alum',
+    jobTitle: json['jobTitle'] as String?,
+    company: json['company'] as String?,
+    skills: (json['skills'] as List? ?? const []).whereType<String>().toList(),
+    evidence: (json['evidence'] as List? ?? const [])
+        .whereType<String>()
+        .toList(),
+    relevanceEstimate: (json['relevanceEstimate'] as num?)?.toDouble() ?? 0,
+    uncertainty: json['uncertainty'] as String? ?? '',
+    conversationTopic: json['conversationTopic'] as String? ?? '',
+    messageDraft: json['messageDraft'] as String? ?? '',
+  );
 }
 
 class MentorDiscoveryResult {
@@ -75,8 +74,10 @@ class MentorDiscoveryResult {
   factory MentorDiscoveryResult.fromJson(Map<String, dynamic> json) =>
       MentorDiscoveryResult(
         matches: (json['recommendations'] as List? ?? const [])
-            .map((item) =>
-                MentorMatch.fromJson(Map<String, dynamic>.from(item as Map)))
+            .map(
+              (item) =>
+                  MentorMatch.fromJson(Map<String, dynamic>.from(item as Map)),
+            )
             .toList(),
         rankingMethod:
             json['rankingMethod'] as String? ?? 'Profile relevance ranking',
@@ -86,15 +87,19 @@ class MentorDiscoveryResult {
         needsClarification: json['needsClarification'] as bool? ?? false,
         clarificationQuestion: json['clarificationQuestion'] as String?,
         message: json['message'] as String?,
-        sources:
-            (json['sources'] as List? ?? const []).whereType<String>().toList(),
+        sources: (json['sources'] as List? ?? const [])
+            .whereType<String>()
+            .toList(),
       );
 }
 
-final mentorDiscoveryProvider = StateNotifierProvider.autoDispose<
-    MentorDiscoveryNotifier, AsyncValue<MentorDiscoveryResult?>>((ref) {
-  return MentorDiscoveryNotifier(ref.watch(appRepositoryProvider));
-});
+final mentorDiscoveryProvider =
+    StateNotifierProvider.autoDispose<
+      MentorDiscoveryNotifier,
+      AsyncValue<MentorDiscoveryResult?>
+    >((ref) {
+      return MentorDiscoveryNotifier(ref.watch(appRepositoryProvider));
+    });
 
 class MentorDiscoveryNotifier
     extends StateNotifier<AsyncValue<MentorDiscoveryResult?>> {
@@ -111,8 +116,11 @@ class MentorDiscoveryNotifier
     _inFlight = true;
     state = const AsyncLoading();
     try {
-      state = AsyncData(MentorDiscoveryResult.fromJson(
-          await _repository.discoverMentors(value)));
+      state = AsyncData(
+        MentorDiscoveryResult.fromJson(
+          await _repository.discoverMentors(value),
+        ),
+      );
     } catch (error, stackTrace) {
       state = AsyncError(error, stackTrace);
     } finally {
@@ -171,14 +179,15 @@ class _MentorDiscoveryScreenState extends ConsumerState<MentorDiscoveryScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-            content: Text('Connection request sent for your review.')),
+          content: Text('Connection request sent for your review.'),
+        ),
       );
       context.push('/user/${match.id}');
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(userFacingError(error))),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(userFacingError(error))));
       }
     } finally {
       _requesting.remove(match.id);
@@ -195,11 +204,14 @@ class _MentorDiscoveryScreenState extends ConsumerState<MentorDiscoveryScreen> {
       body: ListView(
         padding: EdgeInsets.all(width >= 900 ? 32 : 20),
         children: [
-          Text('What can I help you with?',
-              style: Theme.of(context).textTheme.headlineSmall),
+          Text(
+            'What can I help you with?',
+            style: Theme.of(context).textTheme.headlineSmall,
+          ),
           const SizedBox(height: AppSpacing.sm),
           const Text(
-              'Career questions find approved alumni. General questions are routed separately, but reliable factual answering is not configured yet. Nothing is sent to an alumnus automatically.'),
+            'Career questions find approved alumni. General questions are routed separately, but reliable factual answering is not configured yet. Nothing is sent to an alumnus automatically.',
+          ),
           const SizedBox(height: AppSpacing.md),
           TextField(
             controller: _goal,
@@ -214,8 +226,10 @@ class _MentorDiscoveryScreenState extends ConsumerState<MentorDiscoveryScreen> {
             ),
           ),
           const SizedBox(height: AppSpacing.xs),
-          Text('Career and mentor examples',
-              style: Theme.of(context).textTheme.titleSmall),
+          Text(
+            'Career and mentor examples',
+            style: Theme.of(context).textTheme.titleSmall,
+          ),
           const SizedBox(height: AppSpacing.xs),
           Wrap(
             spacing: AppSpacing.xs,
@@ -229,8 +243,10 @@ class _MentorDiscoveryScreenState extends ConsumerState<MentorDiscoveryScreen> {
             ],
           ),
           const SizedBox(height: AppSpacing.sm),
-          Text('General question examples',
-              style: Theme.of(context).textTheme.titleSmall),
+          Text(
+            'General question examples',
+            style: Theme.of(context).textTheme.titleSmall,
+          ),
           const SizedBox(height: AppSpacing.xs),
           Wrap(
             spacing: AppSpacing.xs,
@@ -251,9 +267,10 @@ class _MentorDiscoveryScreenState extends ConsumerState<MentorDiscoveryScreen> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2)),
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
                       SizedBox(width: 12),
                       Text('Routing your question...'),
                     ],
@@ -297,7 +314,8 @@ class _MentorDiscoveryScreenState extends ConsumerState<MentorDiscoveryScreen> {
           title: noApprovedAlumni
               ? 'No approved alumni available'
               : 'No relevant alumni found',
-          message: result.message ??
+          message:
+              result.message ??
               'Try another career question or refine your wording.',
           icon: Icons.person_search_outlined,
         );
@@ -315,9 +333,11 @@ class _MentorDiscoveryScreenState extends ConsumerState<MentorDiscoveryScreen> {
                 ),
               ),
             ),
-          Text(result.fallbackUsed
-              ? 'Local fallback · ${result.rankingMethod}'
-              : result.rankingMethod),
+          Text(
+            result.fallbackUsed
+                ? 'Local fallback · ${result.rankingMethod}'
+                : result.rankingMethod,
+          ),
           const SizedBox(height: AppSpacing.sm),
           for (final match in result.matches) _mentorCard(context, match),
         ],
@@ -327,9 +347,10 @@ class _MentorDiscoveryScreenState extends ConsumerState<MentorDiscoveryScreen> {
     final title = switch (result.intent) {
       'GENERAL_KNOWLEDGE' => 'General question',
       'GREETING_OR_SMALLTALK' => 'Hello',
-      _ => result.needsClarification
-          ? 'Could you clarify?'
-          : 'Question not supported',
+      _ =>
+        result.needsClarification
+            ? 'Could you clarify?'
+            : 'Question not supported',
     };
     return AppCard(
       child: Padding(
@@ -362,7 +383,9 @@ class _MentorDiscoveryScreenState extends ConsumerState<MentorDiscoveryScreen> {
 
   Widget _mentorCard(BuildContext context, MentorMatch match) {
     final draft = _drafts.putIfAbsent(
-        match.id, () => TextEditingController(text: match.messageDraft));
+      match.id,
+      () => TextEditingController(text: match.messageDraft),
+    );
     return Padding(
       padding: const EdgeInsets.only(bottom: AppSpacing.md),
       child: AppCard(
@@ -372,22 +395,28 @@ class _MentorDiscoveryScreenState extends ConsumerState<MentorDiscoveryScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(match.name, style: Theme.of(context).textTheme.titleLarge),
-              if ([match.jobTitle, match.company]
-                  .where((value) => value?.trim().isNotEmpty == true)
-                  .isNotEmpty)
-                Text([match.jobTitle, match.company]
-                    .where((value) => value?.trim().isNotEmpty == true)
-                    .join(' · ')),
+              if ([
+                match.jobTitle,
+                match.company,
+              ].where((value) => value?.trim().isNotEmpty == true).isNotEmpty)
+                Text(
+                  [match.jobTitle, match.company]
+                      .where((value) => value?.trim().isNotEmpty == true)
+                      .join(' · '),
+                ),
               const SizedBox(height: AppSpacing.sm),
               Text(
-                  'Lexical profile overlap (not match confidence): ${match.relevanceEstimate.toStringAsFixed(1)}%'),
+                'Lexical profile overlap (not match confidence): ${match.relevanceEstimate.toStringAsFixed(1)}%',
+              ),
               if (match.skills.isNotEmpty) ...[
                 const SizedBox(height: AppSpacing.xs),
                 Text('Profile skills: ${match.skills.join(', ')}'),
               ],
               const SizedBox(height: AppSpacing.sm),
-              Text('Why this match',
-                  style: Theme.of(context).textTheme.titleMedium),
+              Text(
+                'Why this match',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
               if (match.evidence.isEmpty)
                 const Text('No direct matching profile evidence was found.')
               else
@@ -422,8 +451,10 @@ class _MentorDiscoveryScreenState extends ConsumerState<MentorDiscoveryScreen> {
                       if (context.mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
-                              content:
-                                  Text('Draft copied. It has not been sent.')),
+                            content: Text(
+                              'Draft copied. It has not been sent.',
+                            ),
+                          ),
                         );
                       }
                     },
@@ -438,7 +469,8 @@ class _MentorDiscoveryScreenState extends ConsumerState<MentorDiscoveryScreen> {
                         ? const SizedBox(
                             width: 18,
                             height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2))
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
                         : const Icon(Icons.person_add_alt_1),
                     label: const Text('Request connection'),
                   ),

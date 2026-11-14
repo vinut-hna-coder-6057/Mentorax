@@ -16,8 +16,9 @@ import 'package:alumni_connect_mobile/shared/models/models.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  const storageChannel =
-      MethodChannel('plugins.it_nomads.com/flutter_secure_storage');
+  const storageChannel = MethodChannel(
+    'plugins.it_nomads.com/flutter_secure_storage',
+  );
   TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
       .setMockMethodCallHandler(storageChannel, (call) async => null);
 
@@ -29,11 +30,7 @@ void main() {
     status: 'APPROVED',
   );
 
-  Future<
-      ({
-        DioAdapter adapter,
-        List<String> requests,
-      })> pumpEvents(
+  Future<({DioAdapter adapter, List<String> requests})> pumpEvents(
     WidgetTester tester, {
     bool failFirstCreate = false,
     Duration createResponseDelay = Duration.zero,
@@ -78,16 +75,12 @@ void main() {
     );
     adapter.onPost(
       '/events',
-      (server) => server.reply(
-        200,
-        {
-          'id': 42,
-          'title': 'Mentor meeting',
-          'status': 'PENDING',
-          'attendeeCount': 0,
-        },
-        delay: createResponseDelay,
-      ),
+      (server) => server.reply(200, {
+        'id': 42,
+        'title': 'Mentor meeting',
+        'status': 'PENDING',
+        'attendeeCount': 0,
+      }, delay: createResponseDelay),
       data: {
         'title': 'Mentor meeting',
         'description': '',
@@ -122,11 +115,10 @@ void main() {
     return (adapter: adapter, requests: requests);
   }
 
-  testWidgets('creating an event closes the dialog and remains on events',
-      (tester) async {
-    final harness = await pumpEvents(
-      tester,
-    );
+  testWidgets('creating an event closes the dialog and remains on events', (
+    tester,
+  ) async {
+    final harness = await pumpEvents(tester);
 
     await tester.tap(find.byTooltip('Create event'));
     await tester.pumpAndSettle();
@@ -143,12 +135,10 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('failed creation keeps the editor open and permits a retry',
-      (tester) async {
-    final harness = await pumpEvents(
-      tester,
-      failFirstCreate: true,
-    );
+  testWidgets('failed creation keeps the editor open and permits a retry', (
+    tester,
+  ) async {
+    final harness = await pumpEvents(tester, failFirstCreate: true);
 
     await tester.tap(find.byTooltip('Create event'));
     await tester.pumpAndSettle();
@@ -157,8 +147,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(AlertDialog), findsOneWidget);
-    expect(harness.requests.where((request) => request == 'POST /events'),
-        hasLength(1));
+    expect(
+      harness.requests.where((request) => request == 'POST /events'),
+      hasLength(1),
+    );
     expect(tester.takeException(), isNull);
 
     final retryButton = find.widgetWithText(FilledButton, 'Create');
@@ -166,13 +158,16 @@ void main() {
     await tester.tap(retryButton);
     await tester.pumpAndSettle();
 
-    expect(harness.requests.where((request) => request == 'POST /events'),
-        hasLength(2));
+    expect(
+      harness.requests.where((request) => request == 'POST /events'),
+      hasLength(2),
+    );
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('leaving events during creation safely ignores the late result',
-      (tester) async {
+  testWidgets('leaving events during creation safely ignores the late result', (
+    tester,
+  ) async {
     final harness = await pumpEvents(
       tester,
       createResponseDelay: const Duration(milliseconds: 250),
@@ -183,8 +178,10 @@ void main() {
     await tester.enterText(find.byType(TextFormField).first, 'Mentor meeting');
     await tester.tap(find.widgetWithText(FilledButton, 'Create'));
     await tester.pump(const Duration(milliseconds: 1));
-    expect(harness.requests.where((request) => request == 'POST /events'),
-        hasLength(1));
+    expect(
+      harness.requests.where((request) => request == 'POST /events'),
+      hasLength(1),
+    );
 
     await tester.pumpWidget(
       const MaterialApp(home: Scaffold(body: Text('Another screen'))),
@@ -196,8 +193,9 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('rapid repeated submission issues only one create request',
-      (tester) async {
+  testWidgets('rapid repeated submission issues only one create request', (
+    tester,
+  ) async {
     final harness = await pumpEvents(
       tester,
       createResponseDelay: const Duration(milliseconds: 250),
@@ -214,13 +212,17 @@ void main() {
       tester.widget<FilledButton>(find.byType(FilledButton).last).onPressed,
       isNull,
     );
-    expect(harness.requests.where((request) => request == 'POST /events'),
-        hasLength(1));
+    expect(
+      harness.requests.where((request) => request == 'POST /events'),
+      hasLength(1),
+    );
 
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
-    expect(harness.requests.where((request) => request == 'POST /events'),
-        hasLength(1));
+    expect(
+      harness.requests.where((request) => request == 'POST /events'),
+      hasLength(1),
+    );
   });
 }
