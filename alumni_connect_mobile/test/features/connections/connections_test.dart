@@ -62,385 +62,404 @@ void main() {
     // ------------------------------------------------------------
     // TEST 1 — FETCH CONNECTIONS
     // ------------------------------------------------------------
-    test('connections fetches list from GET /connections and maps models',
-        () async {
-      final dio = Dio(
-        BaseOptions(
-          baseUrl: 'https://api.example.test',
-          responseType: ResponseType.plain,
-        ),
-      );
-      final adapter = DioAdapter(dio: dio);
-      RequestOptions? sentRequest;
-      dio.interceptors.add(
-        InterceptorsWrapper(
-          onRequest: (options, handler) {
-            sentRequest = options;
-            handler.next(options);
-          },
-        ),
-      );
+    test(
+      'connections fetches list from GET /connections and maps models',
+      () async {
+        final dio = Dio(
+          BaseOptions(
+            baseUrl: 'https://api.example.test',
+            responseType: ResponseType.plain,
+          ),
+        );
+        final adapter = DioAdapter(dio: dio);
+        RequestOptions? sentRequest;
+        dio.interceptors.add(
+          InterceptorsWrapper(
+            onRequest: (options, handler) {
+              sentRequest = options;
+              handler.next(options);
+            },
+          ),
+        );
 
-      adapter.onGet(
-        '/connections',
-        (server) => server.reply(
-          200,
-          [
+        adapter.onGet(
+          '/connections',
+          (server) => server.reply(200, [
             sampleConnectionPending,
             sampleConnectionAccepted,
-          ],
-        ),
-      );
+          ]),
+        );
 
-      final repository = AppRepository(
-        ApiClient(
-          SecureStorageService(const FlutterSecureStorage()),
-          dio: dio,
-        ),
-      );
+        final repository = AppRepository(
+          ApiClient(
+            SecureStorageService(const FlutterSecureStorage()),
+            dio: dio,
+          ),
+        );
 
-      final connections = await repository.connections();
+        final connections = await repository.connections();
 
-      expect(sentRequest, isNotNull);
-      expect(sentRequest!.method, 'GET');
-      expect(sentRequest!.path, '/connections');
-      expect(sentRequest!.uri.host, 'api.example.test');
-      expect(adapter.history, hasLength(1));
+        expect(sentRequest, isNotNull);
+        expect(sentRequest!.method, 'GET');
+        expect(sentRequest!.path, '/connections');
+        expect(sentRequest!.uri.host, 'api.example.test');
+        expect(adapter.history, hasLength(1));
 
-      expect(connections, hasLength(2));
+        expect(connections, hasLength(2));
 
-      expect(connections[0].id, 101);
-      expect(connections[0].status, 'PENDING');
-      expect(connections[0].requester?.name, 'Asha Student');
-      expect(connections[0].requester?.role, UserRole.student);
-      expect(connections[0].receiver?.name, 'Vikram Alumni');
-      expect(connections[0].receiver?.role, UserRole.alumni);
-      expect(connections[0].receiver?.company, 'Tech Corp');
+        expect(connections[0].id, 101);
+        expect(connections[0].status, 'PENDING');
+        expect(connections[0].requester?.name, 'Asha Student');
+        expect(connections[0].requester?.role, UserRole.student);
+        expect(connections[0].receiver?.name, 'Vikram Alumni');
+        expect(connections[0].receiver?.role, UserRole.alumni);
+        expect(connections[0].receiver?.company, 'Tech Corp');
 
-      expect(connections[1].id, 101);
-      expect(connections[1].status, 'ACCEPTED');
-    });
+        expect(connections[1].id, 101);
+        expect(connections[1].status, 'ACCEPTED');
+      },
+    );
 
     // ------------------------------------------------------------
     // TEST 2 — SEND CONNECTION REQUEST
     // ------------------------------------------------------------
     test(
-        'requestConnection sends POST to /connections/:id and returns connection item',
-        () async {
-      final dio = Dio(
-        BaseOptions(
-          baseUrl: 'https://api.example.test',
-          responseType: ResponseType.plain,
-        ),
-      );
-      final adapter = DioAdapter(dio: dio);
-      RequestOptions? sentRequest;
-      dio.interceptors.add(
-        InterceptorsWrapper(
-          onRequest: (options, handler) {
-            sentRequest = options;
-            handler.next(options);
-          },
-        ),
-      );
+      'requestConnection sends POST to /connections/:id and returns connection item',
+      () async {
+        final dio = Dio(
+          BaseOptions(
+            baseUrl: 'https://api.example.test',
+            responseType: ResponseType.plain,
+          ),
+        );
+        final adapter = DioAdapter(dio: dio);
+        RequestOptions? sentRequest;
+        dio.interceptors.add(
+          InterceptorsWrapper(
+            onRequest: (options, handler) {
+              sentRequest = options;
+              handler.next(options);
+            },
+          ),
+        );
 
-      adapter.onPost(
-        '/connections/2',
-        (server) => server.reply(200, sampleConnectionPending),
-      );
+        adapter.onPost(
+          '/connections/2',
+          (server) => server.reply(200, sampleConnectionPending),
+        );
 
-      final repository = AppRepository(
-        ApiClient(
-          SecureStorageService(const FlutterSecureStorage()),
-          dio: dio,
-        ),
-      );
+        final repository = AppRepository(
+          ApiClient(
+            SecureStorageService(const FlutterSecureStorage()),
+            dio: dio,
+          ),
+        );
 
-      final result = await repository.requestConnection(2);
+        final result = await repository.requestConnection(2);
 
-      expect(sentRequest, isNotNull);
-      expect(sentRequest!.method, 'POST');
-      expect(sentRequest!.path, '/connections/2');
-      expect(sentRequest!.data, isNull);
-      expect(adapter.history, hasLength(1));
+        expect(sentRequest, isNotNull);
+        expect(sentRequest!.method, 'POST');
+        expect(sentRequest!.path, '/connections/2');
+        expect(sentRequest!.data, isNull);
+        expect(adapter.history, hasLength(1));
 
-      expect(result.id, 101);
-      expect(result.status, 'PENDING');
-      expect(result.requester?.id, 1);
-      expect(result.receiver?.id, 2);
-    });
+        expect(result.id, 101);
+        expect(result.status, 'PENDING');
+        expect(result.requester?.id, 1);
+        expect(result.receiver?.id, 2);
+      },
+    );
 
     // ------------------------------------------------------------
     // TEST 3 — ACCEPT CONNECTION REQUEST
     // ------------------------------------------------------------
     test(
-        'respondConnection sends PUT to /connections/:id with ACCEPTED query param',
-        () async {
-      final dio = Dio(
-        BaseOptions(
-          baseUrl: 'https://api.example.test',
-          responseType: ResponseType.plain,
-        ),
-      );
-      final adapter = DioAdapter(dio: dio);
-      RequestOptions? sentRequest;
-      dio.interceptors.add(
-        InterceptorsWrapper(
-          onRequest: (options, handler) {
-            sentRequest = options;
-            handler.next(options);
-          },
-        ),
-      );
+      'respondConnection sends PUT to /connections/:id with ACCEPTED query param',
+      () async {
+        final dio = Dio(
+          BaseOptions(
+            baseUrl: 'https://api.example.test',
+            responseType: ResponseType.plain,
+          ),
+        );
+        final adapter = DioAdapter(dio: dio);
+        RequestOptions? sentRequest;
+        dio.interceptors.add(
+          InterceptorsWrapper(
+            onRequest: (options, handler) {
+              sentRequest = options;
+              handler.next(options);
+            },
+          ),
+        );
 
-      adapter.onPut(
-        '/connections/101',
-        (server) => server.reply(200, sampleConnectionAccepted),
-        queryParameters: {'status': 'ACCEPTED'},
-      );
+        adapter.onPut(
+          '/connections/101',
+          (server) => server.reply(200, sampleConnectionAccepted),
+          queryParameters: {'status': 'ACCEPTED'},
+        );
 
-      final repository = AppRepository(
-        ApiClient(
-          SecureStorageService(const FlutterSecureStorage()),
-          dio: dio,
-        ),
-      );
+        final repository = AppRepository(
+          ApiClient(
+            SecureStorageService(const FlutterSecureStorage()),
+            dio: dio,
+          ),
+        );
 
-      final result = await repository.respondConnection(101, 'ACCEPTED');
+        final result = await repository.respondConnection(101, 'ACCEPTED');
 
-      expect(sentRequest, isNotNull);
-      expect(sentRequest!.method, 'PUT');
-      expect(sentRequest!.path, '/connections/101');
-      expect(sentRequest!.queryParameters, {'status': 'ACCEPTED'});
-      expect(adapter.history, hasLength(1));
+        expect(sentRequest, isNotNull);
+        expect(sentRequest!.method, 'PUT');
+        expect(sentRequest!.path, '/connections/101');
+        expect(sentRequest!.queryParameters, {'status': 'ACCEPTED'});
+        expect(adapter.history, hasLength(1));
 
-      expect(result.id, 101);
-      expect(result.status, 'ACCEPTED');
-    });
+        expect(result.id, 101);
+        expect(result.status, 'ACCEPTED');
+      },
+    );
 
-    test('respondConnection surfaces server failures as useful API errors',
-        () async {
-      final dio = Dio(
-        BaseOptions(
-          baseUrl: 'https://api.example.test',
-          responseType: ResponseType.plain,
-        ),
-      );
-      final adapter = DioAdapter(dio: dio);
-      adapter.onPut(
-        '/connections/101',
-        (server) => server.reply(500, '{"error":"Internal server error"}'),
-        queryParameters: {'status': 'ACCEPTED'},
-      );
+    test(
+      'respondConnection surfaces server failures as useful API errors',
+      () async {
+        final dio = Dio(
+          BaseOptions(
+            baseUrl: 'https://api.example.test',
+            responseType: ResponseType.plain,
+          ),
+        );
+        final adapter = DioAdapter(dio: dio);
+        adapter.onPut(
+          '/connections/101',
+          (server) => server.reply(500, '{"error":"Internal server error"}'),
+          queryParameters: {'status': 'ACCEPTED'},
+        );
 
-      final repository = AppRepository(
-        ApiClient(
-          SecureStorageService(const FlutterSecureStorage()),
-          dio: dio,
-        ),
-      );
+        final repository = AppRepository(
+          ApiClient(
+            SecureStorageService(const FlutterSecureStorage()),
+            dio: dio,
+          ),
+        );
 
-      await expectLater(
-        repository.respondConnection(101, 'ACCEPTED'),
-        throwsA(
-          isA<ApiException>()
-              .having((error) => error.kind, 'kind', ApiErrorKind.server)
-              .having((error) => error.statusCode, 'statusCode', 500)
-              .having((error) => error.message, 'message',
-                  contains('service is temporarily unavailable')),
-        ),
-      );
-    });
+        await expectLater(
+          repository.respondConnection(101, 'ACCEPTED'),
+          throwsA(
+            isA<ApiException>()
+                .having((error) => error.kind, 'kind', ApiErrorKind.server)
+                .having((error) => error.statusCode, 'statusCode', 500)
+                .having(
+                  (error) => error.message,
+                  'message',
+                  contains('service is temporarily unavailable'),
+                ),
+          ),
+        );
+      },
+    );
 
-    test('respondConnection normalizes status casing before sending request',
-        () async {
-      final dio = Dio(
-        BaseOptions(
-          baseUrl: 'https://api.example.test',
-          responseType: ResponseType.plain,
-        ),
-      );
-      final adapter = DioAdapter(dio: dio);
-      RequestOptions? sentRequest;
-      dio.interceptors.add(
-        InterceptorsWrapper(
-          onRequest: (options, handler) {
-            sentRequest = options;
-            handler.next(options);
-          },
-        ),
-      );
+    test(
+      'respondConnection normalizes status casing before sending request',
+      () async {
+        final dio = Dio(
+          BaseOptions(
+            baseUrl: 'https://api.example.test',
+            responseType: ResponseType.plain,
+          ),
+        );
+        final adapter = DioAdapter(dio: dio);
+        RequestOptions? sentRequest;
+        dio.interceptors.add(
+          InterceptorsWrapper(
+            onRequest: (options, handler) {
+              sentRequest = options;
+              handler.next(options);
+            },
+          ),
+        );
 
-      adapter.onPut(
-        '/connections/101',
-        (server) => server.reply(200, sampleConnectionAccepted),
-        queryParameters: {'status': 'ACCEPTED'},
-      );
+        adapter.onPut(
+          '/connections/101',
+          (server) => server.reply(200, sampleConnectionAccepted),
+          queryParameters: {'status': 'ACCEPTED'},
+        );
 
-      final repository = AppRepository(
-        ApiClient(
-          SecureStorageService(const FlutterSecureStorage()),
-          dio: dio,
-        ),
-      );
+        final repository = AppRepository(
+          ApiClient(
+            SecureStorageService(const FlutterSecureStorage()),
+            dio: dio,
+          ),
+        );
 
-      final result = await repository.respondConnection(101, ' accepted ');
+        final result = await repository.respondConnection(101, ' accepted ');
 
-      expect(sentRequest!.queryParameters, {'status': 'ACCEPTED'});
-      expect(result.status, 'ACCEPTED');
-    });
+        expect(sentRequest!.queryParameters, {'status': 'ACCEPTED'});
+        expect(result.status, 'ACCEPTED');
+      },
+    );
 
     // ------------------------------------------------------------
     // TEST 4 — REJECT CONNECTION REQUEST
     // ------------------------------------------------------------
     test(
-        'respondConnection sends PUT to /connections/:id with REJECTED query param',
-        () async {
-      final dio = Dio(
-        BaseOptions(
-          baseUrl: 'https://api.example.test',
-          responseType: ResponseType.plain,
-        ),
-      );
-      final adapter = DioAdapter(dio: dio);
-      RequestOptions? sentRequest;
-      dio.interceptors.add(
-        InterceptorsWrapper(
-          onRequest: (options, handler) {
-            sentRequest = options;
-            handler.next(options);
-          },
-        ),
-      );
+      'respondConnection sends PUT to /connections/:id with REJECTED query param',
+      () async {
+        final dio = Dio(
+          BaseOptions(
+            baseUrl: 'https://api.example.test',
+            responseType: ResponseType.plain,
+          ),
+        );
+        final adapter = DioAdapter(dio: dio);
+        RequestOptions? sentRequest;
+        dio.interceptors.add(
+          InterceptorsWrapper(
+            onRequest: (options, handler) {
+              sentRequest = options;
+              handler.next(options);
+            },
+          ),
+        );
 
-      adapter.onPut(
-        '/connections/101',
-        (server) => server.reply(200, sampleConnectionRejected),
-        queryParameters: {'status': 'REJECTED'},
-      );
+        adapter.onPut(
+          '/connections/101',
+          (server) => server.reply(200, sampleConnectionRejected),
+          queryParameters: {'status': 'REJECTED'},
+        );
 
-      final repository = AppRepository(
-        ApiClient(
-          SecureStorageService(const FlutterSecureStorage()),
-          dio: dio,
-        ),
-      );
+        final repository = AppRepository(
+          ApiClient(
+            SecureStorageService(const FlutterSecureStorage()),
+            dio: dio,
+          ),
+        );
 
-      final result = await repository.respondConnection(101, 'REJECTED');
+        final result = await repository.respondConnection(101, 'REJECTED');
 
-      expect(sentRequest, isNotNull);
-      expect(sentRequest!.method, 'PUT');
-      expect(sentRequest!.path, '/connections/101');
-      expect(sentRequest!.queryParameters, {'status': 'REJECTED'});
-      expect(adapter.history, hasLength(1));
+        expect(sentRequest, isNotNull);
+        expect(sentRequest!.method, 'PUT');
+        expect(sentRequest!.path, '/connections/101');
+        expect(sentRequest!.queryParameters, {'status': 'REJECTED'});
+        expect(adapter.history, hasLength(1));
 
-      expect(result.id, 101);
-      expect(result.status, 'REJECTED');
-    });
+        expect(result.id, 101);
+        expect(result.status, 'REJECTED');
+      },
+    );
 
     // ------------------------------------------------------------
     // ERROR CONTRACT TESTS (400, 404, 409)
     // ------------------------------------------------------------
-    test('requestConnection handles 400 Bad Request when connecting to self',
-        () async {
-      final dio = Dio(
-        BaseOptions(
-          baseUrl: 'https://api.example.test',
-          responseType: ResponseType.plain,
-        ),
-      );
-      final adapter = DioAdapter(dio: dio);
+    test(
+      'requestConnection handles 400 Bad Request when connecting to self',
+      () async {
+        final dio = Dio(
+          BaseOptions(
+            baseUrl: 'https://api.example.test',
+            responseType: ResponseType.plain,
+          ),
+        );
+        final adapter = DioAdapter(dio: dio);
 
-      adapter.onPost(
-        '/connections/1',
-        (server) => server.reply(400, 'Cannot connect to yourself'),
-      );
+        adapter.onPost(
+          '/connections/1',
+          (server) => server.reply(400, 'Cannot connect to yourself'),
+        );
 
-      final repository = AppRepository(
-        ApiClient(
-          SecureStorageService(const FlutterSecureStorage()),
-          dio: dio,
-        ),
-      );
+        final repository = AppRepository(
+          ApiClient(
+            SecureStorageService(const FlutterSecureStorage()),
+            dio: dio,
+          ),
+        );
 
-      await expectLater(
-        repository.requestConnection(1),
-        throwsA(
-          isA<ApiException>()
-              .having((e) => e.kind, 'kind', ApiErrorKind.validation)
-              .having((e) => e.statusCode, 'statusCode', 400)
-              .having((e) => e.message, 'message',
-                  contains('Cannot connect to yourself')),
-        ),
-      );
-    });
+        await expectLater(
+          repository.requestConnection(1),
+          throwsA(
+            isA<ApiException>()
+                .having((e) => e.kind, 'kind', ApiErrorKind.validation)
+                .having((e) => e.statusCode, 'statusCode', 400)
+                .having(
+                  (e) => e.message,
+                  'message',
+                  contains('Cannot connect to yourself'),
+                ),
+          ),
+        );
+      },
+    );
 
     test(
-        'requestConnection handles 404 Not Found when target user does not exist',
-        () async {
-      final dio = Dio(
-        BaseOptions(
-          baseUrl: 'https://api.example.test',
-          responseType: ResponseType.plain,
-        ),
-      );
-      final adapter = DioAdapter(dio: dio);
+      'requestConnection handles 404 Not Found when target user does not exist',
+      () async {
+        final dio = Dio(
+          BaseOptions(
+            baseUrl: 'https://api.example.test',
+            responseType: ResponseType.plain,
+          ),
+        );
+        final adapter = DioAdapter(dio: dio);
 
-      adapter.onPost(
-        '/connections/999',
-        (server) => server.reply(404, 'User not found'),
-      );
+        adapter.onPost(
+          '/connections/999',
+          (server) => server.reply(404, 'User not found'),
+        );
 
-      final repository = AppRepository(
-        ApiClient(
-          SecureStorageService(const FlutterSecureStorage()),
-          dio: dio,
-        ),
-      );
+        final repository = AppRepository(
+          ApiClient(
+            SecureStorageService(const FlutterSecureStorage()),
+            dio: dio,
+          ),
+        );
 
-      await expectLater(
-        repository.requestConnection(999),
-        throwsA(
-          isA<ApiException>()
-              .having((e) => e.kind, 'kind', ApiErrorKind.notFound)
-              .having((e) => e.statusCode, 'statusCode', 404),
-        ),
-      );
-    });
+        await expectLater(
+          repository.requestConnection(999),
+          throwsA(
+            isA<ApiException>()
+                .having((e) => e.kind, 'kind', ApiErrorKind.notFound)
+                .having((e) => e.statusCode, 'statusCode', 404),
+          ),
+        );
+      },
+    );
 
     test(
-        'requestConnection handles 409 Conflict when connection already exists',
-        () async {
-      final dio = Dio(
-        BaseOptions(
-          baseUrl: 'https://api.example.test',
-          responseType: ResponseType.plain,
-        ),
-      );
-      final adapter = DioAdapter(dio: dio);
+      'requestConnection handles 409 Conflict when connection already exists',
+      () async {
+        final dio = Dio(
+          BaseOptions(
+            baseUrl: 'https://api.example.test',
+            responseType: ResponseType.plain,
+          ),
+        );
+        final adapter = DioAdapter(dio: dio);
 
-      adapter.onPost(
-        '/connections/2',
-        (server) => server.reply(409, 'Connection already exists'),
-      );
+        adapter.onPost(
+          '/connections/2',
+          (server) => server.reply(409, 'Connection already exists'),
+        );
 
-      final repository = AppRepository(
-        ApiClient(
-          SecureStorageService(const FlutterSecureStorage()),
-          dio: dio,
-        ),
-      );
+        final repository = AppRepository(
+          ApiClient(
+            SecureStorageService(const FlutterSecureStorage()),
+            dio: dio,
+          ),
+        );
 
-      await expectLater(
-        repository.requestConnection(2),
-        throwsA(
-          isA<ApiException>()
-              .having((e) => e.kind, 'kind', ApiErrorKind.conflict)
-              .having((e) => e.statusCode, 'statusCode', 409)
-              .having((e) => e.message, 'message',
-                  contains('Connection already exists')),
-        ),
-      );
-    });
+        await expectLater(
+          repository.requestConnection(2),
+          throwsA(
+            isA<ApiException>()
+                .having((e) => e.kind, 'kind', ApiErrorKind.conflict)
+                .having((e) => e.statusCode, 'statusCode', 409)
+                .having(
+                  (e) => e.message,
+                  'message',
+                  contains('Connection already exists'),
+                ),
+          ),
+        );
+      },
+    );
   });
 }

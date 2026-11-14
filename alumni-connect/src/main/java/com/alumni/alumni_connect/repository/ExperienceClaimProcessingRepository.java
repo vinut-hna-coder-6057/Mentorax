@@ -33,6 +33,7 @@ public interface ExperienceClaimProcessingRepository extends JpaRepository<Exper
             update ExperienceClaimProcessing job
             set job.attemptCount = job.attemptCount + 1,
                 job.leaseUntil = :leaseUntil,
+                job.leaseToken = :leaseToken,
                 job.updatedAt = :now
             where job.claimId = :claimId
               and job.nextAttemptAt <= :now
@@ -40,7 +41,8 @@ public interface ExperienceClaimProcessingRepository extends JpaRepository<Exper
             """)
     int acquire(@Param("claimId") Long claimId,
                 @Param("now") LocalDateTime now,
-                @Param("leaseUntil") LocalDateTime leaseUntil);
+                @Param("leaseUntil") LocalDateTime leaseUntil,
+                @Param("leaseToken") String leaseToken);
 
     void deleteByClaimId(Long claimId);
 

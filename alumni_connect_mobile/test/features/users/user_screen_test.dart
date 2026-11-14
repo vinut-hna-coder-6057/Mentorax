@@ -15,27 +15,28 @@ import 'package:alumni_connect_mobile/shared/models/models.dart';
 
 class _UserScreenRepository extends AppRepository {
   _UserScreenRepository()
-      : super(
-          ApiClient(
-            SecureStorageService(const FlutterSecureStorage()),
-            dio: Dio(BaseOptions(baseUrl: 'https://api.example.test')),
-          ),
-        );
+    : super(
+        ApiClient(
+          SecureStorageService(const FlutterSecureStorage()),
+          dio: Dio(BaseOptions(baseUrl: 'https://api.example.test')),
+        ),
+      );
 
   @override
   Future<User> user(int id) async => _profileUser;
 
   @override
-  Future<List<ConnectionItem>> connections(
-          {int page = 0, int size = 50}) async =>
-      const [
-        ConnectionItem(
-          id: 1,
-          status: 'ACCEPTED',
-          requester: _student,
-          receiver: _connectedUser,
-        ),
-      ];
+  Future<List<ConnectionItem>> connections({
+    int page = 0,
+    int size = 50,
+  }) async => const [
+    ConnectionItem(
+      id: 1,
+      status: 'ACCEPTED',
+      requester: _student,
+      receiver: _connectedUser,
+    ),
+  ];
 }
 
 const _student = User(
@@ -66,10 +67,7 @@ Widget _testApp(_UserScreenRepository repository) {
   final router = GoRouter(
     initialLocation: '/user/2',
     routes: [
-      GoRoute(
-        path: '/user/:id',
-        builder: (_, __) => const UserScreen(id: 2),
-      ),
+      GoRoute(path: '/user/:id', builder: (_, __) => const UserScreen(id: 2)),
       GoRoute(
         path: '/chat/:email',
         builder: (_, state) => Scaffold(
@@ -120,8 +118,9 @@ Future<void> _expectMessageNavigation(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets("app-bar Message opens the connected user's chat",
-      (tester) async {
+  testWidgets("app-bar Message opens the connected user's chat", (
+    tester,
+  ) async {
     await _expectMessageNavigation(tester, bottomButton: false);
   });
 

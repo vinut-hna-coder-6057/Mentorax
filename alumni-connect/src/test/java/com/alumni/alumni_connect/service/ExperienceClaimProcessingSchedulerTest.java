@@ -8,7 +8,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.OptionalInt;
+import java.util.Optional;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -24,13 +24,16 @@ class ExperienceClaimProcessingSchedulerTest {
     @Test
     void processesOnlyJobsSuccessfullyAcquiredByTheScheduler() {
         when(processingRepository.findDueClaimIds(any())).thenReturn(List.of(101L, 102L));
+        var acquiredLease = new ExperienceClaimProcessingService.ProcessingLease(
+                101L, 1, 1, "lease-token");
         when(processingService.acquireLease(anyLong(), any(LocalDateTime.class), any(LocalDateTime.class)))
-                .thenReturn(OptionalInt.of(1), OptionalInt.empty());
+                .thenReturn(Optional.of(acquiredLease), Optional.empty());
 
         new ExperienceClaimProcessingScheduler(processingRepository, processingService, 60)
                 .processDueClaims();
 
-        verify(processingService).processClaim(101L, 1);
-        verify(processingService, never()).processClaim(102L, 1);
+        verify(processingService).processClaim(acquiredLease);
+        verify(processingService, never()).processClaim(
+                new ExperienceClaimProcessingService.ProcessingLease(102L, 1, 1, "lease-token"));
     }
 }

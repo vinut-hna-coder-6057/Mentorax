@@ -84,6 +84,7 @@ class ExperienceClaimProcessingServiceTest {
         job = new ExperienceClaimProcessing(CLAIM_ID, 1, LocalDateTime.now());
         job.setAttemptCount(1);
         job.setLeaseUntil(LocalDateTime.now().plusMinutes(1));
+        job.setLeaseToken("test-lease-token");
         when(processingRepository.findByIdForUpdate(CLAIM_ID)).thenReturn(Optional.of(job));
         lenient().when(evidenceCrypto.decrypt(any(byte[].class))).thenReturn(new byte[]{1, 2, 3});
         lenient().when(corroborationService.verify(any()))
@@ -113,7 +114,7 @@ class ExperienceClaimProcessingServiceTest {
         when(corroborationService.verify(claim))
                 .thenReturn(new EmploymentCorroborationService.Result("NOT_CHECKED", false));
 
-        processingService.processClaim(CLAIM_ID, 1);
+        processingService.processClaim(currentLease());
 
         assertEquals("VERIFIED_FROM_EVIDENCE", claim.getStatus());
         assertEquals("LLM_ANALYSIS", claim.getAnalysisMethod());
@@ -141,7 +142,7 @@ class ExperienceClaimProcessingServiceTest {
                 .thenReturn(analysis("Northstar", "EMPLOYMENT_CERTIFICATE", null, 1))
                 .thenReturn(analysis("Northstar Inc", "PAYSLIP", null, 2));
 
-        processingService.processClaim(CLAIM_ID, 1);
+        processingService.processClaim(currentLease());
 
         assertEquals("INCONSISTENT", claim.getStatus(), claim.getAiFindings());
         JsonNode persistedFindings = objectMapper.readTree(claim.getAiFindings());
@@ -158,6 +159,39 @@ class ExperienceClaimProcessingServiceTest {
         assertEquals(2, contradiction.path("evidenceVersions").size());
         assertEquals("document-version-1", contradiction.path("evidenceReferences").get(0).asText());
         assertEquals("document-version-2", contradiction.path("evidenceReferences").get(1).asText());
+    }
+
+    @Test
+    void declaredConflictIsPersistedAndPreventsVerifiedAssessment() throws Exception {
+        claim.setEvidenceVersion(2);
+        job.setEvidenceVersion(2);
+        ExperienceClaimEvidence primary = evidence(1, "certificate.pdf");
+        ExperienceClaimEvidence conflict = evidence(2, "conflicting-certificate.pdf");
+        conflict.setRelationshipType("CONFLICTS_WITH");
+        conflict.setRelatedEvidenceId(primary.getId());
+        when(evidenceRepository.findByClaimIdOrderByEvidenceVersionAsc(CLAIM_ID))
+                .thenReturn(List.of(primary, conflict));
+        when(analysisService.analyze(any(), any(), anyString(), anyString()))
+                .thenReturn(analysis("Northstar", "INTERNSHIP_CERTIFICATE", null, 1))
+                .thenReturn(analysis("Northstar", "INTERNSHIP_CERTIFICATE", null, 2));
+
+        processingService.processClaim(currentLease());
+
+        assertEquals("INCONSISTENT", claim.getStatus());
+        assertTrue(claim.getDecisionExplanation().contains("explicitly marked as conflicting"));
+        JsonNode persistedFindings = objectMapper.readTree(claim.getAiFindings());
+        JsonNode relationshipConflict = null;
+        for (JsonNode finding : persistedFindings) {
+            if (finding.path("field").asText().equals("evidenceRelationship")) {
+                relationshipConflict = finding;
+                break;
+            }
+        }
+        assertTrue(relationshipConflict != null);
+        assertEquals("MISMATCH", relationshipConflict.path("outcome").asText());
+        assertEquals(2, relationshipConflict.path("evidenceIds").size());
+        assertEquals(2, relationshipConflict.path("evidenceVersions").size());
+        assertTrue(relationshipConflict.path("explanation").asText().contains("not a finding of fraud"));
     }
 
     @Test
@@ -179,7 +213,7 @@ class ExperienceClaimProcessingServiceTest {
         when(corroborationService.verify(claim))
                 .thenReturn(new EmploymentCorroborationService.Result("NOT_CHECKED", false));
 
-        processingService.processClaim(CLAIM_ID, 1);
+        processingService.processClaim(currentLease());
 
         assertEquals("VERIFIED_FROM_EVIDENCE", claim.getStatus());
         verify(analysisService, times(1)).analyze(any(), any(), eq("active.pdf"), anyString());
@@ -196,7 +230,7 @@ class ExperienceClaimProcessingServiceTest {
         when(evidenceRepository.findByClaimIdOrderByEvidenceVersionAsc(CLAIM_ID))
                 .thenReturn(List.of(superseded, withdrawn));
 
-        processingService.processClaim(CLAIM_ID, 1);
+        processingService.processClaim(currentLease());
 
         assertEquals("ADDITIONAL_EVIDENCE_REQUIRED", claim.getStatus());
         assertEquals("INCONCLUSIVE", claim.getAiStatus());
@@ -215,7 +249,7 @@ class ExperienceClaimProcessingServiceTest {
                 analysis("Northstar", "MENTORSHIP_CERTIFICATE", null, 1));
         var requestCaptor = org.mockito.ArgumentCaptor.forClass(ExperienceEvidenceAnalysisRequest.class);
 
-        processingService.processClaim(CLAIM_ID, 1);
+        processingService.processClaim(currentLease());
 
         verify(analysisService).analyze(requestCaptor.capture(), any(), eq("mentorship.pdf"), anyString());
         assertEquals(ExperienceClaimType.MENTORSHIP, requestCaptor.getValue().claimType());
@@ -225,7 +259,7 @@ class ExperienceClaimProcessingServiceTest {
     void staleProcessingJobCannotDecideForANewerEvidenceVersion() {
         job.setEvidenceVersion(0);
 
-        processingService.processClaim(CLAIM_ID, 1);
+        processingService.processClaim(currentLease());
 
         verify(evidenceRepository, org.mockito.Mockito.never())
                 .findByClaimIdOrderByEvidenceVersionAsc(CLAIM_ID);
@@ -245,7 +279,7 @@ class ExperienceClaimProcessingServiceTest {
                         "ANALYZED", "[]", "EXPERIENCE_CERTIFICATE", 0,
                         "HEURISTIC_FALLBACK", "NOT_NEEDED", null, extraction));
 
-        processingService.processClaim(CLAIM_ID, 1);
+        processingService.processClaim(currentLease());
 
         verify(extractionPersistenceService).persist(evidence, extraction);
         verify(extractionPersistenceService).findLatest(100L, 1);
@@ -264,9 +298,9 @@ class ExperienceClaimProcessingServiceTest {
                 .thenReturn(successfulAnalysis)
                 .thenReturn(ExperienceEvidenceAnalysisService.AnalysisResult.unavailable());
 
-        processingService.processClaim(CLAIM_ID, 1);
+        processingService.processClaim(currentLease());
         assertTrue(persistedExtractions.containsKey(new EvidenceIdentity(100L, 1)));
-        processingService.processClaim(CLAIM_ID, 1);
+        processingService.processClaim(currentLease());
 
         verify(extractionPersistenceService, times(1)).persist(evidence, successfulAnalysis.extraction());
         assertTrue(persistedExtractions.containsKey(new EvidenceIdentity(100L, 1)));
@@ -283,7 +317,7 @@ class ExperienceClaimProcessingServiceTest {
                         "EMPLOYMENT_CERTIFICATE",
                         0));
 
-        processingService.processClaim(CLAIM_ID, 1);
+        processingService.processClaim(currentLease());
 
         assertEquals("ADDITIONAL_EVIDENCE_REQUIRED", claim.getStatus());
         assertTrue(claim.getDecisionExplanation().contains("persisted extraction"));
@@ -303,7 +337,7 @@ class ExperienceClaimProcessingServiceTest {
         when(corroborationService.verify(claim))
                 .thenReturn(new EmploymentCorroborationService.Result("NOT_CHECKED", false));
 
-        processingService.processClaim(CLAIM_ID, 1);
+        processingService.processClaim(currentLease());
 
         assertEquals("VERIFIED_FROM_EVIDENCE", claim.getStatus());
         JsonNode persistedFindings = objectMapper.readTree(claim.getAiFindings());
@@ -326,7 +360,7 @@ class ExperienceClaimProcessingServiceTest {
         when(analysisService.analyze(any(), any(), anyString(), anyString()))
                 .thenReturn(ExperienceEvidenceAnalysisService.AnalysisResult.unavailable());
 
-        processingService.processClaim(CLAIM_ID, 1);
+        processingService.processClaim(currentLease());
 
         assertEquals("PROCESSING", claim.getStatus());
         assertEquals("PROCESSING", claim.getAiStatus());
@@ -339,6 +373,11 @@ class ExperienceClaimProcessingServiceTest {
 
     private void verifyNoExtractionPersistence() {
         verify(extractionPersistenceService, org.mockito.Mockito.never()).persist(any(), any());
+    }
+
+    private ExperienceClaimProcessingService.ProcessingLease currentLease() {
+        return new ExperienceClaimProcessingService.ProcessingLease(
+                CLAIM_ID, job.getEvidenceVersion(), job.getAttemptCount(), job.getLeaseToken());
     }
 
     private ExperienceClaimEvidence evidence(int version, String filename) {

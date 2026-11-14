@@ -38,10 +38,7 @@ void main() {
       ),
     );
 
-    final expectedClaims = {
-      'sub': 'asha@example.com',
-      'role': 'STUDENT',
-    };
+    final expectedClaims = {'sub': 'asha@example.com', 'role': 'STUDENT'};
     final encodedClaims = base64Url
         .encode(utf8.encode(jsonEncode(expectedClaims)))
         .replaceAll('=', '');
@@ -58,10 +55,7 @@ void main() {
     );
 
     final repository = AppRepository(
-      ApiClient(
-        SecureStorageService(const FlutterSecureStorage()),
-        dio: dio,
-      ),
+      ApiClient(SecureStorageService(const FlutterSecureStorage()), dio: dio),
     );
 
     final token = await repository.login(
@@ -82,9 +76,13 @@ void main() {
     expect(adapter.history, hasLength(1));
 
     expect(token, backendToken);
-    final claims = jsonDecode(
-      utf8.decode(base64Url.decode(base64Url.normalize(token.split('.')[1]))),
-    ) as Map<String, dynamic>;
+    final claims =
+        jsonDecode(
+              utf8.decode(
+                base64Url.decode(base64Url.normalize(token.split('.')[1])),
+              ),
+            )
+            as Map<String, dynamic>;
     expect(claims['sub'], 'asha@example.com');
     expect(userRole(claims['role'] as String), UserRole.student);
   });

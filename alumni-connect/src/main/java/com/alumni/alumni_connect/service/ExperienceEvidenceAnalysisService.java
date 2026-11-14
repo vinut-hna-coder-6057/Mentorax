@@ -192,6 +192,12 @@ public class ExperienceEvidenceAnalysisService {
             return validateLegacySchema(body);
         }
         return validateStrictSchema(body)
+                && claim.sha256() != null
+                && claim.sha256().matches("[a-fA-F0-9]{64}")
+                && MessageDigest.isEqual(
+                        body.path("sha256").asText().getBytes(java.nio.charset.StandardCharsets.US_ASCII),
+                        claim.sha256().toLowerCase(java.util.Locale.ROOT)
+                                .getBytes(java.nio.charset.StandardCharsets.US_ASCII))
                 && new StructuredEvidenceExtractionValidator().isValid(body, claim);
     }
 

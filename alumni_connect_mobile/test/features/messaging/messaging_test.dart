@@ -58,8 +58,9 @@ class _TestRealtimeService extends RealtimeService {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  const storageChannel =
-      MethodChannel('plugins.it_nomads.com/flutter_secure_storage');
+  const storageChannel = MethodChannel(
+    'plugins.it_nomads.com/flutter_secure_storage',
+  );
   TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
       .setMockMethodCallHandler(storageChannel, (call) async => null);
 
@@ -83,7 +84,7 @@ void main() {
           'participantRole': 'ALUMNI',
           'latestMessage': 'Hello',
           'timestamp': '2026-10-02T10:00:00',
-        }
+        },
       ]),
       queryParameters: {'page': 2, 'size': 50},
     );
@@ -108,11 +109,7 @@ void main() {
     adapter.onGet(
       '/conversations',
       (server) => server.reply(200, []),
-      queryParameters: {
-        'page': 0,
-        'size': 50,
-        'participantRole': 'ALUMNI',
-      },
+      queryParameters: {'page': 0, 'size': 50, 'participantRole': 'ALUMNI'},
     );
     final repository = AppRepository(
       ApiClient(SecureStorageService(const FlutterSecureStorage()), dio: dio),
@@ -125,96 +122,101 @@ void main() {
     expect(conversations, isEmpty);
   });
 
-  testWidgets('chat draft clears only after server echo and survives rejection',
-      (tester) async {
-    const me = User(
-      id: 1,
-      name: 'Asha Student',
-      email: 'asha@example.test',
-      role: UserRole.student,
-      status: 'APPROVED',
-    );
-    const otherEmail = 'mentor@example.test';
-    final dio = Dio(
-      BaseOptions(
-        baseUrl: 'https://api.example.test',
-        responseType: ResponseType.plain,
-      ),
-    );
-    final adapter = DioAdapter(dio: dio);
-    adapter.onGet(
-      '/messages/conversation',
-      (server) => server.reply(200, []),
-      queryParameters: {
-        'sender': me.email,
-        'receiver': otherEmail,
-        'page': 0,
-        'size': 50,
-      },
-    );
-    final storage = SecureStorageService(const FlutterSecureStorage());
-    final repository = AppRepository(ApiClient(storage, dio: dio));
-    final realtime = _TestRealtimeService();
-    addTearDown(realtime.dispose);
-
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [
-          appRepositoryProvider.overrideWithValue(repository),
-          realtimeServiceProvider.overrideWithValue(realtime),
-          authProvider.overrideWith((ref) {
-            final notifier = AuthNotifier(repository, storage, realtime);
-            notifier.setUser(me);
-            return notifier;
-          }),
-        ],
-        child: const MaterialApp(
-          home: ChatScreen(email: otherEmail),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    final input = find.byType(TextField);
-    await tester.enterText(input, 'Please keep this draft');
-    await tester.tap(find.byTooltip('Send message'));
-    await tester.pump();
-
-    expect(realtime.sentMessages, hasLength(1));
-    expect(tester.widget<TextField>(input).controller!.text,
-        'Please keep this draft');
-    expect(tester.widget<TextField>(input).readOnly, isTrue);
-
-    realtime.confirm(
-      const ChatMessage(
+  testWidgets(
+    'chat draft clears only after server echo and survives rejection',
+    (tester) async {
+      const me = User(
         id: 1,
-        senderEmail: 'asha@example.test',
-        receiverEmail: otherEmail,
-        content: 'Please keep this draft',
-        timestamp: '2026-10-04T12:00:00',
-      ),
-    );
-    await tester.pumpAndSettle();
+        name: 'Asha Student',
+        email: 'asha@example.test',
+        role: UserRole.student,
+        status: 'APPROVED',
+      );
+      const otherEmail = 'mentor@example.test';
+      final dio = Dio(
+        BaseOptions(
+          baseUrl: 'https://api.example.test',
+          responseType: ResponseType.plain,
+        ),
+      );
+      final adapter = DioAdapter(dio: dio);
+      adapter.onGet(
+        '/messages/conversation',
+        (server) => server.reply(200, []),
+        queryParameters: {
+          'sender': me.email,
+          'receiver': otherEmail,
+          'page': 0,
+          'size': 50,
+        },
+      );
+      final storage = SecureStorageService(const FlutterSecureStorage());
+      final repository = AppRepository(ApiClient(storage, dio: dio));
+      final realtime = _TestRealtimeService();
+      addTearDown(realtime.dispose);
 
-    expect(tester.widget<TextField>(input).controller!.text, isEmpty);
-    expect(find.text('Please keep this draft'), findsOneWidget);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            appRepositoryProvider.overrideWithValue(repository),
+            realtimeServiceProvider.overrideWithValue(realtime),
+            authProvider.overrideWith((ref) {
+              final notifier = AuthNotifier(repository, storage, realtime);
+              notifier.setUser(me);
+              return notifier;
+            }),
+          ],
+          child: const MaterialApp(home: ChatScreen(email: otherEmail)),
+        ),
+      );
+      await tester.pumpAndSettle();
 
-    await tester.enterText(input, 'Keep this one after rejection');
-    await tester.tap(find.byTooltip('Send message'));
-    await tester.pump();
-    realtime.reject(RealtimeFailure.send);
-    await tester.pumpAndSettle();
+      final input = find.byType(TextField);
+      await tester.enterText(input, 'Please keep this draft');
+      await tester.tap(find.byTooltip('Send message'));
+      await tester.pump();
 
-    expect(tester.widget<TextField>(input).controller!.text,
-        'Keep this one after rejection');
-    expect(
-      find.text('Message could not be sent. Your draft was kept.'),
-      findsOneWidget,
-    );
-  });
+      expect(realtime.sentMessages, hasLength(1));
+      expect(
+        tester.widget<TextField>(input).controller!.text,
+        'Please keep this draft',
+      );
+      expect(tester.widget<TextField>(input).readOnly, isTrue);
 
-  testWidgets('alumni can review and edit assistant draft without sending it',
-      (tester) async {
+      realtime.confirm(
+        const ChatMessage(
+          id: 1,
+          senderEmail: 'asha@example.test',
+          receiverEmail: otherEmail,
+          content: 'Please keep this draft',
+          timestamp: '2026-10-04T12:00:00',
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(tester.widget<TextField>(input).controller!.text, isEmpty);
+      expect(find.text('Please keep this draft'), findsOneWidget);
+
+      await tester.enterText(input, 'Keep this one after rejection');
+      await tester.tap(find.byTooltip('Send message'));
+      await tester.pump();
+      realtime.reject(RealtimeFailure.send);
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.widget<TextField>(input).controller!.text,
+        'Keep this one after rejection',
+      );
+      expect(
+        find.text('Message could not be sent. Your draft was kept.'),
+        findsOneWidget,
+      );
+    },
+  );
+
+  testWidgets('alumni can review and edit assistant draft without sending it', (
+    tester,
+  ) async {
     Map<String, dynamic>? copiedClipboardData;
     tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
       SystemChannels.platform,
@@ -241,10 +243,12 @@ void main() {
       status: 'APPROVED',
     );
     const studentEmail = 'student@example.test';
-    final dio = Dio(BaseOptions(
-      baseUrl: 'https://api.example.test',
-      responseType: ResponseType.plain,
-    ));
+    final dio = Dio(
+      BaseOptions(
+        baseUrl: 'https://api.example.test',
+        responseType: ResponseType.plain,
+      ),
+    );
     final adapter = DioAdapter(dio: dio);
     dio.httpClientAdapter = adapter;
     adapter.onGet(
@@ -257,7 +261,7 @@ void main() {
           'content': 'Could you help me prepare for my interview?',
           'timestamp': '2026-10-20T10:00:00',
           'conversationId': 12,
-        }
+        },
       ]),
       queryParameters: {
         'sender': me.email,
@@ -305,18 +309,20 @@ void main() {
     final repository = AppRepository(ApiClient(storage, dio: dio));
     final realtime = _TestRealtimeService();
     addTearDown(realtime.dispose);
-    await tester.pumpWidget(ProviderScope(
-      overrides: [
-        appRepositoryProvider.overrideWithValue(repository),
-        realtimeServiceProvider.overrideWithValue(realtime),
-        authProvider.overrideWith((ref) {
-          final notifier = AuthNotifier(repository, storage, realtime);
-          notifier.setUser(me);
-          return notifier;
-        }),
-      ],
-      child: const MaterialApp(home: ChatScreen(email: studentEmail)),
-    ));
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          appRepositoryProvider.overrideWithValue(repository),
+          realtimeServiceProvider.overrideWithValue(realtime),
+          authProvider.overrideWith((ref) {
+            final notifier = AuthNotifier(repository, storage, realtime);
+            notifier.setUser(me);
+            return notifier;
+          }),
+        ],
+        child: const MaterialApp(home: ChatScreen(email: studentEmail)),
+      ),
+    );
     await tester.pumpAndSettle();
     await tester.tap(find.text('Inbox assistant'));
     await tester.pumpAndSettle();
@@ -339,7 +345,9 @@ void main() {
       findsNWidgets(3),
     );
     expect(
-        find.text('Suggested reply draft · review before use'), findsOneWidget);
+      find.text('Suggested reply draft · review before use'),
+      findsOneWidget,
+    );
     final draft = tester.widgetList<TextField>(find.byType(TextField)).last;
     await tester.enterText(find.byWidget(draft), 'Edited draft for review');
     await tester.tap(find.text('Copy draft'));

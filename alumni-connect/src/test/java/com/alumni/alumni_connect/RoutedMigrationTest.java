@@ -92,12 +92,12 @@ class RoutedMigrationTest {
 
     @Test
     void freshChainReceivesHardeningChangesAfterItsCurrentBaseline() throws Exception {
-        verifyChain("classpath:db/fresh", "1", "22");
+        verifyChain("classpath:db/fresh", "1", "23");
     }
 
     @Test
     void normalizedChainReceivesHardeningChangesAfterItsCurrentBaseline() throws Exception {
-        verifyChain("classpath:db/normalized", "2", "22");
+        verifyChain("classpath:db/normalized", "2", "23");
     }
 
     @Test
@@ -119,8 +119,8 @@ class RoutedMigrationTest {
 
         var result = flyway.migrate();
 
-        assertEquals(13, result.migrationsExecuted);
-        assertEquals("22", flyway.info().current().getVersion().getVersion());
+        assertEquals(14, result.migrationsExecuted);
+        assertEquals("23", flyway.info().current().getVersion().getVersion());
         try (var connection = DriverManager.getConnection(url, "sa", "")) {
             assertTrue(hasTable(connection, "email_outbox"));
             assertTrue(hasColumn(connection, "email_outbox", "purpose"));
@@ -156,7 +156,7 @@ class RoutedMigrationTest {
                 .baselineVersion(baselineVersion)
                 .load();
         var result = flyway.migrate();
-        assertEquals(15, result.migrationsExecuted);
+        assertEquals(16, result.migrationsExecuted);
         assertEquals(expectedVersion, flyway.info().current().getVersion().getVersion());
 
         try (var connection = DriverManager.getConnection(url, "sa", "")) {
@@ -169,6 +169,7 @@ class RoutedMigrationTest {
             assertExperienceEvidenceSchema(connection);
             assertExperienceExtractionSchema(connection);
             assertTrue(hasTable(connection, "experience_corroboration_attempts"));
+            assertTrue(hasColumn(connection, "experience_claim_processing", "lease_token"));
             assertTrue(hasColumn(connection, "experience_claims", "analysis_method"));
             assertTrue(hasColumn(connection, "experience_claims", "ocr_status"));
             assertTrue(hasColumn(connection, "experience_claims", "claim_type"));

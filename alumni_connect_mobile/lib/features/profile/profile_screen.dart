@@ -45,7 +45,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       _jobRole,
       _linkedin,
       _github,
-      _interests
+      _interests,
     ]) {
       controller.dispose();
     }
@@ -146,7 +146,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
               child: Row(
                 children: [
                   UserAvatar(
-                      name: u.name, imageUrl: u.profileImage, radius: 34),
+                    name: u.name,
+                    imageUrl: u.profileImage,
+                    radius: 34,
+                  ),
                   const SizedBox(width: AppSpacing.lg),
                   Expanded(
                     child: Column(
@@ -202,11 +205,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             AppCard(
               child: Column(
                 children: [
-                  _profileField(
-                    _name,
-                    'Name',
-                    icon: Icons.person_outline,
-                  ),
+                  _profileField(_name, 'Name', icon: Icons.person_outline),
                   _profileField(
                     _bio,
                     'About you',
@@ -290,12 +289,14 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         return;
                       }
                       if (_passoutYear.text.trim().isNotEmpty &&
-                          !RegExp(r'^\d{4}$')
-                              .hasMatch(_passoutYear.text.trim())) {
+                          !RegExp(
+                            r'^\d{4}$',
+                          ).hasMatch(_passoutYear.text.trim())) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
-                            content:
-                                Text('Enter a valid 4-digit passout year.'),
+                            content: Text(
+                              'Enter a valid 4-digit passout year.',
+                            ),
                           ),
                         );
                         return;
@@ -345,8 +346,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             if (hasChanges) ...[
               const SizedBox(height: AppSpacing.sm),
               OutlinedButton(
-                onPressed:
-                    _saving ? null : () => setState(() => _populateFields(u)),
+                onPressed: _saving
+                    ? null
+                    : () => setState(() => _populateFields(u)),
                 child: const Text('Discard changes'),
               ),
             ],
@@ -367,18 +369,17 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     IconData? icon,
     int maxLines = 1,
     TextInputType? keyboardType,
-  }) =>
-      Padding(
-        padding: const EdgeInsets.only(bottom: AppSpacing.md),
-        child: TextField(
-          controller: controller,
-          onChanged: (_) => setState(() {}),
-          maxLines: maxLines,
-          keyboardType: keyboardType,
-          decoration: InputDecoration(
-            labelText: label,
-            prefixIcon: icon == null ? null : Icon(icon),
-          ),
-        ),
-      );
+  }) => Padding(
+    padding: const EdgeInsets.only(bottom: AppSpacing.md),
+    child: TextField(
+      controller: controller,
+      onChanged: (_) => setState(() {}),
+      maxLines: maxLines,
+      keyboardType: keyboardType,
+      decoration: InputDecoration(
+        labelText: label,
+        prefixIcon: icon == null ? null : Icon(icon),
+      ),
+    ),
+  );
 }

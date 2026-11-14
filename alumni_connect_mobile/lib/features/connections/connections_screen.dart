@@ -22,17 +22,18 @@ class _ConnectionsScreenState extends ConsumerState<ConnectionsScreen> {
       await ref
           .read(appRepositoryProvider)
           .respondConnection(connection.id, status);
-      final refreshedConnections =
-          await ref.refresh(connectionsProvider.future);
+      final refreshedConnections = await ref.refresh(
+        connectionsProvider.future,
+      );
       if (!mounted) return;
       if (refreshedConnections.isEmpty) {
         return;
       }
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(userFacingError(error))),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(userFacingError(error))));
       }
     } finally {
       if (mounted) setState(() => _workingIds.remove(connection.id));
@@ -101,7 +102,11 @@ class _ConnectionsScreenState extends ConsumerState<ConnectionsScreen> {
                 }
                 return ListView.builder(
                   padding: const EdgeInsets.fromLTRB(
-                      AppSpacing.lg, 0, AppSpacing.lg, AppSpacing.lg),
+                    AppSpacing.lg,
+                    0,
+                    AppSpacing.lg,
+                    AppSpacing.lg,
+                  ),
                   itemCount: visible.length,
                   itemBuilder: (context, index) {
                     final connection = visible[index];
@@ -121,13 +126,15 @@ class _ConnectionsScreenState extends ConsumerState<ConnectionsScreen> {
                             imageUrl: other?.profileImage,
                           ),
                           title: Text(other?.name ?? 'Connection'),
-                          subtitle: Text([
-                            if (other?.jobRole?.isNotEmpty == true)
-                              other!.jobRole!,
-                            if (other?.company?.isNotEmpty == true)
-                              other!.company!,
-                            connection.status,
-                          ].join(' · ')),
+                          subtitle: Text(
+                            [
+                              if (other?.jobRole?.isNotEmpty == true)
+                                other!.jobRole!,
+                              if (other?.company?.isNotEmpty == true)
+                                other!.company!,
+                              connection.status,
+                            ].join(' · '),
+                          ),
                           onTap: other == null
                               ? null
                               : () => c.push('/user/${other.id}'),
@@ -136,21 +143,26 @@ class _ConnectionsScreenState extends ConsumerState<ConnectionsScreen> {
                                   children: [
                                     IconButton(
                                       tooltip: 'Accept request',
-                                      onPressed: _workingIds
-                                              .contains(connection.id)
+                                      onPressed:
+                                          _workingIds.contains(connection.id)
                                           ? null
-                                          : () =>
-                                              _respond(connection, 'ACCEPTED'),
+                                          : () => _respond(
+                                              connection,
+                                              'ACCEPTED',
+                                            ),
                                       icon: const Icon(
-                                          Icons.check_circle_outline),
+                                        Icons.check_circle_outline,
+                                      ),
                                     ),
                                     IconButton(
                                       tooltip: 'Reject request',
-                                      onPressed: _workingIds
-                                              .contains(connection.id)
+                                      onPressed:
+                                          _workingIds.contains(connection.id)
                                           ? null
-                                          : () =>
-                                              _respond(connection, 'REJECTED'),
+                                          : () => _respond(
+                                              connection,
+                                              'REJECTED',
+                                            ),
                                       icon: const Icon(Icons.close),
                                     ),
                                   ],

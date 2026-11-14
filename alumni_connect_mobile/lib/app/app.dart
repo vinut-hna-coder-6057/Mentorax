@@ -10,13 +10,13 @@ class AlumniConnectApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) => MaterialApp.router(
-        title: 'Mentorax',
-        debugShowCheckedModeBanner: false,
-        routerConfig: ref.watch(routerProvider),
-        theme: _buildTheme(Brightness.light),
-        darkTheme: _buildTheme(Brightness.dark),
-        themeMode: ref.watch(themeModeProvider),
-      );
+    title: 'Mentorax',
+    debugShowCheckedModeBanner: false,
+    routerConfig: ref.watch(routerProvider),
+    theme: _buildTheme(Brightness.light),
+    darkTheme: _buildTheme(Brightness.dark),
+    themeMode: ref.watch(themeModeProvider),
+  );
 }
 
 ThemeData _buildTheme(Brightness brightness) {
@@ -88,12 +88,18 @@ ThemeData _buildTheme(Brightness brightness) {
       ),
     ),
     textTheme: TextTheme(
-      headlineMedium:
-          TextStyle(color: scheme.onSurface, fontWeight: FontWeight.w800),
-      titleLarge:
-          TextStyle(color: scheme.onSurface, fontWeight: FontWeight.w800),
-      titleMedium:
-          TextStyle(color: scheme.onSurface, fontWeight: FontWeight.w700),
+      headlineMedium: TextStyle(
+        color: scheme.onSurface,
+        fontWeight: FontWeight.w800,
+      ),
+      titleLarge: TextStyle(
+        color: scheme.onSurface,
+        fontWeight: FontWeight.w800,
+      ),
+      titleMedium: TextStyle(
+        color: scheme.onSurface,
+        fontWeight: FontWeight.w700,
+      ),
       bodyMedium: TextStyle(color: scheme.onSurfaceVariant),
     ),
   );

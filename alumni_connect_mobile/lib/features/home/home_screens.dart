@@ -25,7 +25,7 @@ class RoleShell extends ConsumerWidget {
           ? const ApprovalsScreen()
           : const DirectoryScreen(),
       const EventsScreen(),
-      const ProfileScreen()
+      const ProfileScreen(),
     ];
     final labels = role == UserRole.admin
         ? ['Dashboard', 'Approvals', 'Events', 'Profile']
@@ -35,18 +35,18 @@ class RoleShell extends ConsumerWidget {
             Icons.dashboard_outlined,
             Icons.verified_user_outlined,
             Icons.event_outlined,
-            Icons.person_outline
+            Icons.person_outline,
           ]
         : [
             Icons.home_outlined,
             Icons.people_outline,
             Icons.event_outlined,
-            Icons.person_outline
+            Icons.person_outline,
           ];
     final wide = MediaQuery.sizeOf(c).width >= 900;
     final destinations = [
       for (var i = 0; i < tabs.length; i++)
-        NavigationDestination(icon: Icon(icons[i]), label: labels[i])
+        NavigationDestination(icon: Icon(icons[i]), label: labels[i]),
     ];
 
     return Scaffold(
@@ -102,8 +102,9 @@ class HomeScreen extends ConsumerWidget {
         ? r.watch(adminEventsProvider)
         : r.watch(eventsProvider);
     final unread = r.watch(unreadNotificationCountProvider);
-    final pendingUsers =
-        user?.role == UserRole.admin ? r.watch(pendingUsersProvider) : null;
+    final pendingUsers = user?.role == UserRole.admin
+        ? r.watch(pendingUsersProvider)
+        : null;
     final greeting = switch (user?.role) {
       UserRole.student =>
         'Grow your network, ${user?.name.split(' ').first ?? 'there'}',
@@ -154,16 +155,14 @@ class HomeScreen extends ConsumerWidget {
             final columns = constraints.maxWidth >= 1100
                 ? 4
                 : constraints.maxWidth >= 520
-                    ? 2
-                    : 1;
+                ? 2
+                : 1;
             final items = [
               _DashboardMetric(
                 label: 'Connections',
                 value: connections.when(
-                  data: (value) => '${value.where(
-                        (connection) =>
-                            connection.status.toUpperCase() == 'ACCEPTED',
-                      ).length}',
+                  data: (value) =>
+                      '${value.where((connection) => connection.status.toUpperCase() == 'ACCEPTED').length}',
                   loading: () => '…',
                   error: (_, __) => '—',
                 ),
@@ -244,9 +243,11 @@ class HomeScreen extends ConsumerWidget {
           loading: () => const LoadingState(),
           error: (error, _) => ErrorState(
             message: userFacingError(error),
-            onRetry: () => r.invalidate(user?.role == UserRole.admin
-                ? adminEventsProvider
-                : eventsProvider),
+            onRetry: () => r.invalidate(
+              user?.role == UserRole.admin
+                  ? adminEventsProvider
+                  : eventsProvider,
+            ),
           ),
           data: (items) {
             if (items.isEmpty) {
@@ -265,12 +266,14 @@ class HomeScreen extends ConsumerWidget {
                       child: ListTile(
                         leading: const Icon(Icons.event_outlined),
                         title: Text(event.title),
-                        subtitle: Text([
-                          if (event.eventDate?.isNotEmpty == true)
-                            event.eventDate!,
-                          if (event.location?.isNotEmpty == true)
-                            event.location!,
-                        ].join(' · ')),
+                        subtitle: Text(
+                          [
+                            if (event.eventDate?.isNotEmpty == true)
+                              event.eventDate!,
+                            if (event.location?.isNotEmpty == true)
+                              event.location!,
+                          ].join(' · '),
+                        ),
                         trailing: const Icon(Icons.chevron_right),
                         onTap: () => c.push('/event/${event.id}'),
                       ),
@@ -327,54 +330,54 @@ class _DashboardMetric extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => AppCard(
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(AppRadius.md),
-          child: Row(
-            children: [
-              Icon(icon,
-                  color: Theme.of(context).colorScheme.primary, size: 28),
-              const SizedBox(width: AppSpacing.md),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(value, style: Theme.of(context).textTheme.titleLarge),
-                    Text(label),
-                  ],
-                ),
-              ),
-              const Icon(Icons.arrow_forward_ios, size: 14),
-            ],
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(AppRadius.md),
+      child: Row(
+        children: [
+          Icon(icon, color: Theme.of(context).colorScheme.primary, size: 28),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(value, style: Theme.of(context).textTheme.titleLarge),
+                Text(label),
+              ],
+            ),
           ),
-        ),
-      );
+          const Icon(Icons.arrow_forward_ios, size: 14),
+        ],
+      ),
+    ),
+  );
 }
 
 class _QuickAction extends StatelessWidget {
-  const _QuickAction(
-      {required this.icon, required this.label, required this.onTap});
+  const _QuickAction({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
   final IconData icon;
   final String label;
   final VoidCallback onTap;
   @override
   Widget build(BuildContext context) => SizedBox(
-        width: 180,
-        child: AppCard(
-          child: InkWell(
-            onTap: onTap,
-            borderRadius: BorderRadius.circular(AppRadius.md),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(icon,
-                    color: Theme.of(context).colorScheme.primary, size: 28),
-                const SizedBox(height: AppSpacing.sm),
-                Text(label,
-                    style: const TextStyle(fontWeight: FontWeight.w700)),
-              ],
-            ),
-          ),
+    width: 180,
+    child: AppCard(
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: Theme.of(context).colorScheme.primary, size: 28),
+            const SizedBox(height: AppSpacing.sm),
+            Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
+          ],
         ),
-      );
+      ),
+    ),
+  );
 }

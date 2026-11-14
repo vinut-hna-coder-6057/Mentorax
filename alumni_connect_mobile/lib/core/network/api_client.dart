@@ -7,26 +7,30 @@ import '../storage/secure_storage_service.dart';
 import '../errors/api_exception.dart';
 
 class ApiClient {
-  ApiClient(
-    this._storage, {
-    Dio? dio,
-    VoidCallback? onUnauthorized,
-  })  : _onUnauthorized = onUnauthorized,
-        _dio = dio ??
-            Dio(BaseOptions(
-                baseUrl: AppEnvironment.baseUrl,
-                connectTimeout: const Duration(seconds: 15),
-                receiveTimeout: const Duration(seconds: 20),
-                responseType: ResponseType.plain,
-                headers: const {'Accept': '*/*'})) {
-    _dio.interceptors
-        .add(InterceptorsWrapper(onRequest: (options, handler) async {
-      final token = await _storage.readToken();
-      if (token != null && token.isNotEmpty) {
-        options.headers['Authorization'] = ['Bearer ', token].join();
-      }
-      handler.next(options);
-    }));
+  ApiClient(this._storage, {Dio? dio, VoidCallback? onUnauthorized})
+    : _onUnauthorized = onUnauthorized,
+      _dio =
+          dio ??
+          Dio(
+            BaseOptions(
+              baseUrl: AppEnvironment.baseUrl,
+              connectTimeout: const Duration(seconds: 15),
+              receiveTimeout: const Duration(seconds: 20),
+              responseType: ResponseType.plain,
+              headers: const {'Accept': '*/*'},
+            ),
+          ) {
+    _dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) async {
+          final token = await _storage.readToken();
+          if (token != null && token.isNotEmpty) {
+            options.headers['Authorization'] = ['Bearer ', token].join();
+          }
+          handler.next(options);
+        },
+      ),
+    );
   }
 
   final SecureStorageService _storage;
@@ -36,66 +40,59 @@ class ApiClient {
     String path, {
     Map<String, dynamic>? query,
     required T Function(dynamic) decode,
-  }) =>
-      _run(
-        () => _dio.get(path, queryParameters: query),
-        decode,
-        path,
-      );
-  Future<T> post<T>(String path,
-          {dynamic data,
-          Map<String, dynamic>? query,
-          required T Function(dynamic) decode}) =>
-      _run(
-        () => _dio.post(path, data: data, queryParameters: query),
-        decode,
-        path,
-      );
+  }) => _run(() => _dio.get(path, queryParameters: query), decode, path);
+  Future<T> post<T>(
+    String path, {
+    dynamic data,
+    Map<String, dynamic>? query,
+    required T Function(dynamic) decode,
+  }) => _run(
+    () => _dio.post(path, data: data, queryParameters: query),
+    decode,
+    path,
+  );
 
-  Future<T> put<T>(String path,
-          {dynamic data,
-          Map<String, dynamic>? query,
-          required T Function(dynamic) decode}) =>
-      _run(
-        () => _dio.put(path, data: data, queryParameters: query),
-        decode,
-        path,
-      );
+  Future<T> put<T>(
+    String path, {
+    dynamic data,
+    Map<String, dynamic>? query,
+    required T Function(dynamic) decode,
+  }) => _run(
+    () => _dio.put(path, data: data, queryParameters: query),
+    decode,
+    path,
+  );
 
-  Future<T> delete<T>(String path,
-          {Map<String, dynamic>? query, required T Function(dynamic) decode}) =>
-      _run(
-        () => _dio.delete(path, queryParameters: query),
-        decode,
-        path,
-      );
+  Future<T> delete<T>(
+    String path, {
+    Map<String, dynamic>? query,
+    required T Function(dynamic) decode,
+  }) => _run(() => _dio.delete(path, queryParameters: query), decode, path);
 
   Future<T> postForm<T>(
     String path, {
     required FormData data,
     required T Function(dynamic) decode,
     ProgressCallback? onSendProgress,
-  }) =>
-      _run(
-        () => _dio.post(path, data: data, onSendProgress: onSendProgress),
-        decode,
-        path,
-      );
+  }) => _run(
+    () => _dio.post(path, data: data, onSendProgress: onSendProgress),
+    decode,
+    path,
+  );
 
   Future<T> getBytes<T>(
     String path, {
     required T Function(dynamic) decode,
     ProgressCallback? onReceiveProgress,
-  }) =>
-      _run(
-        () => _dio.get(
-          path,
-          options: Options(responseType: ResponseType.bytes),
-          onReceiveProgress: onReceiveProgress,
-        ),
-        decode,
-        path,
-      );
+  }) => _run(
+    () => _dio.get(
+      path,
+      options: Options(responseType: ResponseType.bytes),
+      onReceiveProgress: onReceiveProgress,
+    ),
+    decode,
+    path,
+  );
 
   Future<T> _run<T>(
     Future<Response<dynamic>> Function() request,
@@ -137,8 +134,9 @@ class ApiClient {
         text == 'true' ||
         text == 'false' ||
         text == 'null' ||
-        RegExp(r'^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$')
-            .hasMatch(text)) {
+        RegExp(
+          r'^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$',
+        ).hasMatch(text)) {
       return jsonDecode(text);
     }
     return text;

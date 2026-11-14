@@ -55,9 +55,9 @@ class _ApprovalsScreenState extends ConsumerState<ApprovalsScreen> {
       }
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(userFacingError(error))),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(userFacingError(error))));
       }
     } finally {
       if (mounted) setState(() => _workingUserIds.remove(user.id));
@@ -138,9 +138,9 @@ class _ApprovalsScreenState extends ConsumerState<ApprovalsScreen> {
                                   children: [
                                     Text(
                                       u.name,
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .titleMedium,
+                                      style: Theme.of(
+                                        context,
+                                      ).textTheme.titleMedium,
                                     ),
                                     const SizedBox(height: AppSpacing.xs),
                                     Text(
@@ -192,8 +192,9 @@ class _ApprovalsScreenState extends ConsumerState<ApprovalsScreen> {
                                         ),
                                       )
                                     : const Icon(Icons.check),
-                                label:
-                                    Text(isWorking ? 'Updating…' : 'Approve'),
+                                label: Text(
+                                  isWorking ? 'Updating…' : 'Approve',
+                                ),
                               ),
                             ],
                           );

@@ -14,6 +14,9 @@ import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestTemplate;
 
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
@@ -72,6 +75,25 @@ class ExperienceEvidenceAnalysisStructuredResponseTest {
     }
 
     @Test
+    void rejectsStrictResponseForDifferentOriginalDocumentHash() {
+        ObjectNode response = null;
+        try {
+            response = (ObjectNode) new ObjectMapper().readTree(
+                    strictResponse(EVIDENCE_ID, EVIDENCE_VERSION, true));
+            response.put("sha256", "b".repeat(64));
+        } catch (Exception exception) {
+            throw new AssertionError(exception);
+        }
+        respond(response.toString());
+
+        var result = service.analyze(request(EVIDENCE_ID, EVIDENCE_VERSION),
+                new byte[]{1}, "record.pdf");
+
+        assertEquals("UNAVAILABLE", result.status());
+        assertNull(result.extraction());
+    }
+
+    @Test
     void rejectsMalformedFoundFieldInsteadOfPersistingPartialExtraction() {
         respond(strictResponse(EVIDENCE_ID, EVIDENCE_VERSION, false));
 
@@ -124,9 +146,11 @@ class ExperienceEvidenceAnalysisStructuredResponseTest {
         String actualResponse = Files.readString(
                 Path.of(System.getProperty("phase26.python.response")),
                 StandardCharsets.UTF_8);
+        String responseHash = new ObjectMapper().readTree(actualResponse).path("sha256").asText();
         respond(actualResponse);
 
-        var result = service.analyze(request(EVIDENCE_ID, EVIDENCE_VERSION), new byte[]{1}, "record.pdf");
+        var result = service.analyze(request(EVIDENCE_ID, EVIDENCE_VERSION, responseHash),
+                new byte[]{1}, "record.pdf");
 
         assertEquals("ANALYZED", result.status());
         assertNotNull(result.extraction());
@@ -154,9 +178,21 @@ class ExperienceEvidenceAnalysisStructuredResponseTest {
     }
 
     private static ExperienceEvidenceAnalysisRequest request(long evidenceId, int version) {
+        return request(evidenceId, version, sha256(new byte[]{1}));
+    }
+
+    private static ExperienceEvidenceAnalysisRequest request(long evidenceId, int version, String sha256) {
         return new ExperienceEvidenceAnalysisRequest(
-                evidenceId, version, ExperienceClaimType.UNSPECIFIED,
+                evidenceId, version, sha256, ExperienceClaimType.UNSPECIFIED,
                 "Northstar", "Mentor", null, null, "Supported a programme", "Alex Example");
+    }
+
+    private static String sha256(byte[] input) {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(input));
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException(exception);
+        }
     }
 
     private static String strictResponse(long evidenceId, int version, boolean validField) {
@@ -199,6 +235,6 @@ class ExperienceEvidenceAnalysisStructuredResponseTest {
                   "extractedStatements":[%s],
                   "warnings":[]
                 }
-                """.formatted(evidenceId, version, "a".repeat(64), provenance, field, statement);
+                """.formatted(evidenceId, version, sha256(new byte[]{1}), provenance, field, statement);
     }
 }

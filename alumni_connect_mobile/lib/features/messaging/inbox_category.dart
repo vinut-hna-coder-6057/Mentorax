@@ -10,14 +10,14 @@ enum InboxCategory {
 
 extension InboxCategoryLabel on InboxCategory {
   String get label => switch (this) {
-        InboxCategory.allMessages => 'All Messages',
-        InboxCategory.referralRequests => 'Referral Requests',
-        InboxCategory.careerAdvice => 'Career Advice',
-        InboxCategory.mentorship => 'Mentorship',
-        InboxCategory.jobOpportunities => 'Job Opportunities',
-        InboxCategory.interviewPreparation => 'Interview Preparation',
-        InboxCategory.other => 'Other',
-      };
+    InboxCategory.allMessages => 'All Messages',
+    InboxCategory.referralRequests => 'Referral Requests',
+    InboxCategory.careerAdvice => 'Career Advice',
+    InboxCategory.mentorship => 'Mentorship',
+    InboxCategory.jobOpportunities => 'Job Opportunities',
+    InboxCategory.interviewPreparation => 'Interview Preparation',
+    InboxCategory.other => 'Other',
+  };
 }
 
 InboxCategory classifyConversationMessages(Iterable<String> messages) {
@@ -69,7 +69,7 @@ InboxCategory classifyConversationMessages(Iterable<String> messages) {
 }
 
 bool _isGreetingOrAcknowledgement(String text) => RegExp(
-      r'^(?:hi|hello|hey|hii+|good morning|good afternoon|good evening|'
-      r'how are you(?: doing)?|thanks|thank you|ok|okay|got it|sure|cool|'
-      r'great|yes|no|welcome)(?: [a-z]{2,})?$',
-    ).hasMatch(text);
+  r'^(?:hi|hello|hey|hii+|good morning|good afternoon|good evening|'
+  r'how are you(?: doing)?|thanks|thank you|ok|okay|got it|sure|cool|'
+  r'great|yes|no|welcome)(?: [a-z]{2,})?$',
+).hasMatch(text);

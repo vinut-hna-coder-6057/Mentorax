@@ -32,9 +32,9 @@ class FreshMySqlMigrationTest {
             "experience_evidence_extraction_statement", "experience_evidence_extraction_provenance",
             "experience_evidence_extraction_warning");
     private static final List<String> FRESH_HISTORY =
-            List.of("1", "2", "3", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22");
+            List.of("1", "2", "3", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23");
     private static final List<String> NORMALIZED_HISTORY =
-            List.of("1", "2", "3", "4", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22");
+            List.of("1", "2", "3", "4", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23");
     private static final String MIGRATION_TEST_PREFIX = "MENTORAX_MYSQL_MIGRATION_TEST";
     private static final String RECOVERY_TEST_PREFIX = "MENTORAX_MYSQL_RECOVERY_TEST";
 
@@ -242,7 +242,7 @@ class FreshMySqlMigrationTest {
             }
         }
         assertEquals(expectedVersions, versions, "Unexpected or incomplete MySQL migration chain");
-        for (String version : List.of("17", "18", "19", "20", "21", "22")) {
+        for (String version : List.of("17", "18", "19", "20", "21", "22", "23")) {
             assertEquals(1, count(connection,
                     "SELECT COUNT(*) FROM flyway_schema_history "
                             + "WHERE version = '" + version + "' AND success = 1 "
@@ -299,6 +299,7 @@ class FreshMySqlMigrationTest {
                 new String[]{"experience_evidence_extraction_provenance", "text_excerpt"},
                 new String[]{"experience_evidence_extraction_provenance", "bounding_box_x"},
                 new String[]{"experience_claim_processing", "next_attempt_at"},
+                new String[]{"experience_claim_processing", "lease_token"},
                 new String[]{"experience_corroboration_attempts", "independently_authenticated"})) {
             assertTrue(hasColumn(connection, column[0], column[1]),
                     "Missing MySQL column " + column[0] + "." + column[1]);

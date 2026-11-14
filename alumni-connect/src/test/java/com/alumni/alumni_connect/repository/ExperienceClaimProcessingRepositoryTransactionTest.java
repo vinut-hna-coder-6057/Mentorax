@@ -28,8 +28,10 @@ class ExperienceClaimProcessingRepositoryTransactionTest {
         processingRepository.saveAndFlush(
                 new ExperienceClaimProcessing(101L, 1, now.minusSeconds(1)));
 
-        assertEquals(1, processingRepository.acquire(101L, now, now.plusSeconds(60)));
-        assertEquals(1, processingRepository.findById(101L).orElseThrow().getAttemptCount());
+        assertEquals(1, processingRepository.acquire(101L, now, now.plusSeconds(60), "first-lease-token"));
+        ExperienceClaimProcessing leased = processingRepository.findById(101L).orElseThrow();
+        assertEquals(1, leased.getAttemptCount());
+        assertEquals("first-lease-token", leased.getLeaseToken());
     }
 
     @Test
@@ -41,13 +43,15 @@ class ExperienceClaimProcessingRepositoryTransactionTest {
         job.setLeaseUntil(now.plusSeconds(60));
         processingRepository.saveAndFlush(job);
 
-        assertEquals(0, processingRepository.acquire(102L, now, now.plusSeconds(60)));
+        assertEquals(0, processingRepository.acquire(102L, now, now.plusSeconds(60), "blocked-token"));
         assertEquals(1, processingRepository.findById(102L).orElseThrow().getAttemptCount());
 
         job = processingRepository.findById(102L).orElseThrow();
         job.setLeaseUntil(now.minusSeconds(1));
         processingRepository.saveAndFlush(job);
-        assertEquals(1, processingRepository.acquire(102L, now, now.plusSeconds(60)));
-        assertEquals(2, processingRepository.findById(102L).orElseThrow().getAttemptCount());
+        assertEquals(1, processingRepository.acquire(102L, now, now.plusSeconds(60), "recovered-lease-token"));
+        ExperienceClaimProcessing recovered = processingRepository.findById(102L).orElseThrow();
+        assertEquals(2, recovered.getAttemptCount());
+        assertEquals("recovered-lease-token", recovered.getLeaseToken());
     }
 }

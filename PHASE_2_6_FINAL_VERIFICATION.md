@@ -2,9 +2,9 @@
 
 ## Acceptance status
 
-**BLOCKED — Phase 2.6 is not verified complete.** The actual Spring–Python–MySQL backend workflows passed, including internship and mentorship claims, lifecycle updates, authorization checks, extraction persistence, and sensitive-content scans. The required Flutter release-web journey remains blocked because there is no running local web server or trusted HTTPS endpoint to connect to Spring without weakening TLS. Several less common processing cases were covered by Java tests but not forced through the live application.
+**BLOCKED — Phase 2.6 is not verified complete.** The actual Spring–Python–MySQL backend workflows passed, including internship and mentorship claims, lifecycle updates, authorization checks, extraction persistence, and sensitive-content scans. Database-backed retry, lease recovery, retry exhaustion, and an evidence-version race have since passed against fresh disposable MySQL, but those controlled HTTP-responder tests do not replace the complete live Python workflow for every case. The required Flutter release-web journey remains blocked because there is no trusted staging HTTPS endpoint.
 
-Phase 2.7 was not started.
+Phase 2.7 and 2.8 implementation and readiness findings are documented separately; neither phase is complete.
 
 ### Remaining acceptance gaps
 
@@ -13,8 +13,8 @@ Phase 2.7 was not started.
 | Flutter release login-to-assessment/history journey | **BLOCKED** | No local HTTPS API listener with a trusted certificate was available. The documented URL is production, so it was not used for synthetic acceptance data. |
 | Correction evidence through the live Spring API and processing pipeline | **NOT VERIFIED LIVE** | A new focused MockMvc regression verifies link/supersede behavior and failure safety; no separate live correction upload was made. |
 | Dedicated `CONFLICTS_WITH` upload through the live API | **NOT VERIFIED LIVE** | Complementary evidence did produce a live `INCONSISTENT` assessment, and controller/decision tests cover explicit conflict behavior. |
-| Forced analysis failure and retry through the live scheduler | **NOT VERIFIED LIVE** | The Java service regression verifies retry scheduling without a decision; no live Python failure was induced. |
-| Deliberately raced stale job against a newer evidence version | **NOT VERIFIED LIVE** | The Java service regression verifies stale-version protection; no live concurrent race was induced. |
+| Forced analysis failure and retry through the live Spring scheduler | **PASS — database-backed controlled responder** | Fresh-MySQL lifecycle tests verify recoverable failure, retry/backoff, successful extraction, idempotent replay, retry exhaustion, and stale-lease recovery. The controlled responder is not Python, so Python-induced live failure remains unverified. |
+| Deliberately raced stale job against a newer evidence version | **PASS — database-backed controlled fixture** | Fresh-MySQL lifecycle test verifies a version-1 worker cannot affect a requeued version-2 job, including equal retry-attempt numbers and unique lease tokens. |
 | Historical production extraction-data review | **NOT RUN** | No production database was accessed or rewritten. A controlled review may be needed for records created before sanitization. |
 
 ## Maven diagnosis and startup correction
@@ -139,3 +139,193 @@ Files changed in this lifecycle continuation:
 - `PHASE_2_6_FINAL_VERIFICATION.md`
 
 No migration was changed in this continuation. Existing V20–V22 files remain pre-existing untracked worktree files and were preserved. The disposable container and its task-created data volume were removed after verification; port 3308 is closed. The safe HTTPS Flutter journey remains BLOCKED because no trusted staging HTTPS API is available; the production URL was not used. Historical production extraction review remains NOT RUN. Phase 2.6 must therefore remain BLOCKED, and Phase 2.7 was not started.
+
+## Flutter CI analyzer failure — 2026-11-14
+
+**Status: PARTIALLY COMPLETE.** The reported Flutter CI failure was reproduced from the read-only GitHub Actions run `43553741601` (Flutter Tests job `132321787086`). The backend job, including fresh MySQL migration tests, passed. Flutter dependency installation passed; analysis failed, so Flutter tests and the Android APK job were skipped.
+
+- Root cause: CI selected the floating `stable` channel. The failed analyzer output contained 31 `deprecated_member_use` informational diagnostics for `package:flutter/material.dart`, which caused `flutter analyze` to exit non-zero. The source imports were not mass-rewritten.
+- Correction: `.github/workflows/ci.yml` now pins both Flutter setup steps to `3.47.9`; the Flutter test job asserts that exact version in its logs. The Android APK job uses the same pinned version.
+- The local Flutter SDK is 3.47.9 (Dart 3.13.7), satisfying `pubspec.yaml` constraints. No dependency manifest or lockfile change was made.
+- Local validation, all using Flutter 3.47.9:
+
+| Command | Result |
+|---|---|
+| `flutter --version` | PASS — Flutter 3.47.9, Dart 3.13.7; exit 0 |
+| `flutter pub get` | PASS — dependencies resolved; exit 0 |
+| `flutter analyze` | PASS — no issues found; exit 0 |
+| `flutter test --reporter json` | PASS — 152 passed, 0 failed, 0 skipped; exit 0 |
+| `flutter build apk --debug` | PASS — debug APK built; exit 0. Gradle/AGP/Kotlin future-support warnings were emitted. |
+| `git diff --check` | PASS — exit 0 |
+
+The GitHub workflow has not been rerun with this correction because this task does not push or dispatch changes. The CI fix is locally verified but awaits a subsequent authorized workflow run. The existing Phase 2.6 external/integration gaps remain: no trusted isolated HTTPS staging endpoint is available for Flutter backend E2E, historical production extraction review has not been authorized, and the remaining live integration cases listed above have not all been exercised through the complete Spring/Python/MySQL path. Phase 2.6 is therefore still BLOCKED. At the time this report section was first written, Phases 2.7 and 2.8 had not started; their later work and acceptance are recorded separately below.
+
+## Phase 2.6–2.8 local continuation — 2026-11-14
+
+This continuation supersedes the earlier statement that the Python response did not contain the original-document hash. The production FastAPI route now uses the canonical strict document-understanding pipeline and returns `sha256` of the original uploaded bytes; the normalized text digest is separate. Spring sends the stored evidence hash and independently rejects any different response hash. The endpoint rejects missing or mismatched request hashes.
+
+The OCR route now uses the existing killable bounded worker process and executes analysis off the asynchronous event loop. Added regression coverage for worker termination on timeout, OCR provenance bounding boxes, supported classification labels, original hash equality/mismatch, and required hash metadata. Removed the old unbounded OCR helper from the extraction module. No migrations changed.
+
+Additional locally verified results:
+
+| Gate | Result |
+|---|---|
+| `python -m pytest tests -q` on Python 3.11 | PASS — 75 tests, 0 failures, 17 subtests; one third-party deprecation warning; exit 0 |
+| `python -m pytest evaluation -q` on Python 3.11 | PASS — 19 tests, 0 failures, 8 subtests; exit 0 |
+| Java safe suite after request-hash validation | PASS — 345 tests, 0 failures, 0 errors, 6 skipped; exit 0 |
+| AES-256-GCM focused tests | PASS — 3 tests, 0 failures; exit 0 |
+| Fresh disposable MySQL 8.0.46 lifecycle suite after request-hash change | PASS — 3 tests, 0 failures/errors/skips; Flyway through V22 and Hibernate validation passed; task-created container removed |
+| Flutter 3.47.9 analysis/tests/debug APK | PASS — no analyzer issues, 152 tests passed, APK built |
+| `git diff --check` | PASS |
+
+CI now pins both Flutter setup jobs to 3.47.9, includes an explicit version assertion, adds Python syntax/unit/evaluation jobs, and runs the opt-in MySQL processing lifecycle suite against a separately provisioned fresh database. The revised GitHub workflow was not remotely executed because no push or workflow dispatch was authorized. Phase 2.6 remains BLOCKED by trusted isolated HTTPS Flutter staging, historical production-data review authorization, and live integration cases not yet driven through the actual full Spring/Python/MySQL stack. The detailed local findings and phase-specific limitations are in [Phase 2.7](./PHASE_2_7_ACCEPTANCE_REPORT.md) and [Phase 2.8](./PHASE_2_8_READINESS_REPORT.md); neither later phase is marked complete.
+
+Files changed in this continuation:
+
+- `.github/workflows/ci.yml`
+- `PHASE_2_6_FINAL_VERIFICATION.md`
+- `PHASE_2_7_ACCEPTANCE_REPORT.md`
+- `PHASE_2_8_READINESS_REPORT.md`
+- `alumni-connect/src/main/java/com/alumni/alumni_connect/dto/ExperienceEvidenceAnalysisRequest.java`
+- `alumni-connect/src/main/java/com/alumni/alumni_connect/service/ExperienceClaimProcessingService.java`
+- `alumni-connect/src/main/java/com/alumni/alumni_connect/service/ExperienceEvidenceAnalysisService.java`
+- `alumni-connect/src/test/java/com/alumni/alumni_connect/service/ExperienceEvidenceAnalysisStructuredResponseTest.java`
+- `alumni-connect/src/test/java/com/alumni/alumni_connect/service/ExperienceEvidenceCryptoTest.java`
+- `alumni-connect/src/main/resources/DATABASE_MIGRATION.md`
+- `mentorax-ai/README.md`
+- `mentorax-ai/document_understanding.py`
+- `mentorax-ai/experience_analysis.py`
+- `mentorax-ai/tests/test_experience_analysis.py`
+
+V20–V22 remain unchanged. No ZIP files were inspected or modified. No production service, database, data or secrets were accessed. No credentials were committed. No commit, push or deployment was performed. Port 3306 was occupied by pre-existing local infrastructure, so the fresh migration/recovery pair was not rerun there; that service was left untouched.
+
+## Latest lease/conflict and OCR continuation — 2026-11-14
+
+This section supersedes earlier lifecycle test counts and migration-through-V22 statements where newer verification below applies.
+
+- Added the additive V23 migration for nullable `experience_claim_processing.lease_token`. V20, V21, and V22 were not changed. Lease acquisition writes a fresh token; process and failure writes require matching claim, evidence version, attempt, token, and a live lease. Requeue clears the token. This closes the old-worker/new-evidence collision even when the new job resets its attempt count.
+- Active explicitly declared `CONFLICTS_WITH` evidence now prevents a verified decision; conflicts with non-active historical evidence remain excluded. Cross-document comparisons include issuer and duration. Python findings expose those source-grounded values and provenance.
+- OCR now prioritizes likely page orientation and stops trying additional rotations when extracted text meets the confidence threshold. The bounded default is 60 seconds (the existing configuration ceiling remains 120 seconds); no unbounded OCR fallback was added.
+- Fresh disposable MySQL 8.0.46 validation applied V23 and passed Flyway and Hibernate validation. Fresh migration and legacy-recovery tests passed 2/2. Migration histories were fresh `1,2,3,10–23` and normalized/recovery `1,2,3,4,10–23`; all entries succeeded.
+- Four database-backed lifecycle tests passed against an empty, task-created schema: recoverable failure/retry/idempotency; expired-lease recovery and rejection of the old worker's processing/failure writes; retry exhaustion; and a version-1/version-2 requeue race. The controlled authenticated HTTP responder exercised Spring's real client, validation, transaction, persistence, and decision path, but did not execute Python.
+- Direct SQL after the lifecycle run showed 4 synthetic claims, 5 evidence records, 3 successful extraction runs, 0 remaining jobs, and 1 processing-failure audit event. The extraction assertions include evidence ID/version, fields, candidate values, statement, provenance, warning, and canonical response hash.
+
+Latest validation:
+
+| Command | Result |
+|---|---|
+| `python -m unittest discover -s tests -v` | PASS — 76 tests, 0 failures; exit 0 |
+| `python -m unittest discover -s evaluation -v` | PASS — 19 tests, 0 failures; exit 0 |
+| Pylance syntax check for `mentorax-ai/experience_analysis.py` | PASS — no syntax errors |
+| `git diff --check` | PASS — exit 0 after report updates |
+| `.\mvnw.cmd '-Dphase26.processing.mysql=true' '-Dtest=FreshMySqlMigrationTest,ExperienceClaimProcessingMySqlLifecycleTest' test` against a fresh loopback MySQL container on port 3308 | PASS — 6 tests, 0 failures/errors/skips; exit 0 |
+| `.\mvnw.cmd '-Dtest=RoutedMigrationTest,SecurityApiIntegrationTest#emailVerificationOutboxEntriesUseTheEncryptedDeliveryPipeline' test` | PASS — 5 tests, 0 failures/errors/skips; exit 0 |
+| `.\mvnw.cmd '-Dtest=*,!FreshMySqlMigrationTest' test` | PASS — 348 tests, 0 failures/errors, 7 skipped; exit 0 |
+| OCR-focused regressions (scanned PDF, PNG, rotated JPEG, multipage PDF) | PASS — 4 tests; included in the 76-test Python unit suite |
+
+The first MySQL lifecycle run exposed a version-1 hard-coded hash assertion in the new version-2 race fixture; the helper now uses the fixture's evidence version and the complete six-test migration/lifecycle command passed on rerun. The first full Java run also exposed stale migration-count assertions after V23 and an intermittent outbox test failure; migration expectations were updated to V23, the isolated outbox test passed, and the successful complete rerun passed. The Python suite initially exposed OCR timeouts under 45 seconds; orientation-aware OCR plus a 60-second default resolved the scanned-image regressions, and the complete 76-test suite passed. The MySQL disposable container and its task-created schemas were removed after verification. No existing Docker service or occupied port 3306 was touched.
+
+Phase 2.6 remains BLOCKED: trusted isolated HTTPS Flutter-to-Spring E2E and authorized historical production extraction review are outstanding. A correction upload and dedicated `CONFLICTS_WITH` upload have not been exercised through the complete live Spring/Python/MySQL stack. The live Python endpoint's credential redaction and ordinary certificate extraction were independently verified earlier; the controlled MySQL lifecycle responder does not add Python-runtime evidence. No phase is marked complete.
+
+Files changed in this latest continuation:
+
+- `alumni-connect/src/main/java/com/alumni/alumni_connect/entity/ExperienceClaimProcessing.java`
+- `alumni-connect/src/main/java/com/alumni/alumni_connect/repository/ExperienceClaimProcessingRepository.java`
+- `alumni-connect/src/main/java/com/alumni/alumni_connect/service/ExperienceClaimProcessingService.java`
+- `alumni-connect/src/main/java/com/alumni/alumni_connect/service/ExperienceClaimProcessingScheduler.java`
+- `alumni-connect/src/main/java/com/alumni/alumni_connect/controller/ExperienceClaimController.java`
+- `alumni-connect/src/main/java/com/alumni/alumni_connect/service/ExperienceVerificationDecisionEngine.java`
+- `alumni-connect/src/main/resources/db/shared/V23__add_experience_processing_lease_token.sql`
+- `alumni-connect/src/main/resources/db/shared/README.md`
+- `alumni-connect/src/main/resources/DATABASE_MIGRATION.md`
+- `alumni-connect/src/test/java/com/alumni/alumni_connect/FreshMySqlMigrationTest.java`
+- `alumni-connect/src/test/java/com/alumni/alumni_connect/RoutedMigrationTest.java`
+- `alumni-connect/src/test/java/com/alumni/alumni_connect/service/ExperienceClaimProcessingMySqlLifecycleTest.java`
+- Related processing, decision-engine, controller, and repository regression tests under `alumni-connect/src/test/java`
+- `mentorax-ai/experience_analysis.py`
+- `mentorax-ai/tests/test_experience_analysis.py`
+- `PHASE_2_6_FINAL_VERIFICATION.md`, `PHASE_2_7_ACCEPTANCE_REPORT.md`, and `PHASE_2_8_READINESS_REPORT.md`
+
+V20–V22 were not modified. The disposable MySQL container and volume were removed. The existing user worktree changes were preserved; no staging, commit, push, deployment, reset, or cleanup of pre-existing resources occurred.
+
+## Final completion attempt — 2026-11-14
+
+**Phase 2.6 status: BLOCKED — not verified complete.** The current code-controlled database, processing-lease, Python extraction and Flutter regression gates passed. The updated Spring application was not launched in this attempt, so the latest parser-worker change was not verified through the complete Spring → Python → MySQL path. No production service or database was accessed.
+
+| Gate | Result |
+|---|---|
+| Full Java suite, `.\mvnw.cmd '-Dphase26.processing.mysql=true' test`, with task-created MySQL 8.0.46 | **PASS** — 351 tests, 0 failures, 0 errors, 3 skipped; exit 0. Includes 2 fresh/recovery migration tests and 5 database-backed processing lifecycle tests. |
+| Fresh/recovery MySQL migrations | **PASS** — Flyway and Hibernate validation completed through V23. Fresh history has 17 successful migrations; normalized/recovery history has 18. V20–V22 were not modified. |
+| MySQL lifecycle persistence | **PASS** — 5 synthetic claims, 6 evidence rows, 4 successful extraction runs, 0 queued jobs after tests. The tests assert evidence/version identity, fields, candidates, statements, provenance, warnings, and response hashes. |
+| Retry, lease, and stale-worker regressions | **PASS** — retry/backoff and exhaustion, expired-lease recovery, duplicate/idempotent processing, evidence-version race, and a new same-version/same-attempt token-collision case all passed. In the collision case, the old token could neither call analysis nor write processing/failure results; the new token completed and persisted extraction. These lifecycle tests use a controlled authenticated HTTP responder, not Python. |
+| Python unit/API suite, `python -m unittest discover -s tests -v` | **PASS** — 77 tests, 0 failures; exit 0 under local Python 3.14.3. |
+| Python evaluation, `python -m unittest discover -s evaluation -v` | **PASS** — 19 tests, 0 failures; exit 0 under local Python 3.14.3. The evaluation is not a labeled document-extraction accuracy corpus. |
+| Pylance syntax checks for `experience_analysis.py` and its tests | **PASS** — no syntax errors. |
+| Live authenticated Python HTTP extraction | **PASS** — `/health` returned 200; `/experience/analyze` returned 200 and strict v1 for synthetic evidence ID 90217/version 4. A certificate planted with fake OTP/PIN/password/bearer/API-key/bank/card values had 0 matching values in the response; ordinary name, organization, role, dates, issuer, duration, and `NS-EXP-2025-0418` reference remained. |
+| Flutter 3.47.9 tests and analysis | **PASS** — 131 tests passed; analyzer reported no issues. These are local widget/unit tests, not a Flutter-to-backend journey. |
+| Spring application launch in this attempt | **BLOCKED** — `debugJavaApplication` returned “Maven build failed with exit code 1”; `getDebugSessionInfo` found no active session. The debugger did not expose the Maven error or terminal log. The repository wrapper’s complete test build passed, so this generic launch result does not identify a source compilation defect; its root cause remains unverified. No terminal/Maven launch retry was attempted after the debugger failure. |
+| Current-code Spring → Python → MySQL end-to-end and Flutter backend journey | **BLOCKED** — Spring could not be started through the supported debugger workflow. The earlier live Spring/Python/MySQL workflow recorded above remains prior evidence, but does not include this newly bounded parser worker. |
+| Trusted-HTTPS Flutter release E2E | **BLOCKED** — no isolated staging API/credentials and trusted HTTPS host were available. Production was not used, certificate validation was not bypassed, and HTTP was not substituted for release HTTPS. |
+| Historical production extraction review | **NOT RUN** — no production database access was authorized or attempted. |
+
+The direct Python request and MySQL lifecycle tests are independent checks; they are not represented as one end-to-end workflow. Earlier reports of live Spring workflows remain recorded separately and are not generalized to the updated parser implementation.
+
+The newly added document parser worker has a 90-second total deadline and is terminated/killed on timeout. Upload size, page count, render pixels, and output text are bounded as documented in [the Python service README](./mentorax-ai/README.md). There is no operating-system-enforced memory ceiling for PDF parser internals.
+
+Additional files changed in this attempt:
+
+- `alumni-connect/src/test/java/com/alumni/alumni_connect/service/ExperienceClaimProcessingMySqlLifecycleTest.java` — same-version/same-attempt lease-token collision regression.
+- `mentorax-ai/experience_analysis.py` and `mentorax-ai/tests/test_experience_analysis.py` — bounded parser worker and timeout regression.
+- `mentorax-ai/README.md` — parser limits and memory-ceiling limitation.
+- This report, [Phase 2.7](./PHASE_2_7_ACCEPTANCE_REPORT.md), and [Phase 2.8](./PHASE_2_8_READINESS_REPORT.md) — current verification evidence.
+
+Only the additive V23 lease-token migration is present from the earlier continuation; V20–V22 remain untouched. Existing user worktree changes were preserved. No commit, push, deployment, production access, or ZIP-file operation occurred. Phase 2.6 remains BLOCKED.
+
+## Independent verification pass — 2026-11-14
+
+The repository was rechecked on branch `phase-2-6-full-review`. Existing tracked and untracked work was preserved. No production service or data was accessed.
+
+- Full Java suite: `alumni-connect/.\mvnw.cmd '-Dphase26.processing.mysql=true' test` — **PASS**, 351 tests, 0 failures, 0 errors, 3 skipped. The run used explicit loopback credentials with three newly created schemas on a task-owned MySQL 8.0.46 container. Fresh installation and recovery migrations applied through V23 and passed Hibernate validation; all 5 database-backed processing lifecycle tests passed. The three skips are pre-existing opt-in tests.
+- Python: `python -m unittest discover -s tests -v` — **PASS**, 77 tests; `python -m unittest discover -s evaluation -v` — **PASS**, 19 tests; `python -m compileall -q .` — **PASS**. The only installed interpreter available was Python 3.14.3, outside the documented 3.10–3.12 range.
+- Flutter 3.47.9: `flutter pub get` — **PASS**; `dart format lib test` — **PASS**, 52 files formatted; `flutter analyze` — **PASS**, no issues; `flutter test --reporter expanded` — **PASS**, 131 tests; debug and release APK builds — **PASS**. Both builds used `API_BASE_URL=https://127.0.0.1:8443`, so they do not validate a reachable or trusted staging backend.
+- A fresh Python+Spring+MySQL request journey was not run in this pass. Python contract/redaction tests and Spring database lifecycle tests were run separately; they are not a combined live end-to-end result. Prior live-flow evidence above is historical and is not extended to the current parser/request-hash changes.
+- Cleanup removed only the task-owned MySQL container. Port 3308 was closed afterward; pre-existing Redis/Mongo containers were not touched. `git diff --check` passed after report updates. No commit, push, deploy, ZIP access, or production access occurred.
+
+Phase 2.6 remains **BLOCKED** pending trusted isolated HTTPS Flutter-to-Spring acceptance and an authorized historical production-data review. Correction/conflict upload journeys through the current live stack also remain unverified.
+
+## Final current-stack verification — 2026-11-14
+
+A reproducible date comparison defect was found by exercising the latest implementation through live local services. The first run showed that Python marked `June 2025` versus claim `2025-06` as `MISMATCH`, which made Spring return `INCONSISTENT`. Spring's date normalization was fixed, then a second integration run revealed that Python's persisted findings still said `MISMATCH` even though Spring's assessment was corrected. Python and Spring now both normalize named month/year dates consistently; regression tests cover each implementation.
+
+- Current full Java suite, including the new regression: **352 tests, 0 failures, 0 errors, 3 skipped; exit 0**. Fresh and recovery MySQL migrations passed through V23, Hibernate schema validation passed, and all 5 MySQL lifecycle tests passed.
+- Python 3.14.3: unit/API **78 passed**, evaluation **19 passed**, explicit-path `compileall` **PASS**.
+- Current live local synthetic API flow: Python health and Spring `/actuator/health` (including MySQL) returned `UP`. A test account was registered through the API; email-verification state was set only in the disposable synthetic schema because no mail delivery service was configured. Real Spring login/JWT, claim creation, PDF upload, authenticated Python analysis, strict response validation, extraction persistence, assessment, processing history, and owner-authorized download then ran. Result: `ANALYZED` and `VERIFIED_FROM_EVIDENCE`, no date `MISMATCH` findings, one extraction for the active evidence version, three history events, and the downloaded evidence SHA-256 matched the uploaded PDF.
+- Flutter 3.47.9 validation remains: analyze **PASS**, 131 tests **PASS**, debug APK **PASS**, release APK **PASS**. Flutter-to-Spring trusted HTTPS staging was not available, so that client journey remains unverified.
+- The task-owned MySQL container and synthetic DB were removed; Spring and Python processes were stopped; ports 3308, 8081, and 8090 were confirmed closed. Existing Redis/Mongo containers were untouched. No production access, ZIP operation, commit, push, or deployment occurred.
+
+Phase 2.6 remains **BLOCKED** on external/staging acceptance: trusted HTTPS Flutter-to-Spring E2E and authorized historical production extraction review. The later correction/conflict/replacement/withdrawal API acceptance below closes those local workflow gaps.
+
+## Final Flutter and document validation addendum — 2026-11-14
+
+**Current outcome: COMPLETE WITH LIMITATIONS.** The experience-claims Flutter UI, API repository and models were inspected against the Spring contract. No contract mismatch was found. The unbounded processing poll and edit state that did not immediately repaint were fixed; widget regressions cover bounded refresh/retry and edit rendering. Flutter analyze passed, the full widget suite passed **134 tests**, and debug/release APK builds passed. No emulator/device or trusted HTTPS staging service was available, so no live Flutter-to-Spring journey was run. Prior real Spring/Python/MySQL evidence lifecycle results recorded above are separate API evidence, not Flutter integration proof.
+
+The synthetic corpus exercised the real authenticated Python analysis route: **12 synthetic documents, 188/188 expected checks; 3/3 malformed/unsupported requests returned expected errors**. OCR succeeded on the scanned fixture. Ambiguous dates remained inconclusive; explicit mismatch remained a mismatch without a fraud claim; compatible evidence matched; all seven planted sensitive values were absent from the response. Every extraction returned `verificationDecision=NONE` and `trustedIssuerValidation=false`. Full per-category results and exact commands are in [the consolidated report](./PHASE_2_6_2_8_FINAL_IMPLEMENTATION_REPORT.md). No production accuracy claim is made. No Java source changed, no database was used in this pass, no ZIP was touched, and no commit/push/deployment occurred.
+
+Phase 2.6 remains **BLOCKED** on trusted isolated Flutter-to-Spring HTTPS acceptance and authorized historical production-data review. Emulator/device execution, Python 3.10/3.12 compatibility, representative labeled documents, and confidence calibration also remain outstanding.
+
+## Final evidence lifecycle acceptance — 2026-11-14
+
+The earlier note that correction, conflict, replacement, and withdrawal had not been exercised is superseded by the current local API acceptance run documented in [the consolidated report](./PHASE_2_6_2_8_FINAL_IMPLEMENTATION_REPORT.md). Synthetic claims and generated PDFs were processed by the current Spring API, authenticated Python service (Python 3.11.9), and a task-owned MySQL 8.0.46 container. A verification flag was set directly only for the synthetic signup accounts in the disposable schema because no email delivery service was configured; login/JWT, claim, evidence, history, download, and withdrawal requests used the real APIs.
+
+| Workflow | Current API result | Persistence/history result |
+|---|---|---|
+| Original | `VERIFIED_FROM_EVIDENCE`; owner download SHA-256 matched; unrelated download returned 403 | Extraction persisted; 3 ordered events |
+| Correction | Old May version superseded; linked June correction active and verified; missing related ID returned 400; foreign correction returned 404 | Both extractions retained; 5 ordered events |
+| Conflict | Both versions active; `INCONSISTENT`, explicit clarification and no-fraud explanation | Both extractions retained; 5 ordered events |
+| Compatible documents | Complementary active evidence remained `VERIFIED_FROM_EVIDENCE` | Both extractions retained; 5 ordered events |
+| Replacement | Old version superseded; linked replacement active and verified | Both extractions retained; 5 ordered events |
+| Withdrawal | Owner returned 204; unrelated and repeated withdrawals returned 404; claim reset to `AWAITING_EVIDENCE` | Evidence/extraction retained as `WITHDRAWN`; history download remained owner-authorized; 4 events including withdrawal |
+
+Read-only MySQL checks confirmed evidence links, active/superseded/withdrawn states, each version’s persisted extraction, and matching claim assessments. Existing V23 stale-worker protection was exercised by the five database lifecycle tests, including `newerEvidenceLeaseCannotBeReusedByAWorkerFromThePreviousVersion` and lease-token collision coverage.
+
+The complete Java command `mvnw.cmd -Dmaven.repo.local=C:\Users\vinut\.m2\repository -Dphase26.processing.mysql=true test` passed **352 tests, 0 failures, 0 errors, 3 skipped** after the three clean test schemas were created with MySQL’s default collation. The first attempt used an explicit non-default collation and failed one recovery migration test; that setup was corrected and the complete suite passed. No application-source or Flutter files were changed in this acceptance pass. The Flutter API/model contracts were inspected and match the endpoint fields and relationship identifiers. Trusted HTTPS Flutter staging, Python 3.10/3.12 matrix coverage, and historical production-data review remain outstanding.

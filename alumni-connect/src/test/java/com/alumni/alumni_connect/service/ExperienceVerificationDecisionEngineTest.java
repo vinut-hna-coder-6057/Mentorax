@@ -8,6 +8,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -39,6 +40,20 @@ class ExperienceVerificationDecisionEngineTest {
         assertTrue(decision.explanation().contains("internship claim"));
         assertTrue(decision.explanation().contains("not independently confirmed"));
         assertTrue(decision.requestedEvidence().isEmpty());
+    }
+
+    @Test
+    void namedMonthAndYearMatchesTheClaimYearMonth() {
+        var decision = engine.decideEvidenceBased(claim, List.of(evidence(
+                1, 1, "ACTIVE", "INTERNSHIP_CERTIFICATE",
+                found("personName", "Example User"),
+                found("organisation", "Northstar"),
+                found("role", "Engineer"),
+                found("startDate", "January 2025"),
+                found("endDate", "Dec 2025"))));
+
+        assertEquals("VERIFIED_FROM_EVIDENCE", decision.status());
+        assertTrue(decision.explanation().contains("consistent"));
     }
 
     @Test
@@ -100,6 +115,62 @@ class ExperienceVerificationDecisionEngineTest {
         assertEquals("INCONSISTENT", decision.status());
         assertTrue(decision.explanation().contains("not a finding of fraud"));
         assertTrue(decision.requestedEvidence().stream().anyMatch(value -> value.contains("organization")));
+    }
+
+    @Test
+    void declaredConflictBetweenActiveEvidenceCannotBeAssessedAsVerified() {
+        var primary = evidence(1, 1, "ACTIVE", "INTERNSHIP_CERTIFICATE", coreFields());
+        var conflicting = new ExperienceVerificationDecisionEngine.EvidenceInput(
+                2L,
+                2,
+                "ACTIVE",
+                extraction(2, 2, "INTERNSHIP_CERTIFICATE", "COMPLETE", "NOT_NEEDED",
+                        coreFields(), List.of()),
+                "CONFLICTS_WITH",
+                1L);
+
+        var decision = engine.decideEvidenceBased(claim, List.of(primary, conflicting));
+
+        assertEquals("INCONSISTENT", decision.status());
+        assertTrue(decision.explanation().contains("explicitly marked as conflicting"));
+        assertTrue(decision.explanation().contains("not a finding of fraud"));
+        assertTrue(decision.requestedEvidence().stream().anyMatch(value -> value.contains("clarifying")));
+    }
+
+    @Test
+    void declaredConflictWithHistoricalEvidenceDoesNotAffectTheCurrentDecision() {
+        var active = evidence(1, 1, "ACTIVE", "INTERNSHIP_CERTIFICATE", coreFields());
+        var historical = new ExperienceVerificationDecisionEngine.EvidenceInput(
+                2L,
+                2,
+                "SUPERSEDED",
+                extraction(2, 2, "INTERNSHIP_CERTIFICATE", "COMPLETE", "NOT_NEEDED",
+                        coreFields(), List.of()),
+                "CONFLICTS_WITH",
+                1L);
+
+        var decision = engine.decideEvidenceBased(claim, List.of(active, historical));
+
+        assertEquals("VERIFIED_FROM_EVIDENCE", decision.status());
+    }
+
+    @Test
+    void differencesInIssuerOrDurationRemainAnInconsistencySignalNotFraud() {
+        var first = evidence(1, 1, "ACTIVE", "INTERNSHIP_CERTIFICATE",
+                fieldsWith(
+                found("issuer", "Northstar Human Resources"),
+                found("duration", "12 months")));
+        var second = evidence(2, 2, "ACTIVE", "SUPPORTING_DOCUMENT",
+                fieldsWith(
+                found("issuer", "Independent Training Office"),
+                found("duration", "6 months")));
+
+        var decision = engine.decideEvidenceBased(claim, List.of(first, second));
+
+        assertEquals("INCONSISTENT", decision.status());
+        assertTrue(decision.explanation().contains("issuer"));
+        assertTrue(decision.explanation().contains("duration"));
+        assertTrue(decision.explanation().contains("not a finding of fraud"));
     }
 
     @Test
@@ -227,6 +298,13 @@ class ExperienceVerificationDecisionEngineTest {
                 found("role", "Engineer"),
                 found("startDate", "2025-01"),
                 found("endDate", "2025-12"));
+    }
+
+    private static List<StructuredEvidenceExtraction.Field> fieldsWith(
+            StructuredEvidenceExtraction.Field... additional) {
+        List<StructuredEvidenceExtraction.Field> fields = new ArrayList<>(coreFields());
+        fields.addAll(List.of(additional));
+        return fields;
     }
 
     private static ExperienceVerificationDecisionEngine.EvidenceInput evidence(

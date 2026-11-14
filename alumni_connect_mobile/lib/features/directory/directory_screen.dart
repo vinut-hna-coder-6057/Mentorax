@@ -55,11 +55,9 @@ class _DirectoryScreenState extends ConsumerState<DirectoryScreen> {
     });
 
     try {
-      final results = await ref.read(appRepositoryProvider).users(
-            _role,
-            page: 0,
-            size: _pageSize,
-          );
+      final results = await ref
+          .read(appRepositoryProvider)
+          .users(_role, page: 0, size: _pageSize);
 
       if (!mounted) return;
 
@@ -90,11 +88,9 @@ class _DirectoryScreenState extends ConsumerState<DirectoryScreen> {
     final nextPage = _page + 1;
 
     try {
-      final results = await ref.read(appRepositoryProvider).users(
-            _role,
-            page: nextPage,
-            size: _pageSize,
-          );
+      final results = await ref
+          .read(appRepositoryProvider)
+          .users(_role, page: nextPage, size: _pageSize);
 
       if (!mounted) return;
 
@@ -197,11 +193,11 @@ class _DirectoryScreenState extends ConsumerState<DirectoryScreen> {
                 child: _isLoading
                     ? const LoadingState()
                     : _error != null && _users.isEmpty
-                        ? ErrorState(
-                            message: userFacingError(_error!),
-                            onRetry: _loadFirstPage,
-                          )
-                        : _buildUserGrid(c, query),
+                    ? ErrorState(
+                        message: userFacingError(_error!),
+                        onRetry: _loadFirstPage,
+                      )
+                    : _buildUserGrid(c, query),
               ),
             ],
           ),
@@ -267,8 +263,9 @@ class _DirectoryScreenState extends ConsumerState<DirectoryScreen> {
           if (u.passoutYear?.isNotEmpty == true) 'Class of ${u.passoutYear}',
           if (u.location?.isNotEmpty == true) u.location!,
         ];
-        final text =
-            details.isEmpty ? 'Mentorax community member' : details.join(' · ');
+        final text = details.isEmpty
+            ? 'Mentorax community member'
+            : details.join(' · ');
 
         return AppCard(
           child: InkWell(
@@ -279,10 +276,7 @@ class _DirectoryScreenState extends ConsumerState<DirectoryScreen> {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  UserAvatar(
-                    name: u.name,
-                    imageUrl: u.profileImage,
-                  ),
+                  UserAvatar(name: u.name, imageUrl: u.profileImage),
                   const SizedBox(width: AppSpacing.md),
                   Expanded(
                     child: Column(

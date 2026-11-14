@@ -9,7 +9,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
-import java.util.OptionalInt;
+import java.util.Optional;
 
 @Component
 @ConditionalOnProperty(
@@ -39,15 +39,15 @@ public class ExperienceClaimProcessingScheduler {
                 .limit(MAX_BATCH_SIZE)
                 .forEach(claimId -> {
                     LocalDateTime leaseUntil = now.plusSeconds(leaseSeconds);
-                    OptionalInt leaseAttempt = processingService.acquireLease(claimId, now, leaseUntil);
-                    if (leaseAttempt.isPresent()) {
-                        int attempt = leaseAttempt.getAsInt();
+                    Optional<ExperienceClaimProcessingService.ProcessingLease> lease =
+                            processingService.acquireLease(claimId, now, leaseUntil);
+                    if (lease.isPresent()) {
                         try {
-                            processingService.processClaim(claimId, attempt);
+                            processingService.processClaim(lease.get());
                         } catch (RuntimeException exception) {
                             log.error("Experience verification job failed unexpectedly for claim {}",
                                     claimId, exception);
-                            processingService.recordUnexpectedFailure(claimId, attempt);
+                            processingService.recordUnexpectedFailure(lease.get());
                         }
                     }
                 });

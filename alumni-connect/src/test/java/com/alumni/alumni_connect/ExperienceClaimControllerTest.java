@@ -434,6 +434,12 @@ void conflictingEvidenceLinksToActiveEvidenceWithoutSupersedingIt() throws Excep
             original.getId(), versions.get(1).getRelatedEvidenceId());
     org.junit.jupiter.api.Assertions.assertNull(
             versions.get(0).getRelatedEvidenceId());
+
+    mockMvc.perform(get("/experience-claims/{id}/evidence/history", claim.getId())
+                    .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$[1].relationshipType").value("CONFLICTS_WITH"))
+            .andExpect(jsonPath("$[1].relatedEvidenceId").value(original.getId()));
 }
 
 @Test

@@ -32,8 +32,7 @@ class _ProfileRepository extends AppRepository {
   Future<List<ExperienceClaim>> experienceClaims({
     int page = 0,
     int size = 50,
-  }) async =>
-      const [];
+  }) async => const [];
 
   @override
   Future<User> updateUser(User user) async {
@@ -93,17 +92,15 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('profile loads authenticated user data and saves updates',
-      (tester) async {
+  testWidgets('profile loads authenticated user data and saves updates', (
+    tester,
+  ) async {
     final dio = Dio(BaseOptions(baseUrl: 'https://api.example.test'));
     final repository = _ProfileRepository(
       ApiClient(SecureStorageService(const FlutterSecureStorage()), dio: dio),
       failUpdate: false,
     );
-    await pumpProfile(
-      tester,
-      repository: repository,
-    );
+    await pumpProfile(tester, repository: repository);
 
     expect(find.text('Asha Student'), findsNWidgets(2));
     expect(find.text('asha@example.test'), findsOneWidget);
@@ -128,17 +125,15 @@ void main() {
     expect(find.text('Profile saved'), findsOneWidget);
   });
 
-  testWidgets('profile update failure is surfaced and keeps entered changes',
-      (tester) async {
+  testWidgets('profile update failure is surfaced and keeps entered changes', (
+    tester,
+  ) async {
     final dio = Dio(BaseOptions(baseUrl: 'https://api.example.test'));
     final repository = _ProfileRepository(
       ApiClient(SecureStorageService(const FlutterSecureStorage()), dio: dio),
       failUpdate: true,
     );
-    await pumpProfile(
-      tester,
-      repository: repository,
-    );
+    await pumpProfile(tester, repository: repository);
 
     await tester.enterText(find.byType(TextField).first, 'Unsaved Name');
     await tester.pump();
@@ -156,8 +151,9 @@ void main() {
     expect(repository.submittedUsers, hasLength(1));
     expect(find.text('Profile saved'), findsNothing);
     expect(
-        find.text('The service is temporarily unavailable. Try again shortly.'),
-        findsOneWidget);
+      find.text('The service is temporarily unavailable. Try again shortly.'),
+      findsOneWidget,
+    );
     expect(repository.submittedUsers.single.name, 'Unsaved Name');
     expect(
       tester
@@ -174,8 +170,9 @@ void main() {
     );
   });
 
-  testWidgets('profile save prevents duplicate submissions while pending',
-      (tester) async {
+  testWidgets('profile save prevents duplicate submissions while pending', (
+    tester,
+  ) async {
     final dio = Dio(BaseOptions(baseUrl: 'https://api.example.test'));
     final updateCompleter = Completer<User>();
     final repository = _ProfileRepository(
@@ -233,10 +230,7 @@ void main() {
       data: user.toJson(),
     );
     final repository = AppRepository(
-      ApiClient(
-        SecureStorageService(const FlutterSecureStorage()),
-        dio: dio,
-      ),
+      ApiClient(SecureStorageService(const FlutterSecureStorage()), dio: dio),
     );
 
     final updated = await repository.updateUser(user);
@@ -260,10 +254,7 @@ void main() {
       data: user.toJson(),
     );
     final repository = AppRepository(
-      ApiClient(
-        SecureStorageService(const FlutterSecureStorage()),
-        dio: dio,
-      ),
+      ApiClient(SecureStorageService(const FlutterSecureStorage()), dio: dio),
     );
 
     await expectLater(

@@ -154,10 +154,13 @@ class ExperienceClaimProcessingMySqlLifecycleTest {
     void recoversExpiredLeaseAndRejectsAnOldWorkersProcessingAndFailureWrites() throws Exception {
         SeededEvidence seeded = createClaimAndEvidence("stale");
         LocalDateTime now = LocalDateTime.now();
-        int firstAttempt = processingService.acquireLease(
+        ExperienceClaimProcessingService.ProcessingLease firstLease = processingService.acquireLease(
                 seeded.claimId(), now, now.plusSeconds(60)).orElseThrow();
 
-        assertEquals(1, firstAttempt);
+        assertEquals(1, firstLease.attemptCount());
+        assertNotNull(firstLease.token());
+        assertEquals(firstLease.token(),
+                processingRepository.findById(seeded.claimId()).orElseThrow().getLeaseToken());
         assertTrue(processingService.acquireLease(
                 seeded.claimId(), now, now.plusSeconds(60)).isEmpty(),
                 "A live lease must not be acquired by another worker");
@@ -167,13 +170,14 @@ class ExperienceClaimProcessingMySqlLifecycleTest {
         jdbcTemplate.update(
                 "UPDATE experience_claim_processing SET lease_until = ?, next_attempt_at = ? WHERE claim_id = ?",
                 Timestamp.valueOf(expiredAt), Timestamp.valueOf(expiredAt), seeded.claimId());
-        int recoveredAttempt = processingService.acquireLease(
+        ExperienceClaimProcessingService.ProcessingLease recoveredLease = processingService.acquireLease(
                 seeded.claimId(), LocalDateTime.now(), LocalDateTime.now().plusSeconds(60)).orElseThrow();
-        assertEquals(2, recoveredAttempt);
+        assertEquals(2, recoveredLease.attemptCount());
+        assertFalse(firstLease.token().equals(recoveredLease.token()));
 
         analysisServer.enqueue(200, strictResponse(seeded));
-        processingService.processClaim(seeded.claimId(), firstAttempt);
-        processingService.recordUnexpectedFailure(seeded.claimId(), firstAttempt);
+        processingService.processClaim(firstLease);
+        processingService.recordUnexpectedFailure(firstLease);
 
         ExperienceClaimProcessing recoveredJob =
                 processingRepository.findById(seeded.claimId()).orElseThrow();
@@ -183,13 +187,132 @@ class ExperienceClaimProcessingMySqlLifecycleTest {
         assertEquals(0, analysisServer.requestCount());
         assertEquals(0, extractionCount(seeded.evidenceId(), 1));
 
-        processingService.processClaim(seeded.claimId(), recoveredAttempt);
+        processingService.processClaim(recoveredLease);
 
         assertEquals(1, analysisServer.requestCount());
         assertTrue(analysisServer.allRequestsAuthenticated());
         assertFalse(processingRepository.existsById(seeded.claimId()));
         assertEquals("ANALYZED", claimRepository.findById(seeded.claimId()).orElseThrow().getAiStatus());
         assertPersistedExtraction(seeded);
+    }
+
+    @Test
+    void leaseTokenRejectsOldProcessingAndFailureWritesWhenVersionAndAttemptAreReused() throws Exception {
+        SeededEvidence seeded = createClaimAndEvidence("token-collision");
+        LocalDateTime firstNow = LocalDateTime.now();
+        ExperienceClaimProcessingService.ProcessingLease firstLease = processingService.acquireLease(
+                seeded.claimId(), firstNow, firstNow.plusSeconds(60)).orElseThrow();
+
+        LocalDateTime requeuedAt = LocalDateTime.now().minusSeconds(2);
+        jdbcTemplate.update(
+                "UPDATE experience_claim_processing SET attempt_count = 0, lease_until = ?, "
+                        + "lease_token = NULL, next_attempt_at = ? WHERE claim_id = ?",
+                Timestamp.valueOf(requeuedAt), Timestamp.valueOf(requeuedAt), seeded.claimId());
+        LocalDateTime secondNow = LocalDateTime.now();
+        ExperienceClaimProcessingService.ProcessingLease secondLease = processingService.acquireLease(
+                seeded.claimId(), secondNow, secondNow.plusSeconds(60)).orElseThrow();
+
+        assertEquals(firstLease.evidenceVersion(), secondLease.evidenceVersion());
+        assertEquals(firstLease.attemptCount(), secondLease.attemptCount());
+        assertFalse(firstLease.token().equals(secondLease.token()));
+        assertEquals(secondLease.token(),
+                processingRepository.findById(seeded.claimId()).orElseThrow().getLeaseToken());
+
+        processingService.processClaim(firstLease);
+        processingService.recordUnexpectedFailure(firstLease);
+
+        ExperienceClaimProcessing currentJob =
+                processingRepository.findById(seeded.claimId()).orElseThrow();
+        assertEquals(secondLease.token(), currentJob.getLeaseToken());
+        assertEquals(secondLease.attemptCount(), currentJob.getAttemptCount());
+        assertNull(currentJob.getLastError());
+        assertEquals("PENDING", claimRepository.findById(seeded.claimId()).orElseThrow().getStatus());
+        assertEquals(0, analysisServer.requestCount());
+        assertEquals(0, extractionCount(seeded.evidenceId(), seeded.evidenceVersion()));
+
+        analysisServer.enqueue(200, strictResponse(seeded));
+        processingService.processClaim(secondLease);
+
+        assertEquals(1, analysisServer.requestCount());
+        assertFalse(processingRepository.existsById(seeded.claimId()));
+        assertEquals("ANALYZED", claimRepository.findById(seeded.claimId()).orElseThrow().getAiStatus());
+        assertPersistedExtraction(seeded);
+    }
+
+    @Test
+    void newerEvidenceLeaseCannotBeReusedByAWorkerFromThePreviousVersion() throws Exception {
+        SeededEvidence firstVersion = createClaimAndEvidence("version-race");
+        ExperienceClaimProcessingService.ProcessingLease workerA = processingService.acquireLease(
+                firstVersion.claimId(), LocalDateTime.now(), LocalDateTime.now().plusSeconds(60)).orElseThrow();
+
+        ExperienceClaim claim = claimRepository.findById(firstVersion.claimId()).orElseThrow();
+        ExperienceClaimEvidence firstEvidence = evidenceRepository.findById(firstVersion.evidenceId()).orElseThrow();
+        firstEvidence.setEvidenceStatus("SUPERSEDED");
+        firstEvidence.setSupersededAt(LocalDateTime.now());
+        evidenceRepository.saveAndFlush(firstEvidence);
+        byte[] secondDocument = syntheticPdf("Synthetic corrected certificate");
+        String secondHash = sha256(secondDocument);
+        ExperienceClaimEvidence secondEvidence = evidenceRepository.saveAndFlush(new ExperienceClaimEvidence(
+                claim.getId(),
+                2,
+                "phase26-version-race-" + UUID.randomUUID(),
+                evidenceCrypto.encrypt(secondDocument),
+                "synthetic-corrected-certificate.pdf",
+                "application/pdf",
+                (long) secondDocument.length,
+                secondHash));
+        secondEvidence.setRelationshipType("CORRECTION");
+        secondEvidence.setRelatedEvidenceId(firstEvidence.getId());
+        evidenceRepository.saveAndFlush(secondEvidence);
+        claim.setEvidenceVersion(2);
+        claim.setEvidenceStorageKey(secondEvidence.getEvidenceStorageKey());
+        claim.setEncryptedEvidence(secondEvidence.getEncryptedEvidence());
+        claim.setEvidenceFileName(secondEvidence.getEvidenceFileName());
+        claim.setEvidenceMediaType(secondEvidence.getEvidenceMediaType());
+        claim.setEvidenceSize(secondEvidence.getEvidenceSize());
+        claim.setEvidenceHash(secondEvidence.getEvidenceHash());
+        claim.setStatus("PROCESSING");
+        claimRepository.saveAndFlush(claim);
+
+        ExperienceClaimProcessing queued = processingRepository.findById(firstVersion.claimId()).orElseThrow();
+        queued.setEvidenceVersion(2);
+        queued.setAttemptCount(0);
+        queued.setLeaseUntil(null);
+        queued.setLeaseToken(null);
+        queued.setNextAttemptAt(LocalDateTime.now().minusSeconds(1));
+        processingRepository.saveAndFlush(queued);
+
+        ExperienceClaimProcessingService.ProcessingLease workerB = processingService.acquireLease(
+                firstVersion.claimId(), LocalDateTime.now(), LocalDateTime.now().plusSeconds(60)).orElseThrow();
+        SeededEvidence secondVersion = new SeededEvidence(
+                firstVersion.claimId(), secondEvidence.getId(), secondHash, 2);
+
+        assertEquals(1, workerA.attemptCount());
+        assertEquals(1, workerB.attemptCount(),
+                "The newer evidence upload resets its retry count without reusing the old lease token");
+        assertEquals(1, workerA.evidenceVersion());
+        assertEquals(2, workerB.evidenceVersion());
+        assertFalse(workerA.token().equals(workerB.token()));
+
+        processingService.processClaim(workerA);
+        processingService.recordUnexpectedFailure(workerA);
+        assertEquals(0, analysisServer.requestCount());
+        assertEquals(0, extractionCount(firstVersion.evidenceId(), 1));
+        assertEquals(0, extractionCount(secondVersion.evidenceId(), 2));
+        assertEquals(workerB.token(),
+                processingRepository.findById(firstVersion.claimId()).orElseThrow().getLeaseToken());
+
+        analysisServer.enqueue(200, strictResponse(secondVersion));
+        processingService.processClaim(workerB);
+
+        assertEquals(1, analysisServer.requestCount());
+        assertEquals(0, extractionCount(firstVersion.evidenceId(), 1));
+        assertEquals(1, extractionCount(secondVersion.evidenceId(), 2));
+        assertEquals("ANALYZED", claimRepository.findById(firstVersion.claimId()).orElseThrow().getAiStatus());
+        assertPersistedExtraction(secondVersion);
+        processingService.processClaim(workerA);
+        assertEquals("ANALYZED", claimRepository.findById(firstVersion.claimId()).orElseThrow().getAiStatus());
+        assertEquals(1, extractionCount(secondVersion.evidenceId(), 2));
     }
 
     @Test
@@ -250,16 +373,16 @@ class ExperienceClaimProcessingMySqlLifecycleTest {
                 documentHash));
         processingRepository.saveAndFlush(new ExperienceClaimProcessing(
                 claim.getId(), 1, LocalDateTime.now().minusSeconds(1)));
-        return new SeededEvidence(claim.getId(), evidence.getId(), documentHash);
+        return new SeededEvidence(claim.getId(), evidence.getId(), documentHash, 1);
     }
 
     private void assertPersistedExtraction(SeededEvidence seeded) {
-        assertEquals(1, extractionCount(seeded.evidenceId(), 1));
+        assertEquals(1, extractionCount(seeded.evidenceId(), seeded.evidenceVersion()));
         Long extractionId = jdbcTemplate.queryForObject(
                 "SELECT id FROM experience_evidence_extraction "
                         + "WHERE evidence_id = ? AND evidence_version = ? "
                         + "ORDER BY processed_at DESC, id DESC LIMIT 1",
-                Long.class, seeded.evidenceId(), 1);
+                Long.class, seeded.evidenceId(), seeded.evidenceVersion());
         assertNotNull(extractionId);
         assertEquals("COMPLETE", jdbcTemplate.queryForObject(
                 "SELECT analysis_status FROM experience_evidence_extraction WHERE id = ?",
@@ -288,12 +411,12 @@ class ExperienceClaimProcessingMySqlLifecycleTest {
                 Integer.class, extractionId));
         assertEquals(4, jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM experience_evidence_extraction_provenance "
-                        + "WHERE extraction_id = ? AND source_evidence_id = ? AND source_evidence_version = 1",
-                Integer.class, extractionId, seeded.evidenceId()));
+                        + "WHERE extraction_id = ? AND source_evidence_id = ? AND source_evidence_version = ?",
+                Integer.class, extractionId, seeded.evidenceId(), seeded.evidenceVersion()));
         assertEquals(1, jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM experience_evidence_extraction_warning WHERE extraction_id = ?",
                 Integer.class, extractionId));
-        assertTrue(latestResponseHash(seeded.evidenceId(), 1).matches("[a-f0-9]{64}"));
+        assertTrue(latestResponseHash(seeded.evidenceId(), seeded.evidenceVersion()).matches("[a-f0-9]{64}"));
     }
 
     private int extractionCount(long evidenceId, int version) {
@@ -312,10 +435,14 @@ class ExperienceClaimProcessingMySqlLifecycleTest {
     }
 
     private static byte[] syntheticPdf() throws IOException {
+        return syntheticPdf("Synthetic lifecycle certificate");
+    }
+
+    private static byte[] syntheticPdf(String title) throws IOException {
         try (PDDocument document = new PDDocument();
              ByteArrayOutputStream output = new ByteArrayOutputStream()) {
             document.addPage(new PDPage());
-            document.getDocumentInformation().setTitle("Synthetic lifecycle certificate");
+            document.getDocumentInformation().setTitle(title);
             document.save(output);
             return output.toByteArray();
         }
@@ -327,21 +454,21 @@ class ExperienceClaimProcessingMySqlLifecycleTest {
 
     private static String strictResponse(SeededEvidence seeded) {
         String provenance = """
-                {"sourceEvidenceId":%d,"evidenceVersion":1,"pageNumber":1,
+                {"sourceEvidenceId":%d,"evidenceVersion":%d,"pageNumber":1,
                  "textExcerpt":"Synthetic certificate for Alex Example",
                  "extractionMethod":"PDF_TEXT","sourceConfidence":0.88}
-                """.formatted(seeded.evidenceId());
+                """.formatted(seeded.evidenceId(), seeded.evidenceVersion());
         String organisationProvenance = """
-                {"sourceEvidenceId":%d,"evidenceVersion":1,"pageNumber":1,
+                {"sourceEvidenceId":%d,"evidenceVersion":%d,"pageNumber":1,
                  "textExcerpt":"Organization: Synthetic Northstar",
                  "extractionMethod":"PDF_TEXT","sourceConfidence":0.86}
-                """.formatted(seeded.evidenceId());
+                """.formatted(seeded.evidenceId(), seeded.evidenceVersion());
         return """
                 {
                   "schemaVersion":"mentorax.document-understanding.v1",
                   "analysisStatus":"COMPLETE",
                   "evidenceId":%d,
-                  "evidenceVersion":1,
+                  "evidenceVersion":%d,
                   "sha256":"%s",
                   "documentClassification":"EXPERIENCE_CERTIFICATE",
                   "classificationConfidence":0.92,
@@ -365,7 +492,7 @@ class ExperienceClaimProcessingMySqlLifecycleTest {
                   "warnings":["Issuer was not independently verified"]
                 }
                 """.formatted(
-                seeded.evidenceId(), seeded.documentHash(), provenance, provenance,
+                seeded.evidenceId(), seeded.evidenceVersion(), seeded.documentHash(), provenance, provenance,
                         organisationProvenance, provenance);
     }
 
@@ -383,7 +510,7 @@ class ExperienceClaimProcessingMySqlLifecycleTest {
         }
     }
 
-    private record SeededEvidence(long claimId, long evidenceId, String documentHash) {}
+    private record SeededEvidence(long claimId, long evidenceId, String documentHash, int evidenceVersion) {}
 
     private record DatabaseSettings(String url, String username, String password, String schema) {
         private static DatabaseSettings fromEnvironment() {

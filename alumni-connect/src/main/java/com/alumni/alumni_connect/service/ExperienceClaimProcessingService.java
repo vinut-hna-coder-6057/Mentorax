@@ -27,8 +27,10 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.OptionalInt;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 
 @Service
 public class ExperienceClaimProcessingService {
@@ -76,25 +78,29 @@ public class ExperienceClaimProcessingService {
     }
 
     @Transactional
-    public OptionalInt acquireLease(Long claimId, LocalDateTime now, LocalDateTime leaseUntil) {
-        if (processingRepository.acquire(claimId, now, leaseUntil) != 1) {
-            return OptionalInt.empty();
+    public Optional<ProcessingLease> acquireLease(Long claimId, LocalDateTime now, LocalDateTime leaseUntil) {
+        String leaseToken = UUID.randomUUID().toString();
+        if (processingRepository.acquire(claimId, now, leaseUntil, leaseToken) != 1) {
+            return Optional.empty();
         }
         ExperienceClaimProcessing job = processingRepository.findById(claimId)
                 .orElseThrow(() -> new IllegalStateException(
                         "Acquired experience processing job could not be reloaded"));
-        return OptionalInt.of(job.getAttemptCount());
+        return Optional.of(new ProcessingLease(
+                job.getClaimId(), job.getEvidenceVersion(), job.getAttemptCount(), job.getLeaseToken()));
     }
 
     @Transactional
-    public void processClaim(Long claimId, int leaseAttempt) {
+    public void processClaim(ProcessingLease lease) {
+        Long claimId = lease.claimId();
         ExperienceClaim claim = claimRepository.findByIdForUpdate(claimId).orElse(null);
         if (claim == null) return;
         ExperienceClaimProcessing job = processingRepository.findByIdForUpdate(claimId).orElse(null);
-        if (job == null || !ownsLiveLease(job, leaseAttempt, LocalDateTime.now())) return;
+        if (job == null || !ownsLiveLease(job, lease, LocalDateTime.now())) return;
 
-        int processingVersion = job.getEvidenceVersion();
-        if (claim.getEvidenceVersion() != processingVersion) return;
+        int processingVersion = lease.evidenceVersion();
+        if (job.getEvidenceVersion() != processingVersion
+                || claim.getEvidenceVersion() != processingVersion) return;
 
         String oldStatus = claim.getStatus();
         claim.setStatus("PROCESSING");
@@ -141,7 +147,9 @@ public class ExperienceClaimProcessingService {
                         evidence.getId(),
                         evidence.getEvidenceVersion(),
                         evidence.getEvidenceStatus(),
-                        persistedExtraction));
+                        persistedExtraction,
+                        evidence.getRelationshipType(),
+                        evidence.getRelatedEvidenceId()));
                 analysisEvidenceVersions.add(evidence.getEvidenceVersion());
                 appendFindings(combinedFindings, result, evidence.getEvidenceVersion());
             }
@@ -160,6 +168,7 @@ public class ExperienceClaimProcessingService {
                 appendFindings(combinedFindings, result, claim.getEvidenceVersion());
             }
             appendCrossDocumentFindings(combinedFindings);
+            appendDeclaredConflictFindings(combinedFindings, evidenceVersions);
             appendDuplicateDocumentFindings(combinedFindings, analyses, analysisEvidenceVersions);
 
             ExperienceVerificationDecisionEngine.Decision decision =
@@ -211,18 +220,22 @@ public class ExperienceClaimProcessingService {
     }
 
     @Transactional
-    public void recordUnexpectedFailure(Long claimId, int leaseAttempt) {
+    public void recordUnexpectedFailure(ProcessingLease lease) {
+        Long claimId = lease.claimId();
         ExperienceClaim claim = claimRepository.findByIdForUpdate(claimId).orElse(null);
         if (claim == null) return;
         ExperienceClaimProcessing job = processingRepository.findByIdForUpdate(claimId).orElse(null);
-        if (job == null || !ownsLiveLease(job, leaseAttempt, LocalDateTime.now())) return;
+        if (job == null || !ownsLiveLease(job, lease, LocalDateTime.now())) return;
         scheduleRetry(claim, job, claim.getStatus(),
                 "An unexpected processing error occurred.");
     }
 
     private boolean ownsLiveLease(
-            ExperienceClaimProcessing job, int leaseAttempt, LocalDateTime now) {
-        return job.getAttemptCount() == leaseAttempt
+            ExperienceClaimProcessing job, ProcessingLease lease, LocalDateTime now) {
+        return job.getClaimId().equals(lease.claimId())
+                && job.getEvidenceVersion() == lease.evidenceVersion()
+                && job.getAttemptCount() == lease.attemptCount()
+                && Objects.equals(job.getLeaseToken(), lease.token())
                 && job.getLeaseUntil() != null
                 && job.getLeaseUntil().isAfter(now);
     }
@@ -230,9 +243,11 @@ public class ExperienceClaimProcessingService {
     private ExperienceEvidenceAnalysisRequest analysisRequest(ExperienceClaim claim, ExperienceClaimEvidence evidence) {
         Long evidenceId = evidence != null && evidence.getId() != null ? evidence.getId() : claim.getId();
         Integer evidenceVersion = evidence != null ? evidence.getEvidenceVersion() : claim.getEvidenceVersion();
+        String sha256 = evidence != null ? evidence.getEvidenceHash() : claim.getEvidenceHash();
         return new ExperienceEvidenceAnalysisRequest(
                 evidenceId,
                 evidenceVersion,
+                sha256,
                 claim.getClaimType(),
                 claim.getCompany(),
                 claim.getJobTitle(),
@@ -268,7 +283,7 @@ public class ExperienceClaimProcessingService {
             JsonNode extracted = finding.path("extractedValue");
             int evidenceVersion = finding.path("evidenceVersion").asInt();
             if (!Set.of("employeeName", "company", "jobTitle", "startMonth", "endMonth",
-                    "employmentType", "issueDate", "employmentStatements").contains(field)
+                    "employmentType", "issueDate", "employmentStatements", "issuer", "duration").contains(field)
                     || !extracted.isTextual() || extracted.asText().isBlank() || evidenceVersion <= 0) {
                 continue;
             }
@@ -293,6 +308,41 @@ public class ExperienceClaimProcessingService {
             versions.forEach(versionReferences::add);
             findings.add(conflict);
         });
+    }
+
+    private void appendDeclaredConflictFindings(
+            ArrayNode findings, List<ExperienceClaimEvidence> activeEvidence) {
+        Set<Long> activeEvidenceIds = activeEvidence.stream()
+                .map(ExperienceClaimEvidence::getId)
+                .filter(java.util.Objects::nonNull)
+                .collect(java.util.stream.Collectors.toSet());
+        for (ExperienceClaimEvidence evidence : activeEvidence) {
+            Long relatedId = evidence.getRelatedEvidenceId();
+            if (!"CONFLICTS_WITH".equalsIgnoreCase(evidence.getRelationshipType())
+                    || relatedId == null || !activeEvidenceIds.contains(relatedId)) {
+                continue;
+            }
+            ExperienceClaimEvidence related = activeEvidence.stream()
+                    .filter(candidate -> relatedId.equals(candidate.getId()))
+                    .findFirst()
+                    .orElseThrow();
+            var conflict = objectMapper.createObjectNode();
+            conflict.put("field", "evidenceRelationship");
+            conflict.put("outcome", "MISMATCH");
+            conflict.put("explanation",
+                    "These active documents were reported as conflicting; clarification is required. "
+                            + "This is not a finding of fraud.");
+            var evidenceReferences = conflict.putArray("evidenceReferences");
+            evidenceReferences.add("document-version-" + related.getEvidenceVersion());
+            evidenceReferences.add("document-version-" + evidence.getEvidenceVersion());
+            var evidenceIds = conflict.putArray("evidenceIds");
+            evidenceIds.add(related.getId());
+            evidenceIds.add(evidence.getId());
+            var evidenceVersions = conflict.putArray("evidenceVersions");
+            evidenceVersions.add(related.getEvidenceVersion());
+            evidenceVersions.add(evidence.getEvidenceVersion());
+            findings.add(conflict);
+        }
     }
 
     private void appendDuplicateDocumentFindings(
@@ -332,6 +382,7 @@ public class ExperienceClaimProcessingService {
         LocalDateTime now = LocalDateTime.now();
         job.setNextAttemptAt(now.plusSeconds(delaySeconds));
         job.setLeaseUntil(null);
+        job.setLeaseToken(null);
         job.setLastError(safeReason);
         job.setUpdatedAt(now);
         processingRepository.save(job);
@@ -392,4 +443,7 @@ public class ExperienceClaimProcessingService {
     }
 
     private static final class RetryableAnalysisException extends RuntimeException {}
+
+    public record ProcessingLease(
+            Long claimId, int evidenceVersion, int attemptCount, String token) {}
 }

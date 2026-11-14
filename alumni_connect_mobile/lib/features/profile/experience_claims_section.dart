@@ -13,6 +13,9 @@ import '../../shared/models/models.dart';
 import '../../shared/widgets/ui_components.dart';
 
 const _maxEvidenceBytes = 5 * 1024 * 1024;
+const _maxProcessingRefreshAttempts = 8;
+const _processingRefreshBaseDelay = Duration(seconds: 5);
+const _processingRefreshMaxDelay = Duration(seconds: 30);
 
 class ExperienceClaimsSection extends ConsumerStatefulWidget {
   const ExperienceClaimsSection({super.key});
@@ -32,47 +35,107 @@ class _ExperienceClaimsSectionState
   double? _uploadProgress;
   Timer? _processingRefreshTimer;
   bool _refreshInFlight = false;
+  int _processingRefreshAttempts = 0;
+  bool _processingRefreshFailed = false;
+  bool _processingRefreshExhausted = false;
 
   @override
   void initState() {
     super.initState();
     _loadClaims();
-    _processingRefreshTimer = Timer.periodic(
-      const Duration(seconds: 5),
-      (_) => _refreshProcessingClaims(),
-    );
   }
 
   Future<void> _loadClaims({bool silent = false}) async {
+    if (!silent) {
+      _processingRefreshTimer?.cancel();
+      _processingRefreshTimer = null;
+      _processingRefreshAttempts = 0;
+      _processingRefreshFailed = false;
+      _processingRefreshExhausted = false;
+    }
     try {
       final claims = await ref.read(appRepositoryProvider).experienceClaims();
       if (!mounted) return;
       setState(() {
         _claims = claims;
         _loading = false;
+        _processingRefreshFailed = false;
       });
+      if (!silent) _scheduleProcessingRefresh();
     } catch (error) {
       if (!mounted) return;
-      setState(() => _loading = false);
+      setState(() {
+        _loading = false;
+        if (silent) _processingRefreshFailed = true;
+      });
       if (!silent) {
         _showMessage(
           'Could not load experience claims: ${userFacingError(error)}',
         );
+        _scheduleProcessingRefresh();
       }
     }
   }
 
+  void _scheduleProcessingRefresh() {
+    if (!mounted) return;
+    final hasProcessingClaim = _claims.any(
+      (claim) => claim.status.toUpperCase() == 'PROCESSING',
+    );
+    if (!hasProcessingClaim) {
+      _processingRefreshTimer?.cancel();
+      _processingRefreshTimer = null;
+      _processingRefreshAttempts = 0;
+      _processingRefreshFailed = false;
+      _processingRefreshExhausted = false;
+      return;
+    }
+    if (_processingRefreshTimer != null ||
+        _refreshInFlight ||
+        _processingRefreshExhausted ||
+        _processingRefreshAttempts >= _maxProcessingRefreshAttempts) {
+      return;
+    }
+    final backoffSeconds = min(
+      _processingRefreshMaxDelay.inSeconds,
+      _processingRefreshBaseDelay.inSeconds * (1 << _processingRefreshAttempts),
+    );
+    _processingRefreshTimer = Timer(
+      Duration(seconds: backoffSeconds),
+      _refreshProcessingClaims,
+    );
+  }
+
   Future<void> _refreshProcessingClaims() async {
+    _processingRefreshTimer = null;
     if (!mounted ||
         _refreshInFlight ||
         !_claims.any((claim) => claim.status.toUpperCase() == 'PROCESSING')) {
       return;
     }
     _refreshInFlight = true;
+    _processingRefreshAttempts++;
     try {
       await _loadClaims(silent: true);
     } finally {
       _refreshInFlight = false;
+      if (mounted) {
+        final hasProcessingClaim = _claims.any(
+          (claim) => claim.status.toUpperCase() == 'PROCESSING',
+        );
+        if (!hasProcessingClaim) {
+          setState(() {
+            _processingRefreshAttempts = 0;
+            _processingRefreshFailed = false;
+            _processingRefreshExhausted = false;
+          });
+        } else if (_processingRefreshAttempts >=
+            _maxProcessingRefreshAttempts) {
+          setState(() => _processingRefreshExhausted = true);
+        } else {
+          _scheduleProcessingRefresh();
+        }
+      }
     }
   }
 
@@ -148,7 +211,7 @@ class _ExperienceClaimsSectionState
             summary: draft.summary,
           );
       if (!mounted) return;
-      _replaceClaim(updated);
+      setState(() => _replaceClaim(updated));
       if (draft.evidence != null) {
         await _uploadEvidence(
           updated.id,
@@ -746,6 +809,7 @@ class _ExperienceClaimsSectionState
     } else {
       _claims[index] = updated;
     }
+    _scheduleProcessingRefresh();
   }
 
   ExperienceClaim _withoutEvidence(ExperienceClaim claim) => ExperienceClaim(
@@ -796,6 +860,20 @@ class _ExperienceClaimsSectionState
           const Text('No experience claims have been submitted.')
         else
           for (final claim in _claims) _claimCard(claim),
+        if (!_loading && _processingRefreshExhausted)
+          const Padding(
+            padding: EdgeInsets.only(top: AppSpacing.xs),
+            child: Text(
+              'Automatic status checks stopped. Refresh claims to check again.',
+            ),
+          )
+        else if (!_loading && _processingRefreshFailed)
+          const Padding(
+            padding: EdgeInsets.only(top: AppSpacing.xs),
+            child: Text(
+              'Could not refresh processing status. It will retry automatically.',
+            ),
+          ),
         const SizedBox(height: AppSpacing.sm),
         FilledButton.icon(
           onPressed: _saving ? null : _createClaim,

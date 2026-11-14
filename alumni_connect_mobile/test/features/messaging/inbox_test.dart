@@ -23,13 +23,13 @@ class _InboxRepository extends AppRepository {
     List<Conversation> conversations = const [],
     this.failFirstConversationRequest = false,
     this.firstPageCompleter,
-  })  : conversationsToReturn = conversations,
-        super(
-          ApiClient(
-            SecureStorageService(const FlutterSecureStorage()),
-            dio: Dio(BaseOptions(baseUrl: 'https://api.example.test')),
-          ),
-        );
+  }) : conversationsToReturn = conversations,
+       super(
+         ApiClient(
+           SecureStorageService(const FlutterSecureStorage()),
+           dio: Dio(BaseOptions(baseUrl: 'https://api.example.test')),
+         ),
+       );
 
   final List<Conversation> conversationsToReturn;
   final bool failFirstConversationRequest;
@@ -54,12 +54,16 @@ class _InboxRepository extends AppRepository {
         'Unable to reach Alumni Connect. Check your connection and retry.',
       );
     }
-    return Future.value(participantRole == null
-        ? conversationsToReturn
-        : conversationsToReturn
-            .where((conversation) =>
-                conversation.participantRole == participantRole)
-            .toList());
+    return Future.value(
+      participantRole == null
+          ? conversationsToReturn
+          : conversationsToReturn
+                .where(
+                  (conversation) =>
+                      conversation.participantRole == participantRole,
+                )
+                .toList(),
+    );
   }
 
   @override
@@ -71,8 +75,7 @@ class _InboxRepository extends AppRepository {
     bool all = false,
     int page = 0,
     int size = 50,
-  }) =>
-      Future.value(const []);
+  }) => Future.value(const []);
 
   @override
   Future<int> unreadCount() => Future.value(0);
@@ -87,8 +90,7 @@ class _InboxRepository extends AppRepository {
     String receiver, {
     int page = 0,
     int size = 50,
-  }) =>
-      Future.value(const []);
+  }) => Future.value(const []);
 }
 
 class _InboxRealtimeService extends RealtimeService {
@@ -129,31 +131,31 @@ const _conversation = Conversation(
 );
 
 Widget _testApp(User user, _InboxRepository repository) => ProviderScope(
-      overrides: [
-        appRepositoryProvider.overrideWithValue(repository),
-        realtimeServiceProvider.overrideWithValue(_InboxRealtimeService()),
-        authProvider.overrideWith((ref) {
-          final notifier = AuthNotifier(
-            ref.read(appRepositoryProvider),
-            ref.read(secureStorageProvider),
-            ref.read(realtimeServiceProvider),
-          );
-          notifier.setUser(user);
-          return notifier;
-        }),
-      ],
-      child: Consumer(
-        builder: (context, ref, _) => MaterialApp.router(
-          routerConfig: ref.watch(routerProvider),
-        ),
-      ),
-    );
+  overrides: [
+    appRepositoryProvider.overrideWithValue(repository),
+    realtimeServiceProvider.overrideWithValue(_InboxRealtimeService()),
+    authProvider.overrideWith((ref) {
+      final notifier = AuthNotifier(
+        ref.read(appRepositoryProvider),
+        ref.read(secureStorageProvider),
+        ref.read(realtimeServiceProvider),
+      );
+      notifier.setUser(user);
+      return notifier;
+    }),
+  ],
+  child: Consumer(
+    builder: (context, ref, _) =>
+        MaterialApp.router(routerConfig: ref.watch(routerProvider)),
+  ),
+);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('approved alumni can open inbox, a conversation, and return',
-      (tester) async {
+  testWidgets('approved alumni can open inbox, a conversation, and return', (
+    tester,
+  ) async {
     final repository = _InboxRepository(conversations: const [_conversation]);
     await tester.pumpWidget(_testApp(_approvedAlumnus, repository));
     await tester.pumpAndSettle();
@@ -188,14 +190,16 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Inbox'), findsNothing);
-    GoRouter.of(tester.element(find.text('Grow your network, Asha')))
-        .go('/chat/inbox');
+    GoRouter.of(
+      tester.element(find.text('Grow your network, Asha')),
+    ).go('/chat/inbox');
     await tester.pumpAndSettle();
 
     expect(find.text('Grow your network, Asha'), findsOneWidget);
     expect(find.text('Inbox'), findsNothing);
-    GoRouter.of(tester.element(find.text('Grow your network, Asha')))
-        .go('/chat/inbox/assistant');
+    GoRouter.of(
+      tester.element(find.text('Grow your network, Asha')),
+    ).go('/chat/inbox/assistant');
     await tester.pumpAndSettle();
 
     expect(find.text('Inbox assistant'), findsNothing);
@@ -233,8 +237,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Inbox'), findsNothing);
-    GoRouter.of(tester.element(find.text('Welcome back, Pending')))
-        .go('/chat/inbox');
+    GoRouter.of(
+      tester.element(find.text('Welcome back, Pending')),
+    ).go('/chat/inbox');
     await tester.pumpAndSettle();
 
     expect(find.text('Inbox'), findsNothing);
@@ -255,40 +260,43 @@ void main() {
     expect(repository.conversationCalls, 2);
   });
 
-  testWidgets('category selection displays only the selected participant role',
-      (tester) async {
-    const alumniConversation = Conversation(
-      email: 'chandra@example.test',
-      displayName: 'Chandra Alumni',
-      latestMessage: 'Happy to help',
-      participantRole: UserRole.alumni,
-    );
-    final repository = _InboxRepository(
-      conversations: const [_conversation, alumniConversation],
-    );
-    await tester.pumpWidget(_testApp(_approvedAlumnus, repository));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Inbox'));
-    await tester.pumpAndSettle();
+  testWidgets(
+    'category selection displays only the selected participant role',
+    (tester) async {
+      const alumniConversation = Conversation(
+        email: 'chandra@example.test',
+        displayName: 'Chandra Alumni',
+        latestMessage: 'Happy to help',
+        participantRole: UserRole.alumni,
+      );
+      final repository = _InboxRepository(
+        conversations: const [_conversation, alumniConversation],
+      );
+      await tester.pumpWidget(_testApp(_approvedAlumnus, repository));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Inbox'));
+      await tester.pumpAndSettle();
 
-    expect(find.text('Bala Krish'), findsOneWidget);
-    expect(find.text('Chandra Alumni'), findsOneWidget);
-    await tester.tap(find.text('Alumni'));
-    await tester.pumpAndSettle();
+      expect(find.text('Bala Krish'), findsOneWidget);
+      expect(find.text('Chandra Alumni'), findsOneWidget);
+      await tester.tap(find.text('Alumni'));
+      await tester.pumpAndSettle();
 
-    expect(repository.requestedRoles.last, UserRole.alumni);
-    expect(find.text('Chandra Alumni'), findsOneWidget);
-    expect(find.text('Bala Krish'), findsNothing);
+      expect(repository.requestedRoles.last, UserRole.alumni);
+      expect(find.text('Chandra Alumni'), findsOneWidget);
+      expect(find.text('Bala Krish'), findsNothing);
 
-    await tester.tap(find.text('All'));
-    await tester.pumpAndSettle();
-    expect(repository.requestedRoles, containsAll([null, UserRole.alumni]));
-    expect(find.text('Bala Krish'), findsOneWidget);
-    expect(find.text('Chandra Alumni'), findsOneWidget);
-  });
+      await tester.tap(find.text('All'));
+      await tester.pumpAndSettle();
+      expect(repository.requestedRoles, containsAll([null, UserRole.alumni]));
+      expect(find.text('Bala Krish'), findsOneWidget);
+      expect(find.text('Chandra Alumni'), findsOneWidget);
+    },
+  );
 
-  testWidgets('inbox displays loading and resolves when conversations load',
-      (tester) async {
+  testWidgets('inbox displays loading and resolves when conversations load', (
+    tester,
+  ) async {
     final completer = Completer<List<Conversation>>();
     final repository = _InboxRepository(firstPageCompleter: completer);
     await tester.pumpWidget(_testApp(_approvedAlumnus, repository));
@@ -307,8 +315,9 @@ void main() {
     expect(find.text('Bala Krish'), findsOneWidget);
   });
 
-  testWidgets('inbox error explains offline state and retry reloads',
-      (tester) async {
+  testWidgets('inbox error explains offline state and retry reloads', (
+    tester,
+  ) async {
     final repository = _InboxRepository(
       conversations: const [_conversation],
       failFirstConversationRequest: true,

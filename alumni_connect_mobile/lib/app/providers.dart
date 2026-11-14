@@ -12,11 +12,13 @@ import '../core/storage/secure_storage_service.dart';
 import '../features/app_repository.dart';
 import '../shared/models/models.dart';
 
-final secureStorageProvider =
-    Provider((_) => SecureStorageService(const FlutterSecureStorage()));
+final secureStorageProvider = Provider(
+  (_) => SecureStorageService(const FlutterSecureStorage()),
+);
 final sessionExpiredProvider = StateProvider<bool>((ref) => false);
 final themeModeProvider = StateNotifierProvider<ThemeModeNotifier, ThemeMode>(
-    (ref) => ThemeModeNotifier());
+  (ref) => ThemeModeNotifier(),
+);
 
 class ThemeModeNotifier extends StateNotifier<ThemeMode> {
   ThemeModeNotifier() : super(ThemeMode.system) {
@@ -56,36 +58,37 @@ final apiClientProvider = Provider((ref) {
     },
   );
 });
-final appRepositoryProvider =
-    Provider((ref) => AppRepository(ref.watch(apiClientProvider)));
+final appRepositoryProvider = Provider(
+  (ref) => AppRepository(ref.watch(apiClientProvider)),
+);
 final realtimeServiceProvider = Provider<RealtimeService>((ref) {
   final service = RealtimeService();
   ref.onDispose(service.dispose);
   return service;
 });
-final authProvider =
-    StateNotifierProvider<AuthNotifier, AsyncValue<User?>>((ref) {
+final authProvider = StateNotifierProvider<AuthNotifier, AsyncValue<User?>>((
+  ref,
+) {
   final notifier = AuthNotifier(
     ref.watch(appRepositoryProvider),
     ref.watch(secureStorageProvider),
     ref.watch(realtimeServiceProvider),
   );
 
-  ref.listen<bool>(
-    sessionExpiredProvider,
-    (previous, next) {
-      if (next) {
-        notifier.signOut();
-        ref.read(sessionExpiredProvider.notifier).state = false;
-      }
-    },
-  );
+  ref.listen<bool>(sessionExpiredProvider, (previous, next) {
+    if (next) {
+      notifier.signOut();
+      ref.read(sessionExpiredProvider.notifier).state = false;
+    }
+  });
   ref.listen<AsyncValue<RealtimeSessionEvent<NotificationItem>>>(
     realtimeNotificationsProvider,
     (_, notification) {
       final event = notification.valueOrNull;
       if (event != null &&
-          ref.read(realtimeServiceProvider).isCurrentSession(
+          ref
+              .read(realtimeServiceProvider)
+              .isCurrentSession(
                 event.sessionVersion,
                 event.connectionVersion,
               )) {
@@ -100,62 +103,76 @@ final authProvider =
   return notifier;
 });
 final directoryProvider = FutureProvider.family<List<User>, UserRole>(
-    (ref, role) => ref.watch(appRepositoryProvider).users(role));
+  (ref, role) => ref.watch(appRepositoryProvider).users(role),
+);
 final userByIdProvider = FutureProvider.family<User, int>(
-    (ref, id) => ref.watch(appRepositoryProvider).user(id));
+  (ref, id) => ref.watch(appRepositoryProvider).user(id),
+);
 
 final connectionsProvider = FutureProvider<List<ConnectionItem>>(
-    (ref) => ref.watch(appRepositoryProvider).connections());
+  (ref) => ref.watch(appRepositoryProvider).connections(),
+);
 final notificationsProvider = FutureProvider<List<NotificationItem>>(
-    (ref) => ref.watch(appRepositoryProvider).notifications());
+  (ref) => ref.watch(appRepositoryProvider).notifications(),
+);
 final unreadNotificationCountProvider = FutureProvider<int>(
-    (ref) => ref.watch(appRepositoryProvider).unreadCount());
+  (ref) => ref.watch(appRepositoryProvider).unreadCount(),
+);
 final realtimeNotificationsProvider =
     StreamProvider<RealtimeSessionEvent<NotificationItem>>((ref) {
-  final realtime = ref.watch(realtimeServiceProvider);
-  return realtime.notificationEvents.where((event) => realtime.isCurrentSession(
-        event.sessionVersion,
-        event.connectionVersion,
-      ));
-});
-final conversationsProvider = StateNotifierProvider.family<
-    ConversationsPaginationNotifier, AsyncValue<List<Conversation>>, UserRole?>(
-  (ref, participantRole) => ConversationsPaginationNotifier(
-    ref.watch(appRepositoryProvider),
-    participantRole: participantRole,
-  ),
-);
+      final realtime = ref.watch(realtimeServiceProvider);
+      return realtime.notificationEvents.where(
+        (event) => realtime.isCurrentSession(
+          event.sessionVersion,
+          event.connectionVersion,
+        ),
+      );
+    });
+final conversationsProvider =
+    StateNotifierProvider.family<
+      ConversationsPaginationNotifier,
+      AsyncValue<List<Conversation>>,
+      UserRole?
+    >(
+      (ref, participantRole) => ConversationsPaginationNotifier(
+        ref.watch(appRepositoryProvider),
+        participantRole: participantRole,
+      ),
+    );
 final allUsersProvider = FutureProvider<List<User>>(
-    (ref) => ref.watch(appRepositoryProvider).allUsers());
+  (ref) => ref.watch(appRepositoryProvider).allUsers(),
+);
 final pendingUsersProvider = FutureProvider<List<User>>(
   (ref) => ref.watch(appRepositoryProvider).pendingUsers(),
 );
-final eventsProvider = StateNotifierProvider<EventsPaginationNotifier,
-    AsyncValue<List<EventItem>>>(
-  (ref) => EventsPaginationNotifier(
-    ref.watch(appRepositoryProvider),
-    all: false,
-  ),
-);
+final eventsProvider =
+    StateNotifierProvider<
+      EventsPaginationNotifier,
+      AsyncValue<List<EventItem>>
+    >(
+      (ref) => EventsPaginationNotifier(
+        ref.watch(appRepositoryProvider),
+        all: false,
+      ),
+    );
 final eventRegistrationStatusProvider = FutureProvider.family<bool, int>(
   (ref, eventId) =>
       ref.watch(appRepositoryProvider).eventRegistrationStatus(eventId),
 );
 
-final adminEventsProvider = StateNotifierProvider<EventsPaginationNotifier,
-    AsyncValue<List<EventItem>>>(
-  (ref) => EventsPaginationNotifier(
-    ref.watch(appRepositoryProvider),
-    all: true,
-  ),
-);
+final adminEventsProvider =
+    StateNotifierProvider<
+      EventsPaginationNotifier,
+      AsyncValue<List<EventItem>>
+    >(
+      (ref) =>
+          EventsPaginationNotifier(ref.watch(appRepositoryProvider), all: true),
+    );
 
 class EventsPaginationNotifier
     extends StateNotifier<AsyncValue<List<EventItem>>> {
-  EventsPaginationNotifier(
-    this._repo, {
-    required this.all,
-  }) : super(const AsyncLoading()) {
+  EventsPaginationNotifier(this._repo, {required this.all})
+    : super(const AsyncLoading()) {
     unawaited(loadFirstPage());
   }
 
@@ -176,11 +193,7 @@ class EventsPaginationNotifier
     state = const AsyncLoading();
 
     try {
-      final results = await _repo.events(
-        all: all,
-        page: 0,
-        size: pageSize,
-      );
+      final results = await _repo.events(all: all, page: 0, size: pageSize);
 
       _hasMore = results.length == pageSize;
       state = AsyncData(results);
@@ -208,10 +221,7 @@ class EventsPaginationNotifier
       _page = nextPage;
       _hasMore = results.length == pageSize;
 
-      state = AsyncData([
-        ...current,
-        ...results,
-      ]);
+      state = AsyncData([...current, ...results]);
     } catch (error, stackTrace) {
       // Keep the already-loaded events visible if loading another
       // page fails.
@@ -228,10 +238,8 @@ class EventsPaginationNotifier
 
 class ConversationsPaginationNotifier
     extends StateNotifier<AsyncValue<List<Conversation>>> {
-  ConversationsPaginationNotifier(
-    this._repo, {
-    required this.participantRole,
-  }) : super(const AsyncLoading()) {
+  ConversationsPaginationNotifier(this._repo, {required this.participantRole})
+    : super(const AsyncLoading()) {
     unawaited(loadFirstPage());
   }
 
@@ -282,8 +290,9 @@ class ConversationsPaginationNotifier
       final current = state.valueOrNull ?? <Conversation>[];
       _page = nextPage;
       _hasMore = result.length == pageSize;
-      final existingEmails =
-          current.map((conversation) => conversation.email).toSet();
+      final existingEmails = current
+          .map((conversation) => conversation.email)
+          .toSet();
       state = AsyncData([
         ...current,
         ...result.where(
@@ -301,7 +310,7 @@ class ConversationsPaginationNotifier
 
 class AuthNotifier extends StateNotifier<AsyncValue<User?>> {
   AuthNotifier(this._repo, this._storage, this._realtime)
-      : super(const AsyncLoading());
+    : super(const AsyncLoading());
   final AppRepository _repo;
   final SecureStorageService _storage;
   final RealtimeService _realtime;
@@ -330,8 +339,9 @@ class AuthNotifier extends StateNotifier<AsyncValue<User?>> {
       }
     });
     try {
-      final token = await _serializeStorage(_storage.readToken)
-          .timeout(const Duration(seconds: 2));
+      final token = await _serializeStorage(
+        _storage.readToken,
+      ).timeout(const Duration(seconds: 2));
       if (!_isCurrentOperation(operation)) return;
 
       if (token == null || token.isEmpty) {
@@ -467,15 +477,21 @@ class AuthNotifier extends StateNotifier<AsyncValue<User?>> {
   User? _fromJwt(String token) {
     try {
       final chunk = base64Url.normalize(token.split('.')[1]);
-      final data = jsonDecode(utf8.decode(base64Url.decode(chunk)))
-          as Map<String, dynamic>;
+      final data =
+          jsonDecode(utf8.decode(base64Url.decode(chunk)))
+              as Map<String, dynamic>;
       final email = data['sub'] as String? ?? '';
       final role = userRole(data['role'] as String?);
       if (email.isEmpty || role == UserRole.unknown) {
         return null;
       }
       return User(
-          id: 0, name: '', email: email, role: role, status: 'APPROVED');
+        id: 0,
+        name: '',
+        email: email,
+        role: role,
+        status: 'APPROVED',
+      );
     } catch (_) {
       return null;
     }

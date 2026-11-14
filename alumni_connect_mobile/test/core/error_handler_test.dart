@@ -24,24 +24,26 @@ void main() {
     expect(mapped.statusCode, 400);
   });
 
-  test('maps login credentials failure without describing an expired session',
-      () {
-    final request = RequestOptions(path: '/login');
-    final error = DioException(
-      requestOptions: request,
-      type: DioExceptionType.badResponse,
-      response: Response<dynamic>(
+  test(
+    'maps login credentials failure without describing an expired session',
+    () {
+      final request = RequestOptions(path: '/login');
+      final error = DioException(
         requestOptions: request,
-        statusCode: 401,
-        data: '{"error":"Invalid email, password, or account type"}',
-      ),
-    );
+        type: DioExceptionType.badResponse,
+        response: Response<dynamic>(
+          requestOptions: request,
+          statusCode: 401,
+          data: '{"error":"Invalid email, password, or account type"}',
+        ),
+      );
 
-    final mapped = toApiException(error, requestPath: '/login');
+      final mapped = toApiException(error, requestPath: '/login');
 
-    expect(mapped.kind, ApiErrorKind.unauthorized);
-    expect(mapped.message, contains('selected account type'));
-  });
+      expect(mapped.kind, ApiErrorKind.unauthorized);
+      expect(mapped.message, contains('selected account type'));
+    },
+  );
 
   test('identifies a valid login blocked by pending alumni approval', () {
     final request = RequestOptions(path: '/login');
