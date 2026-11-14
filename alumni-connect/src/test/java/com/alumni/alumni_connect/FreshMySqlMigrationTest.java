@@ -30,11 +30,14 @@ class FreshMySqlMigrationTest {
             "experience_corroboration_attempts", "experience_evidence_extraction",
             "experience_evidence_extraction_field", "experience_evidence_extraction_candidate",
             "experience_evidence_extraction_statement", "experience_evidence_extraction_provenance",
-            "experience_evidence_extraction_warning");
+            "experience_evidence_extraction_warning", "knowledge_contributions",
+            "knowledge_contribution_versions", "knowledge_contribution_entries", "knowledge_contribution_audit",
+            "knowledge_companion_conversations", "knowledge_companion_messages", "knowledge_companion_message_sources",
+            "knowledge_question_interest", "knowledge_roadmaps", "knowledge_roadmap_items", "knowledge_roadmap_item_sources");
     private static final List<String> FRESH_HISTORY =
-            List.of("1", "2", "3", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23");
+            List.of("1", "2", "3", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25");
     private static final List<String> NORMALIZED_HISTORY =
-            List.of("1", "2", "3", "4", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23");
+            List.of("1", "2", "3", "4", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25");
     private static final String MIGRATION_TEST_PREFIX = "MENTORAX_MYSQL_MIGRATION_TEST";
     private static final String RECOVERY_TEST_PREFIX = "MENTORAX_MYSQL_RECOVERY_TEST";
 
@@ -242,7 +245,7 @@ class FreshMySqlMigrationTest {
             }
         }
         assertEquals(expectedVersions, versions, "Unexpected or incomplete MySQL migration chain");
-        for (String version : List.of("17", "18", "19", "20", "21", "22", "23")) {
+        for (String version : List.of("17", "18", "19", "20", "21", "22", "23", "24", "25")) {
             assertEquals(1, count(connection,
                     "SELECT COUNT(*) FROM flyway_schema_history "
                             + "WHERE version = '" + version + "' AND success = 1 "
@@ -300,7 +303,12 @@ class FreshMySqlMigrationTest {
                 new String[]{"experience_evidence_extraction_provenance", "bounding_box_x"},
                 new String[]{"experience_claim_processing", "next_attempt_at"},
                 new String[]{"experience_claim_processing", "lease_token"},
-                new String[]{"experience_corroboration_attempts", "independently_authenticated"})) {
+                new String[]{"experience_corroboration_attempts", "independently_authenticated"},
+                new String[]{"knowledge_contributions", "freshness_interval_days"},
+                new String[]{"knowledge_contributions", "reminder_due_at"},
+                new String[]{"knowledge_contributions", "last_reminder_sent_at"},
+                new String[]{"knowledge_companion_messages", "evidence_status"},
+                new String[]{"knowledge_roadmap_items", "progress_status"})) {
             assertTrue(hasColumn(connection, column[0], column[1]),
                     "Missing MySQL column " + column[0] + "." + column[1]);
         }
@@ -323,7 +331,23 @@ class FreshMySqlMigrationTest {
                 new String[]{"experience_evidence_extraction_provenance", "source_evidence_id",
                         "experience_evidence_extraction"},
                 new String[]{"experience_claim_processing", "claim_id", "experience_claims"},
-                new String[]{"experience_corroboration_attempts", "claim_id", "experience_claims"})) {
+                new String[]{"experience_corroboration_attempts", "claim_id", "experience_claims"},
+                new String[]{"knowledge_contributions", "owner_user_id", "users"},
+                new String[]{"knowledge_contribution_versions", "contribution_id", "knowledge_contributions"},
+                new String[]{"knowledge_contribution_versions", "created_by_user_id", "users"},
+                new String[]{"knowledge_contribution_entries", "version_id", "knowledge_contribution_versions"},
+                new String[]{"knowledge_contribution_audit", "contribution_id", "knowledge_contributions"},
+                new String[]{"knowledge_contribution_audit", "contribution_id", "knowledge_contribution_versions"},
+                new String[]{"knowledge_contribution_audit", "actor_user_id", "users"},
+                new String[]{"knowledge_companion_conversations", "student_user_id", "users"},
+                new String[]{"knowledge_companion_messages", "conversation_id", "knowledge_companion_conversations"},
+                new String[]{"knowledge_companion_message_sources", "message_id", "knowledge_companion_messages"},
+                new String[]{"knowledge_companion_message_sources", "contribution_id", "knowledge_contribution_versions"},
+                new String[]{"knowledge_question_interest", "student_user_id", "users"},
+                new String[]{"knowledge_roadmaps", "student_user_id", "users"},
+                new String[]{"knowledge_roadmap_items", "roadmap_id", "knowledge_roadmaps"},
+                new String[]{"knowledge_roadmap_item_sources", "item_id", "knowledge_roadmap_items"},
+                new String[]{"knowledge_roadmap_item_sources", "contribution_id", "knowledge_contribution_versions"})) {
             assertTrue(hasImportedKey(connection, foreignKey[0], foreignKey[1], foreignKey[2]),
                     "Missing MySQL foreign key " + foreignKey[0] + "." + foreignKey[1]);
         }
@@ -340,6 +364,9 @@ class FreshMySqlMigrationTest {
         assertTrue(hasUniqueIndex(connection, "experience_claim_evidence", "id", "evidence_version"));
         assertTrue(hasUniqueIndex(connection, "experience_evidence_extraction",
                 "evidence_id", "evidence_version", "response_hash"));
+        assertTrue(hasUniqueIndex(connection, "knowledge_contribution_versions", "contribution_id", "version_number"));
+        assertTrue(hasUniqueIndex(connection, "knowledge_question_interest", "student_user_id", "topic_hash"));
+        assertTrue(hasUniqueIndex(connection, "knowledge_roadmap_items", "roadmap_id", "position_index"));
 
         assertTrue(hasIndex(connection, "users", "idx_users_role_status_id"));
         assertTrue(hasIndex(connection, "email_outbox", "idx_email_outbox_due"));
@@ -347,6 +374,13 @@ class FreshMySqlMigrationTest {
         assertTrue(hasIndex(connection, "email_outbox", "idx_email_outbox_recipient_purpose"));
         assertTrue(hasIndex(connection, "experience_claim_evidence", "idx_experience_claim_evidence_lifecycle"));
         assertTrue(hasIndex(connection, "experience_evidence_extraction", "idx_experience_extraction_history"));
+        assertTrue(hasIndex(connection, "knowledge_contributions", "idx_knowledge_contributions_owner_updated"));
+        assertTrue(hasIndex(connection, "knowledge_contributions", "idx_knowledge_contributions_public"));
+        assertTrue(hasIndex(connection, "knowledge_contribution_entries", "idx_knowledge_entries_version_position"));
+        assertTrue(hasIndex(connection, "knowledge_contributions", "idx_knowledge_freshness_due"));
+        assertTrue(hasIndex(connection, "knowledge_companion_conversations", "idx_knowledge_conversation_owner_updated"));
+        assertTrue(hasIndex(connection, "knowledge_question_interest", "idx_knowledge_question_topic"));
+        assertTrue(hasIndex(connection, "knowledge_roadmaps", "idx_knowledge_roadmap_owner_updated"));
         assertTrue(hasCheckConstraint(connection, "events", "chk_event_capacity"));
         assertTrue(isNotNullable(connection, "email_outbox", "encrypted_otp"));
         assertTrue(isNullable(connection, "events", "max_capacity"),

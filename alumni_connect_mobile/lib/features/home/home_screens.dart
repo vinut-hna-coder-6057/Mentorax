@@ -302,6 +302,19 @@ class HomeScreen extends ConsumerWidget {
                 label: 'Find a mentor',
                 onTap: () => c.push('/student/mentor-discovery'),
               ),
+            if (user?.role == UserRole.student)
+              _QuickAction(
+                icon: Icons.menu_book_outlined,
+                label: 'Knowledge Companion',
+                onTap: () => c.push('/student/knowledge-companion'),
+              ),
+            if (user?.role == UserRole.alumni &&
+                user?.status.toUpperCase() == 'APPROVED')
+              _QuickAction(
+                icon: Icons.lightbulb_outline,
+                label: 'Share alumni knowledge',
+                onTap: () => c.push('/alumni/knowledge-contributions'),
+              ),
             if (user?.role == UserRole.admin)
               _QuickAction(
                 icon: Icons.verified_user_outlined,

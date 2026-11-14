@@ -63,6 +63,17 @@ class ApiClient {
     path,
   );
 
+  Future<T> patch<T>(
+    String path, {
+    dynamic data,
+    Map<String, dynamic>? query,
+    required T Function(dynamic) decode,
+  }) => _run(
+    () => _dio.patch(path, data: data, queryParameters: query),
+    decode,
+    path,
+  );
+
   Future<T> delete<T>(
     String path, {
     Map<String, dynamic>? query,

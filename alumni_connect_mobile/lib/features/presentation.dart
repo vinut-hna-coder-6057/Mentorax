@@ -11,3 +11,4 @@ export 'profile/profile_screen.dart';
 export 'shared/presentation_helpers.dart';
 export 'users/user_screen.dart';
 export 'mentor_discovery/mentor_discovery_screen.dart';
+export 'knowledge/knowledge_companion_screens.dart';
