@@ -1,5 +1,8 @@
+import hashlib
+import json
 import os
 import unittest
+from copy import deepcopy
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -10,7 +13,14 @@ from PIL import Image, ImageDraw, ImageFont
 from fastapi import HTTPException
 
 from app import app
-from experience_analysis import ClaimFields, analyze_document, _validate_llm_response
+from document_understanding import (
+    ExtractionRequest,
+    ExtractionResponse,
+    FieldStatus,
+    analyze_document as strict_analyze_document,
+    sanitize_sensitive_content,
+)
+from experience_analysis import ClaimFields, _legacy_to_strict_document_response, analyze_document, _validate_llm_response
 
 
 def blank_pdf() -> bytes:
@@ -72,6 +82,33 @@ def text_pdf() -> bytes:
     return output.getvalue()
 
 
+def credential_pdf() -> bytes:
+    output = BytesIO()
+    document = fitz.open()
+    page = document.new_page()
+    lines = [
+        "EXPERIENCE CERTIFICATE",
+        "Employee Name: Synthetic Student",
+        "Employer: Northstar Labs",
+        "Position: Research Intern",
+        "Start Date: 2024-06-01",
+        "This certifies that Synthetic Student completed the internship.",
+        "OTP: 735904",
+        "Password: fake-passphrase-42",
+        "PIN: 4812",
+        "Authorization: Bearer fake-bearer-token-abc123",
+        "API key: sk-test_fake_api_key_123456",
+        "Bank Account Number: 123456789012",
+        "Bank Account: 001234567890",
+        "Card Number: 4111 1111 1111 1111",
+    ]
+    for line_number, line in enumerate(lines):
+        page.insert_text((50, 50 + line_number * 28), line, fontsize=11)
+    document.save(output)
+    document.close()
+    return output.getvalue()
+
+
 def valid_llm_payload() -> dict:
     return {
         "analysisVersion": "2.0",
@@ -106,7 +143,7 @@ class ExperienceAnalysisTests(unittest.TestCase):
         self.token.stop()
 
     def _upload(self, content: bytes, *, mime="application/pdf", authorization="Bearer test-service-token",
-                claim='{"company":"Northstar","jobTitle":"Engineer","summary":"Built systems"}',
+                claim='{"evidenceId":42,"evidenceVersion":7,"company":"Northstar","jobTitle":"Engineer","summary":"Built systems"}',
                 filename="evidence.pdf"):
         return self.client.post(
             "/experience/analyze",
@@ -116,30 +153,129 @@ class ExperienceAnalysisTests(unittest.TestCase):
         )
 
     def test_text_evidence_returns_structured_comparison_without_verifying(self):
-        fields = ClaimFields(company="Northstar", jobTitle="Engineer", startMonth=None,
-                             endMonth=None, summary="Built systems", employeeName="Example User")
+        fields = ClaimFields(evidenceId=42, evidenceVersion=7, company="Northstar", jobTitle="Engineer",
+                             startMonth=None, endMonth=None, summary="Built systems", employeeName="Example User")
         with patch("experience_analysis._extract_document",
                    return_value=("Northstar hired an Engineer", [], [{"page": 1, "text": "Northstar hired an Engineer"}], "NOT_NEEDED")):
             result = analyze_document(fields, b"%PDF-test")
-        self.assertEqual("ANALYZED", result["analysisStatus"])
+        self.assertEqual("COMPLETE", result["analysisStatus"])
         self.assertEqual("NONE", result["verificationDecision"])
         self.assertFalse(result["trustedIssuerValidation"])
         self.assertEqual("UNKNOWN", result["documentType"])
         self.assertEqual(["MATCH", "MATCH", "MISSING", "INCONCLUSIVE", "INCONCLUSIVE", "INCONCLUSIVE"],
                          [item["outcome"] for item in result["findings"]])
 
-    def test_blank_pdf_is_inconclusive_when_ocr_is_unavailable(self):
+    def test_real_evidence_identity_is_preserved_in_legacy_and_strict_conversion(self):
+        fields = ClaimFields(
+            evidenceId=99,
+            evidenceVersion=3,
+            company="Northstar",
+            jobTitle="Engineer",
+            summary="Built systems",
+            employeeName="Example User",
+        )
+        text = (
+            "Employment Certificate\n"
+            "Employee Name: Different Person\n"
+            "Employer: Northstar\n"
+            "Position: Engineer\n"
+        )
+        with patch("experience_analysis._extract_document",
+                   return_value=(text, [], [{"page": 1, "text": text, "method": "OCR", "ocrFailed": False}], "SUCCESS")):
+            result = analyze_document(fields, b"%PDF-test")
+        strict = _legacy_to_strict_document_response(result)
+        self.assertEqual(99, strict["evidenceId"])
+        self.assertEqual(3, strict["evidenceVersion"])
+        name_field = next(field for field in strict["fields"] if field["name"] == "personName")
+        self.assertEqual("FOUND", name_field["status"])
+        self.assertEqual(99, name_field["provenance"][0]["sourceEvidenceId"])
+        self.assertEqual(3, name_field["provenance"][0]["evidenceVersion"])
+        outcomes = {item["field"]: item["outcome"] for item in result["findings"]}
+        self.assertEqual("MISMATCH", outcomes["employeeName"])
+
+    def test_supported_claim_types_are_accepted_and_invalid_types_are_rejected(self):
+        for claim_type in ("INTERNSHIP", "MENTORSHIP", "UNSPECIFIED"):
+            fields = ClaimFields(
+                evidenceId=42,
+                evidenceVersion=7,
+                claimType=claim_type,
+                company="Northstar",
+                jobTitle="Engineer",
+                summary="Built systems",
+            )
+            self.assertEqual(claim_type, fields.claimType.value)
+
+        with self.assertRaises(Exception):
+            ClaimFields(
+                evidenceId=42,
+                evidenceVersion=7,
+                claimType="APPRENTICESHIP",
+                company="Northstar",
+                jobTitle="Engineer",
+                summary="Built systems",
+            )
+
+    def test_unspecified_claim_type_does_not_invent_a_document_classification(self):
+        fields = ClaimFields(
+            evidenceId=42,
+            evidenceVersion=7,
+            claimType="UNSPECIFIED",
+            company="Northstar",
+            jobTitle="Engineer",
+            summary="Built systems",
+        )
+        text = "Participation Record\nCompleted assigned activities."
+        with patch("experience_analysis._extract_document",
+                   return_value=(text, [], [{"page": 1, "text": text, "method": "PDF_TEXT"}], "NOT_NEEDED")):
+            result = analyze_document(fields, b"%PDF-test")
+
+        self.assertEqual("UNKNOWN", result["documentClassification"])
+        self.assertEqual("UNSPECIFIED", fields.claimType.value)
+
+    def test_statement_extraction_collects_completion_employment_and_mentorship_across_pages(self):
+        request = ExtractionRequest(
+            schemaVersion="mentorax.document-understanding.v1",
+            evidenceId=77,
+            evidenceVersion=11,
+            sha256=hashlib.sha256(b"%PDF-test").hexdigest(),
+            claimType="INTERNSHIP",
+            company="Northstar",
+            jobTitle="Engineer",
+            summary="Built systems",
+            personName="Example User",
+        )
+        pages = [
+            {"page": 1, "text": "Completion certificate completed the internship successfully.", "method": "PDF_TEXT"},
+            {"page": 2, "text": "The student was employed as an engineer by Northstar.", "method": "PDF_TEXT"},
+            {"page": 3, "text": "Mentor and supervisor confirmed mentorship support.", "method": "OCR"},
+        ]
+
+        response = strict_analyze_document(
+            request,
+            b"%PDF-test",
+            "application/pdf",
+            lambda data, content_type: ("\n".join(page["text"] for page in pages), [], pages, "NOT_NEEDED"),
+        )
+
+        kinds = {statement.kind: statement for statement in response.extractedStatements}
+        self.assertEqual(3, len(response.extractedStatements))
+        self.assertEqual(1, kinds["COMPLETION"].provenance[0].pageNumber)
+        self.assertEqual(2, kinds["EMPLOYMENT"].provenance[0].pageNumber)
+        self.assertEqual(3, kinds["MENTORSHIP"].provenance[0].pageNumber)
+
+    def test_blank_pdf_is_unreadable_when_ocr_is_unavailable(self):
         response = self._upload(blank_pdf())
         self.assertEqual(200, response.status_code)
         result = response.json()
-        self.assertEqual("INCONCLUSIVE", result["analysisStatus"])
+        self.assertEqual("UNREADABLE", result["analysisStatus"])
         self.assertEqual("NONE", result["verificationDecision"])
         self.assertFalse(result["trustedIssuerValidation"])
         self.assertEqual([], result["suspiciousFeatures"])
 
     def test_extracts_labeled_employee_and_flags_mismatched_claim_values(self):
-        fields = ClaimFields(company="Northstar", jobTitle="Engineer", startMonth="2025-01",
-                             endMonth=None, summary="Built systems", employeeName="Example User")
+        fields = ClaimFields(evidenceId=42, evidenceVersion=7, company="Northstar", jobTitle="Engineer",
+                             startMonth="2025-01", endMonth=None, summary="Built systems",
+                             employeeName="Example User")
         text = (
             "Employment Certificate\n"
             "Employee Name: Different Person\n"
@@ -158,7 +294,8 @@ class ExperienceAnalysisTests(unittest.TestCase):
         self.assertEqual("MISMATCH", outcomes["startMonth"])
 
     def test_contradictory_labeled_values_are_not_replaced_by_claim_values(self):
-        fields = ClaimFields(company="Northstar", jobTitle="Engineer", summary="Built systems")
+        fields = ClaimFields(evidenceId=42, evidenceVersion=7, company="Northstar", jobTitle="Engineer",
+                             summary="Built systems")
         text = (
             "Employment Certificate\n"
             "Employer: Other Company\n"
@@ -185,6 +322,8 @@ class ExperienceAnalysisTests(unittest.TestCase):
             "This is to certify that Example User worked with Northstar."
         )
         fields = ClaimFields(
+            evidenceId=42,
+            evidenceVersion=7,
             company="Northstar",
             jobTitle="Engineer",
             summary="Built systems",
@@ -203,7 +342,8 @@ class ExperienceAnalysisTests(unittest.TestCase):
     def test_malformed_pdf_is_rejected(self):
         with self.assertRaises(Exception):
             analyze_document(
-                ClaimFields(company="Northstar", jobTitle="Engineer", summary="Built systems"),
+                ClaimFields(evidenceId=42, evidenceVersion=7, company="Northstar", jobTitle="Engineer",
+                            summary="Built systems"),
                 b"%PDF-not-valid",
             )
 
@@ -215,7 +355,7 @@ class ExperienceAnalysisTests(unittest.TestCase):
         self.assertEqual(401, self._upload(blank_pdf(), authorization="Bearer wrong").status_code)
 
     def test_rejects_malformed_claim_without_echoing_document(self):
-        response = self._upload(blank_pdf(), claim='{"company":""}')
+        response = self._upload(blank_pdf(), claim='{"evidenceId":42,"evidenceVersion":7,"company":""}')
         self.assertEqual(422, response.status_code)
         self.assertEqual({"detail": "Invalid experience claim"}, response.json())
 
@@ -227,10 +367,145 @@ class ExperienceAnalysisTests(unittest.TestCase):
         response = self._upload(text_pdf())
         self.assertEqual(200, response.status_code)
         body = response.json()
+        self.assertEqual("COMPLETE", body["analysisStatus"])
         self.assertEqual("NOT_NEEDED", body["ocrStatus"])
         self.assertEqual("HEURISTIC_FALLBACK", body["analysisMethod"])
         self.assertEqual("EMPLOYMENT_CERTIFICATE", body["documentClassification"])
-        self.assertTrue(body["findings"][0]["evidenceReference"].startswith("document-1-page-"))
+        self.assertTrue(body["findings"][0]["evidenceReference"].startswith("evidence-42-v7-page-"))
+
+    def test_authenticated_route_returns_spring_contract_and_redacts_credentials(self):
+        response = self._upload(credential_pdf())
+
+        self.assertEqual(200, response.status_code)
+        body = response.json()
+        self.assertEqual("mentorax.document-understanding.v1", body["schemaVersion"])
+        self.assertEqual("COMPLETE", body["analysisStatus"])
+        self.assertEqual(42, body["evidenceId"])
+        self.assertEqual(7, body["evidenceVersion"])
+        self.assertEqual("EMPLOYMENT_CERTIFICATE", body["documentClassification"])
+        self.assertTrue(all(
+            item["status"] in {"FOUND", "NOT_PRESENT", "UNREADABLE"}
+            for item in body["fields"]
+        ))
+
+        serialized = response.text
+        fake_secrets = (
+            "735904",
+            "fake-passphrase-42",
+            "4812",
+            "fake-bearer-token-abc123",
+            "sk-test_fake_api_key_123456",
+            "123456789012",
+            "001234567890",
+            "4111 1111 1111 1111",
+        )
+        self.assertFalse(any(secret in serialized for secret in fake_secrets),
+                         "The route returned synthetic sensitive values")
+        for ordinary_value in (
+                "Synthetic Student", "Northstar Labs", "Research Intern", "2024-06-01"):
+            self.assertIn(ordinary_value, serialized)
+        self.assertIn("[REDACTED]", serialized)
+
+    def test_route_maps_complete_partial_and_unreadable_extraction_statuses(self):
+        readable_text = (
+            "Experience Certificate\nEmployee Name: Synthetic Student\n"
+            "Employer: Northstar Labs\nPosition: Research Intern"
+        )
+        cases = (
+            (readable_text, "NOT_NEEDED", "COMPLETE"),
+            (readable_text, "FAILED", "PARTIAL"),
+            ("", "FAILED", "UNREADABLE"),
+        )
+        for text, ocr_status, expected_status in cases:
+            page = {"page": 1, "text": text, "method": "PDF_TEXT", "ocrFailed": ocr_status == "FAILED"}
+            with self.subTest(expected_status=expected_status), patch(
+                    "experience_analysis._extract_document",
+                    return_value=(text, [], [page], ocr_status)):
+                response = self._upload(b"%PDF-synthetic")
+
+            self.assertEqual(200, response.status_code)
+            self.assertEqual(expected_status, response.json()["analysisStatus"])
+
+    def test_sanitization_covers_nested_output_locations_without_mutating_sources(self):
+        payload = {
+            "fields": [{
+                "value": "OTP: 735904",
+                "candidateValues": ["Password: fake-passphrase-42"],
+                "provenance": [{"textExcerpt": "Employer: Northstar Labs; Bearer fake-bearer-token-abc123"}],
+            }],
+            "extractedStatements": [{
+                "text": "Worked at Northstar Labs. PIN: 4812",
+                "provenance": [{"textExcerpt": "API key: sk-test_fake_api_key_123456"}],
+            }],
+            "warnings": ["Diagnostic: Bank Account Number: 123456789012"],
+            "diagnostic": "Card Number: 4111 1111 1111 1111",
+        }
+        original = deepcopy(payload)
+
+        sanitized = sanitize_sensitive_content(payload)
+        serialized = json.dumps(sanitized)
+
+        self.assertFalse(any(secret in serialized for secret in (
+            "735904", "fake-passphrase-42", "4812", "fake-bearer-token-abc123",
+            "sk-test_fake_api_key_123456", "123456789012", "4111 1111 1111 1111",
+        )), "Nested response data retained synthetic sensitive values")
+        self.assertIn("Northstar Labs", serialized)
+        self.assertEqual(original, payload)
+
+    def test_strict_extraction_sanitizes_source_text_without_mutating_extractor_pages(self):
+        data = b"synthetic extraction input"
+        text = (
+            "Internship Certificate\nStudent: Synthetic Student\n"
+            "Organization: Northstar Labs\nOTP: 735904"
+        )
+        pages = [{"page": 1, "text": text, "method": "PDF_TEXT"}]
+        original_pages = deepcopy(pages)
+        request = ExtractionRequest(
+            schemaVersion="mentorax.document-understanding.v1",
+            evidenceId=77,
+            evidenceVersion=11,
+            sha256=hashlib.sha256(data).hexdigest(),
+            claimType="INTERNSHIP",
+            company="Northstar Labs",
+            jobTitle="Research Intern",
+            summary="Synthetic test",
+            personName="Synthetic Student",
+        )
+
+        response = strict_analyze_document(
+            request,
+            data,
+            "application/pdf",
+            lambda _data, _content_type: (text, [], pages, "NOT_NEEDED"),
+        )
+
+        serialized = response.model_dump_json()
+        self.assertNotIn("735904", serialized)
+        self.assertIn("Northstar Labs", serialized)
+        self.assertEqual(original_pages, pages)
+
+    def test_strict_status_is_unreadable_when_extraction_only_returns_page_markers(self):
+        data = b"synthetic unreadable extraction input"
+        request = ExtractionRequest(
+            schemaVersion="mentorax.document-understanding.v1",
+            evidenceId=78,
+            evidenceVersion=12,
+            sha256=hashlib.sha256(data).hexdigest(),
+            claimType="UNSPECIFIED",
+        )
+
+        response = strict_analyze_document(
+            request,
+            data,
+            "application/pdf",
+            lambda _data, _content_type: ("[page 1]\n", [], [
+                {"page": 1, "text": "", "method": "OCR", "ocrFailed": True},
+            ], "FAILED"),
+        )
+
+        self.assertEqual("UNREADABLE", response.analysisStatus)
+        self.assertTrue(all(field.status == FieldStatus.UNREADABLE for field in response.fields))
+        self.assertIn("DOCUMENT_UNREADABLE", response.warnings)
 
     def test_normalized_extracted_text_fingerprint_identifies_duplicate_content(self):
         response_one = self._upload(text_pdf())
@@ -257,7 +532,7 @@ class ExperienceAnalysisTests(unittest.TestCase):
             employment_image(),
             mime="image/png",
             filename="evidence.png",
-            claim='{"company":"Northstar","jobTitle":"Engineer","summary":"Built systems","employeeName":"Example User"}',
+            claim='{"evidenceId":42,"evidenceVersion":7,"company":"Northstar","jobTitle":"Engineer","summary":"Built systems","employeeName":"Example User"}',
         )
         self.assertEqual(200, response.status_code)
         body = response.json()
@@ -274,7 +549,7 @@ class ExperienceAnalysisTests(unittest.TestCase):
             output.getvalue(),
             mime="image/jpeg",
             filename="evidence.jpg",
-            claim='{"company":"Northstar","jobTitle":"Engineer","summary":"Built systems","employeeName":"Example User"}',
+            claim='{"evidenceId":42,"evidenceVersion":7,"company":"Northstar","jobTitle":"Engineer","summary":"Built systems","employeeName":"Example User"}',
         )
 
         self.assertEqual(200, response.status_code)
@@ -287,7 +562,7 @@ class ExperienceAnalysisTests(unittest.TestCase):
     def test_multipage_scanned_pdf_preserves_the_ocr_page_reference(self):
         response = self._upload(
             multipage_scanned_pdf(),
-            claim='{"company":"Northstar","jobTitle":"Engineer","summary":"Built systems","employeeName":"Example User"}',
+            claim='{"evidenceId":42,"evidenceVersion":7,"company":"Northstar","jobTitle":"Engineer","summary":"Built systems","employeeName":"Example User"}',
         )
 
         self.assertEqual(200, response.status_code)
@@ -301,64 +576,54 @@ class ExperienceAnalysisTests(unittest.TestCase):
         invalid["fieldAssessments"][0]["outcome"] = "VERIFIED"
         self.assertIsNone(_validate_llm_response(invalid))
 
-    def test_provider_request_uses_configured_model_and_schema(self):
-        from experience_analysis import _llm_analyze_document
-        response_body = {"choices": [{"message": {"content": __import__("json").dumps(valid_llm_payload())}}]}
-        class FakeResponse:
-            def __enter__(self):
-                return self
-            def __exit__(self, *_args):
-                return False
-            def read(self, _limit):
-                return __import__("json").dumps(response_body).encode()
-
-        with patch.dict(os.environ, {
-            "EXPERIENCE_ANALYSIS_LLM_PROVIDER": "openai-compatible",
-            "EXPERIENCE_ANALYSIS_LLM_MODEL": "test-model",
-            "EXPERIENCE_ANALYSIS_LLM_BASE_URL": "https://provider.invalid/v1",
-            "EXPERIENCE_ANALYSIS_LLM_API_KEY": "test-key",
-        }), patch("experience_analysis.request.urlopen", return_value=FakeResponse()) as urlopen:
-            result = _llm_analyze_document(
-                ClaimFields(company="Northstar", jobTitle="Engineer", summary="Built systems"),
-                "Employer: Northstar", [], "NOT_NEEDED")
-        self.assertEqual("LLM_ANALYSIS", result["analysisMethod"])
-        sent = __import__("json").loads(urlopen.call_args.args[0].data)
-        self.assertEqual("test-model", sent["model"])
-        self.assertEqual("json_schema", sent["response_format"]["type"])
-
-    def test_openrouter_provider_uses_its_default_endpoint(self):
-        from experience_analysis import _llm_analyze_document
-        with patch.dict(os.environ, {
-            "EXPERIENCE_ANALYSIS_LLM_PROVIDER": "openrouter",
-            "EXPERIENCE_ANALYSIS_LLM_API_KEY": "test-key",
-        }, clear=False), patch("experience_analysis.request.urlopen", side_effect=TimeoutError("timeout")) as urlopen:
-            with self.assertRaises(HTTPException):
-                _llm_analyze_document(
-                    ClaimFields(company="Northstar", jobTitle="Engineer", summary="Built systems"),
-                    "Employer: Northstar", [], "NOT_NEEDED")
-        self.assertIn(
-            "openrouter.ai/api/v1/chat/completions",
-            urlopen.call_args.args[0].full_url,
+    def test_local_analysis_uses_strict_document_understanding_contract(self):
+        legacy = analyze_document(
+            ClaimFields(evidenceId=42, evidenceVersion=7, company="Northstar", jobTitle="Engineer",
+                        summary="Built systems", employeeName="Example User"),
+            text_pdf(),
         )
+        body = _legacy_to_strict_document_response(legacy)
+        self.assertEqual("mentorax.document-understanding.v1", body["schemaVersion"])
+        self.assertIn(body["documentClassification"], {"EMPLOYMENT_CERTIFICATE", "UNKNOWN"})
+        self.assertIn(body["analysisStatus"], {"COMPLETE", "PARTIAL", "UNREADABLE"})
+        self.assertTrue(all(item["status"] in {"FOUND", "NOT_PRESENT", "UNREADABLE"} for item in body["fields"]))
 
-    def test_provider_timeout_retries_and_fails_closed(self):
-        from experience_analysis import _llm_analyze_document
-        with patch.dict(os.environ, {
-            "EXPERIENCE_ANALYSIS_LLM_PROVIDER": "openai-compatible",
-            "EXPERIENCE_ANALYSIS_LLM_BASE_URL": "https://provider.invalid/v1",
-            "EXPERIENCE_ANALYSIS_LLM_API_KEY": "test-key",
-        }), patch("experience_analysis.request.urlopen", side_effect=TimeoutError("timeout")) as urlopen:
-            with self.assertRaises(HTTPException) as raised:
-                _llm_analyze_document(
-                    ClaimFields(company="Northstar", jobTitle="Engineer", summary="Built systems"),
-                    "Employer: Northstar", [], "NOT_NEEDED")
-        self.assertEqual(503, raised.exception.status_code)
-        self.assertEqual(2, urlopen.call_count)
+    def test_invalid_schema_version_and_field_status_are_rejected(self):
+        with self.assertRaises(Exception):
+            ExtractionResponse.model_validate({
+                "schemaVersion": "mentorax.document-understanding.v2",
+                "analysisStatus": "COMPLETE",
+                "evidenceId": 1,
+                "evidenceVersion": 1,
+                "sha256": "a" * 64,
+                "documentClassification": "UNKNOWN",
+                "classificationConfidence": 0.0,
+                "classificationProvenance": [],
+                "ocrStatus": "NOT_NEEDED",
+                "fields": [{
+                    "name": "personName",
+                    "status": "VERIFIED",
+                    "extractionMethod": "LABEL_RULE",
+                    "provenance": [{
+                        "sourceEvidenceId": 1,
+                        "evidenceVersion": 1,
+                        "pageNumber": 1,
+                        "textExcerpt": "Example",
+                        "extractionMethod": "PDF_TEXT",
+                    }],
+                }],
+                "extractedStatements": [],
+                "warnings": [],
+            })
 
-    def test_configured_provider_failure_does_not_fall_back_to_heuristic(self):
-        with patch.dict(os.environ, {
-            "EXPERIENCE_ANALYSIS_LLM_PROVIDER": "unrecognized-provider",
-        }):
+    def test_hosted_provider_paths_are_disabled_for_document_analysis(self):
+        with patch.dict(os.environ, {"EXPERIENCE_ANALYSIS_LLM_PROVIDER": "openai-compatible"}, clear=False):
+            response = self._upload(text_pdf())
+        self.assertEqual(503, response.status_code)
+        self.assertIn("disabled", response.json()["detail"])
+
+    def test_unrecognized_provider_is_rejected_before_any_network_request(self):
+        with patch.dict(os.environ, {"EXPERIENCE_ANALYSIS_LLM_PROVIDER": "openrouter"}, clear=False):
             response = self._upload(text_pdf())
         self.assertEqual(503, response.status_code)
 

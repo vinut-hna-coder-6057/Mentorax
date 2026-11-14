@@ -77,6 +77,7 @@ class ExperienceClaimControllerTest {
                         .content(claimJson(UUID.randomUUID().toString(), "PENDING")))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.company").value("Google"))
+                .andExpect(jsonPath("$.claimType").value("UNSPECIFIED"))
                 .andExpect(jsonPath("$.status").value("AWAITING_EVIDENCE"))
                 .andExpect(jsonPath("$.aiStatus").value("AWAITING_EVIDENCE"));
 
@@ -84,6 +85,40 @@ class ExperienceClaimControllerTest {
                         .header("Authorization", bearer(student.getEmail(), "STUDENT")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$", hasSize(1)));
+    }
+
+    @Test
+    void explicitClaimTypesArePersistedAndReturnedAndUnsupportedTypesAreRejected() throws Exception {
+        for (String claimType : new String[]{"INTERNSHIP", "MENTORSHIP", "UNSPECIFIED"}) {
+            mockMvc.perform(post("/experience-claims")
+                            .header("Authorization", bearer(student.getEmail(), "STUDENT"))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(claimJson(UUID.randomUUID().toString(), "PENDING", claimType)))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.claimType").value(claimType));
+        }
+
+        mockMvc.perform(post("/experience-claims")
+                        .header("Authorization", bearer(student.getEmail(), "STUDENT"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(claimJson(UUID.randomUUID().toString(), "PENDING", "APPRENTICESHIP")))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void legacyUpdateWithoutClaimTypePreservesThePersistedType() throws Exception {
+        var claim = saveClaim(student);
+        claim.setClaimType(com.alumni.alumni_connect.entity.ExperienceClaimType.MENTORSHIP);
+        claim.setStatus("NEEDS_INFO");
+        claim = experienceClaimRepository.saveAndFlush(claim);
+
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put(
+                                "/experience-claims/{id}", claim.getId())
+                        .header("Authorization", bearer(student.getEmail(), "STUDENT"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(claimJson(UUID.randomUUID().toString(), "PENDING")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.claimType").value("MENTORSHIP"));
     }
 
     @Test
@@ -201,6 +236,304 @@ class ExperienceClaimControllerTest {
     }
 
     @Test
+    void duplicateHashesAreScopedToTheirClaimAndCannotCrossClaimDownloads() throws Exception {
+        var firstClaim = saveClaim(student);
+        var secondClaim = saveClaim(student);
+        byte[] pdf = validPdf("shared across claims");
+
+        mockMvc.perform(multipart("/experience-claims/{id}/evidence", firstClaim.getId())
+                        .file(new MockMultipartFile("file", "proof.pdf", "application/pdf", pdf))
+                        .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.evidenceVersion").value(1));
+        mockMvc.perform(multipart("/experience-claims/{id}/evidence", secondClaim.getId())
+                        .file(new MockMultipartFile("file", "proof.pdf", "application/pdf", pdf))
+                        .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.evidenceVersion").value(1));
+
+        var firstEvidence = evidenceRepository.findByClaimIdOrderByEvidenceVersionAsc(firstClaim.getId()).get(0);
+        org.junit.jupiter.api.Assertions.assertEquals(1,
+                evidenceRepository.findByClaimIdOrderByEvidenceVersionAsc(secondClaim.getId()).size());
+        mockMvc.perform(get("/experience-claims/{id}/evidence/{evidenceId}",
+                                secondClaim.getId(), firstEvidence.getId())
+                        .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void evidenceLifecycleTracksReplacementAndDuplicateHistory() throws Exception {
+        var claim = saveClaim(student);
+        byte[] firstPdf = validPdf("first");
+        mockMvc.perform(multipart("/experience-claims/{id}/evidence", claim.getId())
+                        .file(new MockMultipartFile("file", "first.pdf", "application/pdf", firstPdf))
+                        .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.evidenceVersion").value(1));
+
+        mockMvc.perform(multipart("/experience-claims/{id}/evidence", claim.getId())
+                        .file(new MockMultipartFile("file", "copy.pdf", "application/pdf", firstPdf))
+                        .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.evidenceVersion").value(1));
+
+        mockMvc.perform(multipart("/experience-claims/{id}/evidence", claim.getId())
+                        .file(new MockMultipartFile("file", "second.pdf", "application/pdf", validPdf("second")))
+                        .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PROCESSING"))
+                .andExpect(jsonPath("$.evidenceVersion").value(2));
+
+        var versions = evidenceRepository.findByClaimIdOrderByEvidenceVersionAsc(claim.getId());
+        org.junit.jupiter.api.Assertions.assertEquals(2, versions.size());
+        org.junit.jupiter.api.Assertions.assertEquals("ACTIVE", versions.get(0).getEvidenceStatus());
+        org.junit.jupiter.api.Assertions.assertEquals("ACTIVE", versions.get(1).getEvidenceStatus());
+        org.junit.jupiter.api.Assertions.assertEquals("COMPLEMENTARY", versions.get(0).getRelationshipType());
+        org.junit.jupiter.api.Assertions.assertEquals("COMPLEMENTARY", versions.get(1).getRelationshipType());
+        org.junit.jupiter.api.Assertions.assertNull(versions.get(1).getRelatedEvidenceId());
+        org.junit.jupiter.api.Assertions.assertEquals(
+                2, processingRepository.findById(claim.getId()).orElseThrow().getEvidenceVersion());
+
+        mockMvc.perform(get("/experience-claims/{id}/evidence/history", claim.getId())
+                        .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(2)))
+                .andExpect(jsonPath("$[0].evidenceStatus").value("ACTIVE"))
+                .andExpect(jsonPath("$[1].relationshipType").value("COMPLEMENTARY"));
+        mockMvc.perform(get("/experience-claims/{id}/evidence/history", claim.getId())
+                        .header("Authorization", bearer(otherStudent.getEmail(), "STUDENT")))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void explicitReplacementLinksHistoricalEvidenceWithoutSupersedingOnFailure() throws Exception {
+        var claim = saveClaim(student);
+        byte[] firstPdf = validPdf("original");
+        mockMvc.perform(multipart("/experience-claims/{id}/evidence", claim.getId())
+                        .file(new MockMultipartFile("file", "original.pdf", "application/pdf", firstPdf))
+                        .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+                .andExpect(status().isOk());
+        var original = evidenceRepository.findByClaimIdOrderByEvidenceVersionAsc(claim.getId()).get(0);
+
+        mockMvc.perform(multipart("/experience-claims/{id}/evidence", claim.getId())
+                        .file(new MockMultipartFile("file", "conflict.pdf", "application/pdf",
+                                validPdf("conflict")))
+                        .param("relationshipType", "CONFLICTS_WITH")
+                        .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+                .andExpect(status().isBadRequest());
+
+        mockMvc.perform(multipart("/experience-claims/{id}/evidence", claim.getId())
+                        .file(new MockMultipartFile("file", "replacement.pdf", "application/pdf",
+                                validPdf("replacement")))
+                        .param("relationshipType", "REPLACEMENT")
+                        .param("relatedEvidenceId", "987654321")
+                        .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+                .andExpect(status().isBadRequest());
+        org.junit.jupiter.api.Assertions.assertEquals("ACTIVE",
+                evidenceRepository.findById(original.getId()).orElseThrow().getEvidenceStatus());
+
+        mockMvc.perform(multipart("/experience-claims/{id}/evidence", claim.getId())
+                        .file(new MockMultipartFile("file", "replacement.pdf", "application/pdf",
+                                validPdf("replacement")))
+                        .param("relationshipType", "REPLACEMENT")
+                        .param("relatedEvidenceId", original.getId().toString())
+                        .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.evidenceVersion").value(2));
+
+        var versions = evidenceRepository.findByClaimIdOrderByEvidenceVersionAsc(claim.getId());
+        org.junit.jupiter.api.Assertions.assertEquals("SUPERSEDED", versions.get(0).getEvidenceStatus());
+        org.junit.jupiter.api.Assertions.assertEquals("ACTIVE", versions.get(1).getEvidenceStatus());
+        org.junit.jupiter.api.Assertions.assertEquals("REPLACEMENT", versions.get(1).getRelationshipType());
+        org.junit.jupiter.api.Assertions.assertEquals(original.getId(), versions.get(1).getRelatedEvidenceId());
+        org.junit.jupiter.api.Assertions.assertNull(versions.get(0).getRelatedEvidenceId());
+
+        mockMvc.perform(get("/experience-claims/{id}/evidence/{evidenceId}",
+                                claim.getId(), original.getId())
+                        .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
+                        .bytes(firstPdf));
+        mockMvc.perform(get("/experience-claims/{id}/evidence/{evidenceId}",
+                                claim.getId(), original.getId())
+                        .header("Authorization", bearer(otherStudent.getEmail(), "STUDENT")))
+                .andExpect(status().isForbidden());
+    }
+
+@Test
+void explicitCorrectionLinksAndSupersedesOnlyAfterSuccessfulUpload() throws Exception {
+    var claim = saveClaim(student);
+    mockMvc.perform(multipart("/experience-claims/{id}/evidence", claim.getId())
+                    .file(new MockMultipartFile("file", "original.pdf", "application/pdf",
+                            validPdf("original correction source")))
+                    .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+            .andExpect(status().isOk());
+    var original = evidenceRepository.findByClaimIdOrderByEvidenceVersionAsc(claim.getId()).get(0);
+
+    mockMvc.perform(multipart("/experience-claims/{id}/evidence", claim.getId())
+                    .file(new MockMultipartFile("file", "correction.pdf", "application/pdf",
+                            validPdf("failed correction")))
+                    .param("relationshipType", "CORRECTION")
+                    .param("relatedEvidenceId", "987654321")
+                    .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+            .andExpect(status().isBadRequest());
+    org.junit.jupiter.api.Assertions.assertEquals("ACTIVE",
+            evidenceRepository.findById(original.getId()).orElseThrow().getEvidenceStatus());
+
+    mockMvc.perform(multipart("/experience-claims/{id}/evidence", claim.getId())
+                    .file(new MockMultipartFile("file", "correction.pdf", "application/pdf",
+                            validPdf("successful correction")))
+                    .param("relationshipType", "CORRECTION")
+                    .param("relatedEvidenceId", original.getId().toString())
+                    .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.evidenceVersion").value(2));
+
+    var versions = evidenceRepository.findByClaimIdOrderByEvidenceVersionAsc(claim.getId());
+    org.junit.jupiter.api.Assertions.assertEquals(2, versions.size());
+    org.junit.jupiter.api.Assertions.assertEquals("SUPERSEDED", versions.get(0).getEvidenceStatus());
+    org.junit.jupiter.api.Assertions.assertEquals("ACTIVE", versions.get(1).getEvidenceStatus());
+    org.junit.jupiter.api.Assertions.assertEquals("CORRECTION", versions.get(1).getRelationshipType());
+    org.junit.jupiter.api.Assertions.assertEquals(original.getId(), versions.get(1).getRelatedEvidenceId());
+}
+
+@Test
+void conflictingEvidenceLinksToActiveEvidenceWithoutSupersedingIt() throws Exception {
+    var claim = saveClaim(student);
+
+    mockMvc.perform(multipart("/experience-claims/{id}/evidence", claim.getId())
+                    .file(new MockMultipartFile(
+                            "file", "original.pdf", "application/pdf", validPdf("original")))
+                    .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+            .andExpect(status().isOk());
+
+    var original = evidenceRepository
+            .findByClaimIdOrderByEvidenceVersionAsc(claim.getId()).get(0);
+
+    mockMvc.perform(multipart("/experience-claims/{id}/evidence", claim.getId())
+                    .file(new MockMultipartFile(
+                            "file", "conflicting.pdf", "application/pdf",
+                            validPdf("conflicting evidence")))
+                    .param("relationshipType", "CONFLICTS_WITH")
+                    .param("relatedEvidenceId", original.getId().toString())
+                    .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.evidenceVersion").value(2));
+
+    var versions = evidenceRepository
+            .findByClaimIdOrderByEvidenceVersionAsc(claim.getId());
+
+    org.junit.jupiter.api.Assertions.assertEquals(2, versions.size());
+    org.junit.jupiter.api.Assertions.assertEquals(
+            "ACTIVE", versions.get(0).getEvidenceStatus());
+    org.junit.jupiter.api.Assertions.assertEquals(
+            "ACTIVE", versions.get(1).getEvidenceStatus());
+    org.junit.jupiter.api.Assertions.assertEquals(
+            "CONFLICTS_WITH", versions.get(1).getRelationshipType());
+    org.junit.jupiter.api.Assertions.assertEquals(
+            original.getId(), versions.get(1).getRelatedEvidenceId());
+    org.junit.jupiter.api.Assertions.assertNull(
+            versions.get(0).getRelatedEvidenceId());
+}
+
+@Test
+void relatedEvidenceMustBelongToTheSameClaim() throws Exception {
+    var firstClaim = saveClaim(student);
+    var secondClaim = saveClaim(student);
+
+    mockMvc.perform(multipart("/experience-claims/{id}/evidence", secondClaim.getId())
+                    .file(new MockMultipartFile(
+                            "file", "second.pdf", "application/pdf", validPdf("second")))
+                    .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+            .andExpect(status().isOk());
+
+    var evidenceFromOtherClaim = evidenceRepository
+            .findByClaimIdOrderByEvidenceVersionAsc(secondClaim.getId()).get(0);
+
+    mockMvc.perform(multipart("/experience-claims/{id}/evidence", firstClaim.getId())
+                    .file(new MockMultipartFile(
+                            "file", "conflict.pdf", "application/pdf",
+                            validPdf("conflict")))
+                    .param("relationshipType", "CONFLICTS_WITH")
+                    .param("relatedEvidenceId", evidenceFromOtherClaim.getId().toString())
+                    .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+            .andExpect(status().isBadRequest());
+
+    org.junit.jupiter.api.Assertions.assertEquals(
+            "ACTIVE", evidenceRepository.findById(evidenceFromOtherClaim.getId())
+                    .orElseThrow().getEvidenceStatus());
+
+    org.junit.jupiter.api.Assertions.assertTrue(
+            evidenceRepository.findByClaimIdOrderByEvidenceVersionAsc(firstClaim.getId())
+                    .isEmpty());
+}
+
+@Test
+void supersededAndWithdrawnEvidenceCannotBeRelationshipTargets() throws Exception {
+    // Verify that superseded evidence cannot be selected.
+    var replacementClaim = saveClaim(student);
+
+    mockMvc.perform(multipart("/experience-claims/{id}/evidence", replacementClaim.getId())
+                    .file(new MockMultipartFile(
+                            "file", "original.pdf", "application/pdf", validPdf("original")))
+                    .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+            .andExpect(status().isOk());
+
+    var original = evidenceRepository
+            .findByClaimIdOrderByEvidenceVersionAsc(replacementClaim.getId()).get(0);
+
+    mockMvc.perform(multipart("/experience-claims/{id}/evidence", replacementClaim.getId())
+                    .file(new MockMultipartFile(
+                            "file", "replacement.pdf", "application/pdf",
+                            validPdf("replacement")))
+                    .param("relationshipType", "REPLACEMENT")
+                    .param("relatedEvidenceId", original.getId().toString())
+                    .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+            .andExpect(status().isOk());
+
+    org.junit.jupiter.api.Assertions.assertEquals(
+            "SUPERSEDED", evidenceRepository.findById(original.getId())
+                    .orElseThrow().getEvidenceStatus());
+
+    mockMvc.perform(multipart("/experience-claims/{id}/evidence", replacementClaim.getId())
+                    .file(new MockMultipartFile(
+                            "file", "conflict.pdf", "application/pdf", validPdf("conflict")))
+                    .param("relationshipType", "CONFLICTS_WITH")
+                    .param("relatedEvidenceId", original.getId().toString())
+                    .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+            .andExpect(status().isBadRequest());
+
+    // Verify that withdrawn evidence cannot be selected either.
+    var withdrawnClaim = saveClaim(student);
+
+    mockMvc.perform(multipart("/experience-claims/{id}/evidence", withdrawnClaim.getId())
+                    .file(new MockMultipartFile(
+                            "file", "withdrawn.pdf", "application/pdf",
+                            validPdf("withdrawn")))
+                    .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+            .andExpect(status().isOk());
+
+    var withdrawn = evidenceRepository
+            .findByClaimIdOrderByEvidenceVersionAsc(withdrawnClaim.getId()).get(0);
+
+    mockMvc.perform(delete("/experience-claims/{id}/evidence", withdrawnClaim.getId())
+                    .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+            .andExpect(status().isNoContent());
+
+    org.junit.jupiter.api.Assertions.assertEquals(
+            "WITHDRAWN", evidenceRepository.findById(withdrawn.getId())
+                    .orElseThrow().getEvidenceStatus());
+
+    mockMvc.perform(multipart("/experience-claims/{id}/evidence", withdrawnClaim.getId())
+                    .file(new MockMultipartFile(
+                            "file", "conflict.pdf", "application/pdf", validPdf("conflict")))
+                    .param("relationshipType", "CONFLICTS_WITH")
+                    .param("relatedEvidenceId", withdrawn.getId().toString())
+                    .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+            .andExpect(status().isBadRequest());
+}
+
+    @Test
     void newEvidenceOnVerifiedClaimQueuesAnalysisForAllDocumentVersions() throws Exception {
         var claim = saveClaim(student);
         mockMvc.perform(multipart("/experience-claims/{id}/evidence", claim.getId())
@@ -302,8 +635,14 @@ class ExperienceClaimControllerTest {
         mockMvc.perform(get("/experience-claims/{id}/evidence", claim.getId())
                         .header("Authorization", bearer(student.getEmail(), "STUDENT")))
                 .andExpect(status().isNotFound());
-        org.junit.jupiter.api.Assertions.assertEquals(0,
+        org.junit.jupiter.api.Assertions.assertEquals(1,
                 evidenceRepository.findByClaimIdOrderByEvidenceVersionAsc(claim.getId()).size());
+        org.junit.jupiter.api.Assertions.assertEquals("WITHDRAWN",
+                evidenceRepository.findByClaimIdOrderByEvidenceVersionAsc(claim.getId()).get(0).getEvidenceStatus());
+        mockMvc.perform(get("/experience-claims/{id}/evidence/history", claim.getId())
+                        .header("Authorization", bearer(student.getEmail(), "STUDENT")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].evidenceStatus").value("WITHDRAWN"));
         org.junit.jupiter.api.Assertions.assertFalse(processingRepository.existsById(claim.getId()));
     }
 
@@ -347,6 +686,12 @@ class ExperienceClaimControllerTest {
         return "{\"company\":\"Google\",\"jobTitle\":\"SWE\",\"requestId\":\"" + requestId
                 + "\",\"summary\":\"Built backend services\",\"status\":\"" + attemptedStatus
                 + "\",\"aiStatus\":\"VERIFIED\",\"reviewerEmail\":\"attacker@example.test\"}";
+    }
+
+    private String claimJson(String requestId, String attemptedStatus, String claimType) {
+        return claimJson(requestId, attemptedStatus).replace(
+                "\"status\":\"" + attemptedStatus + "\"",
+                "\"status\":\"" + attemptedStatus + "\",\"claimType\":\"" + claimType + "\"");
     }
 
     private String bearer(String email, String role) {

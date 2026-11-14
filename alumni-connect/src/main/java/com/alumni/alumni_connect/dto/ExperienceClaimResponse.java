@@ -1,6 +1,7 @@
 package com.alumni.alumni_connect.dto;
 
 import com.alumni.alumni_connect.entity.ExperienceClaim;
+import com.alumni.alumni_connect.entity.ExperienceClaimType;
 
 import java.time.LocalDateTime;
 
@@ -9,6 +10,7 @@ public record ExperienceClaimResponse(
         Long userId,
         String company,
         String jobTitle,
+        ExperienceClaimType claimType,
         String requestId,
         String startMonth,
         String endMonth,
@@ -41,6 +43,7 @@ public record ExperienceClaimResponse(
                 claim.getUser() != null ? claim.getUser().getId() : null,
                 claim.getCompany(),
                 claim.getJobTitle(),
+                claim.getClaimType(),
                 claim.getRequestId(),
                 claim.getStartMonth(),
                 claim.getEndMonth(),

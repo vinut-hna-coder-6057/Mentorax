@@ -25,7 +25,7 @@ class ExperienceClaimsSection extends ConsumerStatefulWidget {
 class _ExperienceClaimsSectionState
     extends ConsumerState<ExperienceClaimsSection> {
   List<ExperienceClaim> _claims = const [];
-  final Map<int, PlatformFile> _evidencePendingRetry = {};
+  final Map<int, _PendingEvidenceUpload> _evidencePendingRetry = {};
   bool _loading = true;
   bool _saving = false;
   int? _uploadingClaimId;
@@ -101,6 +101,7 @@ class _ExperienceClaimsSectionState
           .createExperienceClaim(
             company: draft.company,
             jobTitle: draft.jobTitle,
+            claimType: draft.claimType,
             requestId: _newRequestId(),
             startMonth: draft.startMonth,
             endMonth: draft.endMonth,
@@ -128,6 +129,10 @@ class _ExperienceClaimsSectionState
       builder: (_) => _ClaimEditorDialog(claim: claim),
     );
     if (draft == null || !mounted) return;
+    final relationship = draft.evidence == null
+        ? null
+        : await _chooseEvidenceRelationship(claim.id);
+    if (draft.evidence != null && (relationship == null || !mounted)) return;
     setState(() => _saving = true);
     try {
       final updated = await ref
@@ -136,6 +141,7 @@ class _ExperienceClaimsSectionState
             claim.id,
             company: draft.company,
             jobTitle: draft.jobTitle,
+            claimType: draft.claimType,
             requestId: claim.requestId ?? _newRequestId(),
             startMonth: draft.startMonth,
             endMonth: draft.endMonth,
@@ -144,7 +150,12 @@ class _ExperienceClaimsSectionState
       if (!mounted) return;
       _replaceClaim(updated);
       if (draft.evidence != null) {
-        await _uploadEvidence(updated.id, draft.evidence!);
+        await _uploadEvidence(
+          updated.id,
+          draft.evidence!,
+          relationshipType: relationship!.relationshipType,
+          relatedEvidenceId: relationship.relatedEvidenceId,
+        );
       } else {
         _showMessage(
           updated.decisionExplanation ??
@@ -168,9 +179,15 @@ class _ExperienceClaimsSectionState
       picked.name,
       requirePrivacyConfirmation: true,
     );
-    if (reviewed == true && mounted) {
-      await _uploadEvidence(claimId, picked);
-    }
+    if (reviewed != true || !mounted) return;
+    final relationship = await _chooseEvidenceRelationship(claimId);
+    if (relationship == null || !mounted) return;
+    await _uploadEvidence(
+      claimId,
+      picked,
+      relationshipType: relationship.relationshipType,
+      relatedEvidenceId: relationship.relatedEvidenceId,
+    );
   }
 
   Future<PlatformFile?> _pickEvidence() async {
@@ -201,7 +218,125 @@ class _ExperienceClaimsSectionState
     }
   }
 
-  Future<void> _uploadEvidence(int claimId, PlatformFile file) async {
+  Future<_EvidenceRelationship?> _chooseEvidenceRelationship(
+    int claimId,
+  ) async {
+    try {
+      final history = await ref
+          .read(appRepositoryProvider)
+          .experienceEvidenceHistory(claimId);
+      final activeEvidence = history
+          .where((item) => item.evidenceStatus.toUpperCase() == 'ACTIVE')
+          .toList();
+      if (!mounted) return null;
+      if (activeEvidence.isEmpty) {
+        return const _EvidenceRelationship('COMPLEMENTARY');
+      }
+      var relationshipType = 'COMPLEMENTARY';
+      int? relatedEvidenceId;
+      return await showDialog<_EvidenceRelationship>(
+        context: context,
+        builder: (context) => StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
+            title: const Text('Evidence relationship'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                DropdownButtonFormField<String>(
+                  initialValue: relationshipType,
+                  decoration: const InputDecoration(labelText: 'Relationship'),
+                  items: const [
+                    DropdownMenuItem(
+                      value: 'COMPLEMENTARY',
+                      child: Text('Complementary evidence'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'REPLACEMENT',
+                      child: Text('Replacement'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'CORRECTION',
+                      child: Text('Correction'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'CONFLICTS_WITH',
+                      child: Text('Conflicts with another document'),
+                    ),
+                  ],
+                  onChanged: (value) => setDialogState(
+                    () => relationshipType = value ?? 'COMPLEMENTARY',
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.xs),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    experienceEvidenceRelationshipExplanation(relationshipType),
+                  ),
+                ),
+                if (relationshipType != 'COMPLEMENTARY') ...[
+                  const SizedBox(height: AppSpacing.sm),
+                  DropdownButtonFormField<int>(
+                    initialValue: relatedEvidenceId,
+                    decoration: const InputDecoration(
+                      labelText: 'Related active document',
+                    ),
+                    items: [
+                      for (final evidence in activeEvidence)
+                        DropdownMenuItem(
+                          value: evidence.id,
+                          child: Text(
+                            'Version ${evidence.evidenceVersion} · '
+                            '${evidence.evidenceFileName}',
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                    ],
+                    onChanged: (value) =>
+                        setDialogState(() => relatedEvidenceId = value),
+                  ),
+                ],
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed:
+                    relationshipType != 'COMPLEMENTARY' &&
+                        relatedEvidenceId == null
+                    ? null
+                    : () => Navigator.pop(
+                        context,
+                        _EvidenceRelationship(
+                          relationshipType,
+                          relatedEvidenceId: relatedEvidenceId,
+                        ),
+                      ),
+                child: const Text('Continue'),
+              ),
+            ],
+          ),
+        ),
+      );
+    } catch (error) {
+      if (mounted) {
+        _showMessage(
+          'Could not load evidence relationships: ${userFacingError(error)}',
+        );
+      }
+      return null;
+    }
+  }
+
+  Future<void> _uploadEvidence(
+    int claimId,
+    PlatformFile file, {
+    String relationshipType = 'COMPLEMENTARY',
+    int? relatedEvidenceId,
+  }) async {
     final bytes = file.bytes;
     if (bytes == null || bytes.isEmpty) {
       _showMessage(
@@ -209,7 +344,15 @@ class _ExperienceClaimsSectionState
       );
       return;
     }
-    _evidencePendingRetry[claimId] = file;
+    _evidencePendingRetry[claimId] = _PendingEvidenceUpload(
+      file,
+      relationshipType,
+      relatedEvidenceId,
+    );
+    final claimIndex = _claims.indexWhere((claim) => claim.id == claimId);
+    final previousEvidenceVersion = claimIndex >= 0
+        ? _claims[claimIndex].evidenceVersion
+        : null;
     setState(() {
       _uploadingClaimId = claimId;
       _uploadProgress = 0;
@@ -221,6 +364,8 @@ class _ExperienceClaimsSectionState
             claimId,
             file.name,
             bytes,
+            relationshipType: relationshipType,
+            relatedEvidenceId: relatedEvidenceId,
             onSendProgress: (sent, total) {
               if (!mounted || total <= 0) return;
               setState(() => _uploadProgress = sent / total);
@@ -231,7 +376,12 @@ class _ExperienceClaimsSectionState
         _evidencePendingRetry.remove(claimId);
         _replaceClaim(updated);
       });
-      _showMessage('Evidence uploaded. Automatic analysis has started.');
+      _showMessage(
+        previousEvidenceVersion == updated.evidenceVersion
+            ? 'This file is already in claim history; no new analysis was queued.'
+            : 'Evidence uploaded. '
+                  '${experienceEvidenceRelationshipExplanation(relationshipType)}',
+      );
     } catch (error) {
       if (mounted) {
         _showMessage(
@@ -249,12 +399,17 @@ class _ExperienceClaimsSectionState
   }
 
   Future<void> _retryEvidence(int claimId) async {
-    final file = _evidencePendingRetry[claimId];
-    if (file == null) {
+    final pending = _evidencePendingRetry[claimId];
+    if (pending == null) {
       await _chooseEvidence(claimId);
       return;
     }
-    await _uploadEvidence(claimId, file);
+    await _uploadEvidence(
+      claimId,
+      pending.file,
+      relationshipType: pending.relationshipType,
+      relatedEvidenceId: pending.relatedEvidenceId,
+    );
   }
 
   Future<void> _deleteEvidence(ExperienceClaim claim) async {
@@ -263,8 +418,8 @@ class _ExperienceClaimsSectionState
       builder: (context) => AlertDialog(
         title: const Text('Delete private evidence?'),
         content: const Text(
-          'The uploaded document and its analysis results will be removed. '
-          'The claim and its audit history will remain.',
+          'Current evidence will be withdrawn from this claim. Evidence '
+          'versions and their analysis history will remain available in claim history.',
         ),
         actions: [
           TextButton(
@@ -283,7 +438,7 @@ class _ExperienceClaimsSectionState
       await ref.read(appRepositoryProvider).deleteExperienceEvidence(claim.id);
       if (!mounted) return;
       setState(() => _replaceClaim(_withoutEvidence(claim)));
-      _showMessage('Private evidence deleted.');
+      _showMessage('Current evidence withdrawn; evidence history preserved.');
     } catch (error) {
       if (mounted) {
         _showMessage('Could not delete evidence: ${userFacingError(error)}');
@@ -313,9 +468,11 @@ class _ExperienceClaimsSectionState
 
   Future<void> _showHistory(ExperienceClaim claim) async {
     try {
-      final history = await ref
-          .read(appRepositoryProvider)
-          .experienceClaimHistory(claim.id);
+      final repository = ref.read(appRepositoryProvider);
+      final history = await repository.experienceClaimHistory(claim.id);
+      final evidenceHistory = await repository.experienceEvidenceHistory(
+        claim.id,
+      );
       if (!mounted) return;
       await showDialog<void>(
         context: context,
@@ -323,28 +480,10 @@ class _ExperienceClaimsSectionState
           title: const Text('Claim history'),
           content: SizedBox(
             width: 480,
-            child: history.isEmpty
-                ? const Text('No history is available.')
-                : ListView(
-                    shrinkWrap: true,
-                    children: [
-                      for (final event in history)
-                        ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: Text(_eventTitle(event)),
-                          subtitle: Text(
-                            [
-                              if (event.oldStatus != null ||
-                                  event.newStatus != null)
-                                '${event.oldStatus ?? '—'} → ${event.newStatus ?? '—'}',
-                              if (event.eventNote?.isNotEmpty == true)
-                                event.eventNote!,
-                              event.createdAt,
-                            ].join('\n'),
-                          ),
-                        ),
-                    ],
-                  ),
+            height: 560,
+            child: history.isEmpty && evidenceHistory.isEmpty
+                ? const Center(child: Text('No history is available.'))
+                : _historyContents(claim.id, evidenceHistory, history),
           ),
           actions: [
             TextButton(
@@ -357,6 +496,101 @@ class _ExperienceClaimsSectionState
     } catch (error) {
       if (mounted) {
         _showMessage('Could not load claim history: ${userFacingError(error)}');
+      }
+    }
+  }
+
+  Widget _historyContents(
+    int claimId,
+    List<ExperienceClaimEvidence> evidenceHistory,
+    List<ExperienceClaimAudit> history,
+  ) => ListView(
+    shrinkWrap: true,
+    children: [
+      const Padding(
+        padding: EdgeInsets.only(bottom: AppSpacing.sm),
+        child: Text(
+          'Older documents remain visible for your records. Only documents '
+          'marked Current are included in the current assessment.',
+        ),
+      ),
+      if (evidenceHistory.isNotEmpty) ...[
+        const ListTile(
+          contentPadding: EdgeInsets.zero,
+          title: Text('Evidence versions'),
+        ),
+        for (final evidence in evidenceHistory)
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: Icon(switch (experienceEvidenceLifecycle(
+              evidence.evidenceStatus,
+            )) {
+              ExperienceEvidenceLifecycle.active => Icons.description_outlined,
+              ExperienceEvidenceLifecycle.superseded ||
+              ExperienceEvidenceLifecycle.withdrawn => Icons.history,
+              ExperienceEvidenceLifecycle.unknown => Icons.help_outline,
+            }),
+            title: Text(
+              'Version ${evidence.evidenceVersion} · ${evidence.evidenceFileName}',
+            ),
+            trailing: StatusBadge(
+              experienceEvidenceLifecycleLabel(evidence.evidenceStatus),
+            ),
+            subtitle: Text(
+              [
+                experienceEvidenceLifecycleExplanation(evidence.evidenceStatus),
+                _evidenceRelationshipHistory(evidence, evidenceHistory),
+                'Analysis: ${experienceAnalysisStatusLabel(evidence.analysisStatus)}',
+                if (evidence.createdAt.isNotEmpty)
+                  'Added ${evidence.createdAt}',
+              ].join('\n'),
+            ),
+            onTap: () => _viewEvidenceVersion(claimId, evidence),
+          ),
+      ],
+      if (history.isNotEmpty) ...[
+        const ListTile(
+          contentPadding: EdgeInsets.zero,
+          title: Text('Claim activity'),
+        ),
+        for (final event in history)
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            title: Text(_eventTitle(event)),
+            subtitle: Text(
+              [
+                if (event.oldStatus != null || event.newStatus != null)
+                  '${event.oldStatus == null ? '—' : experienceClaimStatusLabel(event.oldStatus)}'
+                      ' → '
+                      '${event.newStatus == null ? '—' : experienceClaimStatusLabel(event.newStatus)}',
+                if (event.eventNote?.isNotEmpty == true) event.eventNote!,
+                event.createdAt,
+              ].join('\n'),
+            ),
+          ),
+      ],
+    ],
+  );
+
+  Future<void> _viewEvidenceVersion(
+    int claimId,
+    ExperienceClaimEvidence evidence,
+  ) async {
+    try {
+      final bytes = await ref
+          .read(appRepositoryProvider)
+          .experienceEvidenceVersion(claimId, evidence.id);
+      if (!mounted) return;
+      await _showPdfPreview(
+        bytes,
+        evidence.evidenceFileName,
+        requirePrivacyConfirmation: false,
+      );
+    } catch (error) {
+      if (mounted) {
+        _showMessage(
+          'Could not open evidence version: ${userFacingError(error)}',
+        );
       }
     }
   }
@@ -518,9 +752,10 @@ class _ExperienceClaimsSectionState
     id: claim.id,
     company: claim.company,
     jobTitle: claim.jobTitle,
+    claimType: claim.claimType,
     requestId: claim.requestId,
     summary: claim.summary,
-    status: claim.status,
+    status: 'AWAITING_EVIDENCE',
     aiStatus: 'AWAITING_EVIDENCE',
     evidenceAvailable: false,
     startMonth: claim.startMonth,
@@ -615,26 +850,28 @@ class _ExperienceClaimsSectionState
               ),
             const SizedBox(height: AppSpacing.xs),
             Text(claim.summary),
+            Padding(
+              padding: const EdgeInsets.only(top: AppSpacing.xs),
+              child: Text(
+                claim.claimType == ExperienceClaimType.unspecified
+                    ? 'Experience type: Unspecified — not classified as an internship or mentorship.'
+                    : 'Experience type: ${claim.claimType.label}',
+              ),
+            ),
             const SizedBox(height: AppSpacing.sm),
             Text(
-              'Analysis status: ${claim.aiStatus.replaceAll('_', ' ')}',
-              style: Theme.of(context).textTheme.bodySmall,
+              'Document analysis: ${experienceAnalysisStatusLabel(claim.aiStatus)}',
             ),
-            Text(
-              'Analysis method: ${claim.analysisMethod.replaceAll('_', ' ')}',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            Text(
-              'OCR status: ${claim.ocrStatus.replaceAll('_', ' ')}',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            Text(
-              'Independent corroboration: ${claim.corroborationStatus.replaceAll('_', ' ')}',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
+            if (claim.ocrStatus.toUpperCase() == 'FAILED')
+              const Text(
+                'Some document text could not be read. This does not mean the claim is false.',
+              ),
             if (claim.decisionExplanation?.isNotEmpty == true) ...[
               const SizedBox(height: AppSpacing.xs),
               Text(claim.decisionExplanation!),
+            ] else ...[
+              const SizedBox(height: AppSpacing.xs),
+              Text(experienceClaimStatusExplanation(claim.status)),
             ],
             if (isVerified &&
                 claim.status.toUpperCase() == 'EMPLOYER_CONFIRMED') ...[
@@ -653,7 +890,14 @@ class _ExperienceClaimsSectionState
             if (claim.requestedEvidence?.isNotEmpty == true)
               _requestedEvidence(claim.requestedEvidence!),
             if (claim.aiFindings?.isNotEmpty == true)
-              _findings(claim.aiFindings!),
+              _findings(claim.aiFindings!)
+            else if (const {
+              'ANALYZED',
+              'INCONCLUSIVE',
+            }.contains(claim.aiStatus.toUpperCase()))
+              const Text(
+                'Detailed saved extraction fields are not available in this response.',
+              ),
             if (isUploading) ...[
               const SizedBox(height: AppSpacing.sm),
               LinearProgressIndicator(value: _uploadProgress),
@@ -662,7 +906,15 @@ class _ExperienceClaimsSectionState
             ],
             if (claim.evidenceAvailable) ...[
               const SizedBox(height: AppSpacing.sm),
-              Text('Private evidence: ${claim.evidenceFileName ?? 'PDF'}'),
+              Text('Current evidence: ${claim.evidenceFileName ?? 'Document'}'),
+              const Text(
+                'Only evidence marked Current in History participates in the assessment.',
+              ),
+            ] else if (claim.evidenceVersion > 0) ...[
+              const SizedBox(height: AppSpacing.sm),
+              const Text(
+                'No current document is attached. Earlier versions remain in History.',
+              ),
             ],
             const SizedBox(height: AppSpacing.sm),
             Wrap(
@@ -740,31 +992,32 @@ class _ExperienceClaimsSectionState
     }
     return ExpansionTile(
       tilePadding: EdgeInsets.zero,
-      title: const Text('Analysis details'),
+      title: const Text('Document comparison summary'),
+      subtitle: const Text(
+        'Extracted text is not independent confirmation of the document or issuer. '
+        'Full saved fields and confidence details are not exposed here.',
+      ),
       children: [
         for (final item in findings)
           if (item is Map)
             ListTile(
               contentPadding: EdgeInsets.zero,
               title: Text(
-                '${item['field'] ?? 'Finding'} · ${item['outcome'] ?? 'INCONCLUSIVE'}',
+                '${_findingFieldLabel(item['field'])} · '
+                '${experienceFindingOutcomeLabel(_optionalString(item['outcome']))}',
               ),
               subtitle: Text(
                 [
-                  if (item['extractedValue']?.toString().isNotEmpty == true)
-                    'Extracted: ${item['extractedValue']}',
-                  if (item['evidenceVersion'] != null)
-                    'Document version: ${item['evidenceVersion']}',
-                  if (item['evidenceReferences'] is List &&
-                      (item['evidenceReferences'] as List).isNotEmpty)
-                    'Supporting documents: ${(item['evidenceReferences'] as List).join(', ')}',
-                  if (item['explanation']?.toString().isNotEmpty == true)
-                    item['explanation'].toString(),
-                  if (item['evidenceReference']?.toString().isNotEmpty == true)
-                    'Source: ${item['evidenceReference']}',
-                  if (item['pageNumber'] != null) 'Page ${item['pageNumber']}',
-                  if (item['textExcerpt']?.toString().isNotEmpty == true)
-                    '“${item['textExcerpt']}”',
+                  if (item['extractedValue'] case final String value
+                      when value.trim().isNotEmpty)
+                    'Text identified (not independently verified): ${_boundedText(value, 160)}',
+                  if (item['evidenceVersion'] case final num version)
+                    'Document version: ${version.toInt()}',
+                  if (item['pageNumber'] case final num page)
+                    'Page ${page.toInt()}',
+                  if (item['explanation'] case final String explanation
+                      when explanation.trim().isNotEmpty)
+                    _boundedText(explanation, 240),
                 ].join('\n'),
               ),
             ),
@@ -831,11 +1084,13 @@ class _ClaimEditorDialogState extends State<_ClaimEditorDialog> {
   late final TextEditingController _summary;
   PlatformFile? _evidence;
   bool _privacyReviewed = false;
+  late ExperienceClaimType _claimType;
 
   @override
   void initState() {
     super.initState();
     final claim = widget.claim;
+    _claimType = claim?.claimType ?? ExperienceClaimType.unspecified;
     _company = TextEditingController(text: claim?.company ?? '');
     _jobTitle = TextEditingController(text: claim?.jobTitle ?? '');
     _startMonth = TextEditingController(text: claim?.startMonth ?? '');
@@ -854,33 +1109,45 @@ class _ClaimEditorDialogState extends State<_ClaimEditorDialog> {
   }
 
   Future<void> _selectFile() async {
-    final result = await FilePicker.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: const ['pdf', 'jpg', 'jpeg', 'png'],
-      withData: true,
-    );
-    if (result == null || result.files.isEmpty) return;
-    final file = result.files.single;
-    final bytes = file.bytes;
-    if (file.size <= 0 ||
-        file.size > _maxEvidenceBytes ||
-        bytes == null ||
-        !_isSupportedEvidence(file.name, bytes)) {
+    try {
+      final result = await FilePicker.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: const ['pdf', 'jpg', 'jpeg', 'png'],
+        withData: true,
+      );
+      if (result == null || result.files.isEmpty) return;
+      final file = result.files.single;
+      final bytes = file.bytes;
+      if (file.size <= 0 ||
+          file.size > _maxEvidenceBytes ||
+          bytes == null ||
+          !_isSupportedEvidence(file.name, bytes)) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Select a valid PDF, JPG, JPEG, or PNG no larger than 5 MiB.',
+              ),
+            ),
+          );
+        }
+        return;
+      }
+      setState(() {
+        _evidence = file;
+        _privacyReviewed = false;
+      });
+    } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          SnackBar(
             content: Text(
-              'Select a valid PDF, JPG, JPEG, or PNG no larger than 5 MiB.',
+              'Could not select evidence: ${userFacingError(error)}',
             ),
           ),
         );
       }
-      return;
     }
-    setState(() {
-      _evidence = file;
-      _privacyReviewed = false;
-    });
   }
 
   @override
@@ -908,6 +1175,28 @@ class _ClaimEditorDialogState extends State<_ClaimEditorDialog> {
                 decoration: const InputDecoration(labelText: 'Job title'),
                 validator: _required,
               ),
+              DropdownButtonFormField<ExperienceClaimType>(
+                initialValue: _claimType,
+                decoration: const InputDecoration(labelText: 'Experience type'),
+                items: ExperienceClaimType.values
+                    .map(
+                      (type) => DropdownMenuItem(
+                        value: type,
+                        child: Text(type.label),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (value) {
+                  if (value != null) setState(() => _claimType = value);
+                },
+              ),
+              if (_claimType == ExperienceClaimType.unspecified)
+                const Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Unspecified stays unclassified; Mentorax will not infer an internship or mentorship.',
+                  ),
+                ),
               TextFormField(
                 controller: _startMonth,
                 decoration: const InputDecoration(
@@ -934,7 +1223,7 @@ class _ClaimEditorDialogState extends State<_ClaimEditorDialog> {
               const Align(
                 alignment: Alignment.centerLeft,
                 child: Text(
-                  'Evidence is optional. Only PDF files up to 5 MiB are accepted. '
+                  'Evidence is optional. PDF, JPG, JPEG, and PNG files up to 5 MiB are supported. '
                   'Uploaded evidence is encrypted and analysed automatically.',
                 ),
               ),
@@ -942,15 +1231,17 @@ class _ClaimEditorDialogState extends State<_ClaimEditorDialog> {
               OutlinedButton.icon(
                 onPressed: _selectFile,
                 icon: const Icon(Icons.attach_file),
-                label: Text(_evidence?.name ?? 'Choose evidence PDF'),
+                label: Text(_evidence?.name ?? 'Choose evidence file'),
               ),
               if (_evidence?.bytes case final bytes?) ...[
                 SizedBox(
                   height: 280,
-                  child: PdfViewer.data(
-                    bytes,
-                    sourceName: '${_evidence!.name}-${bytes.length}',
-                  ),
+                  child: _evidence!.name.toLowerCase().endsWith('.pdf')
+                      ? PdfViewer.data(
+                          bytes,
+                          sourceName: '${_evidence!.name}-${bytes.length}',
+                        )
+                      : Image.memory(bytes, fit: BoxFit.contain),
                 ),
                 Text(
                   'Preview · ${_formatBytes(bytes.length)}',
@@ -991,6 +1282,7 @@ class _ClaimEditorDialogState extends State<_ClaimEditorDialog> {
             _ClaimDraft(
               company: _company.text.trim(),
               jobTitle: _jobTitle.text.trim(),
+              claimType: _claimType,
               startMonth: _startMonth.text.trim(),
               endMonth: _endMonth.text.trim(),
               summary: _summary.text.trim(),
@@ -1020,6 +1312,7 @@ class _ClaimDraft {
   const _ClaimDraft({
     required this.company,
     required this.jobTitle,
+    required this.claimType,
     required this.startMonth,
     required this.endMonth,
     required this.summary,
@@ -1028,10 +1321,30 @@ class _ClaimDraft {
 
   final String company;
   final String jobTitle;
+  final ExperienceClaimType claimType;
   final String startMonth;
   final String endMonth;
   final String summary;
   final PlatformFile? evidence;
+}
+
+class _EvidenceRelationship {
+  const _EvidenceRelationship(this.relationshipType, {this.relatedEvidenceId});
+
+  final String relationshipType;
+  final int? relatedEvidenceId;
+}
+
+class _PendingEvidenceUpload {
+  const _PendingEvidenceUpload(
+    this.file,
+    this.relationshipType,
+    this.relatedEvidenceId,
+  );
+
+  final PlatformFile file;
+  final String relationshipType;
+  final int? relatedEvidenceId;
 }
 
 String _eventTitle(ExperienceClaimAudit event) {
@@ -1040,11 +1353,58 @@ String _eventTitle(ExperienceClaimAudit event) {
   return '${title[0].toUpperCase()}${title.substring(1)}';
 }
 
+String _evidenceRelationshipHistory(
+  ExperienceClaimEvidence evidence,
+  List<ExperienceClaimEvidence> history,
+) {
+  final relationship = evidence.relationshipType?.toUpperCase();
+  if (relationship == null) return 'Relationship details are not available.';
+  if (relationship == 'COMPLEMENTARY') {
+    return experienceEvidenceRelationshipExplanation(relationship);
+  }
+  ExperienceClaimEvidence? related;
+  for (final item in history) {
+    if (item.id == evidence.relatedEvidenceId) {
+      related = item;
+      break;
+    }
+  }
+  final linkedDocument = related == null
+      ? 'the linked document'
+      : 'version ${related.evidenceVersion} (${related.evidenceFileName})';
+  return switch (relationship) {
+    'REPLACEMENT' =>
+      'Replaces $linkedDocument. The earlier version remains in history.',
+    'CORRECTION' =>
+      'Corrects $linkedDocument. The earlier version remains in history.',
+    'CONFLICTS_WITH' =>
+      'Differs from $linkedDocument. A difference alone is not a finding of fraud.',
+    _ => experienceEvidenceRelationshipExplanation(relationship),
+  };
+}
+
+String _findingFieldLabel(Object? field) => switch (field) {
+  'employeeName' || 'personName' => 'Name',
+  'company' || 'organisation' || 'companyName' => 'Organization',
+  'jobTitle' || 'role' => 'Role',
+  'startMonth' || 'startDate' => 'Start date',
+  'endMonth' || 'endDate' => 'End date',
+  'duplicateDocument' => 'Possible duplicate document',
+  _ => 'Document detail',
+};
+
+String? _optionalString(Object? value) =>
+    value is String && value.trim().isNotEmpty ? value : null;
+
+String _boundedText(String value, int maximum) =>
+    value.length <= maximum ? value : '${value.substring(0, maximum - 1)}…';
+
 bool _canUploadEvidence(String status) => const {
   'PENDING',
   'AWAITING_EVIDENCE',
   'PROCESSING',
   'NEEDS_INFO',
+  'ADDITIONAL_EVIDENCE_REQUIRED',
   'INCONSISTENT',
   'INSUFFICIENT_EVIDENCE',
   'PROCESSING_FAILED',
@@ -1053,21 +1413,7 @@ bool _canUploadEvidence(String status) => const {
   'EMPLOYER_CONFIRMED',
 }.contains(status.toUpperCase());
 
-String _claimStatusLabel(String status) => switch (status.toUpperCase()) {
-  'PENDING' => 'SUBMITTED',
-  'AWAITING_EVIDENCE' ||
-  'NEEDS_INFO' ||
-  'ADDITIONAL_EVIDENCE_REQUIRED' ||
-  'INSUFFICIENT_EVIDENCE' => 'ADDITIONAL EVIDENCE REQUIRED',
-  'PROCESSING' => 'ANALYSING EVIDENCE',
-  'PROCESSING_FAILED' => 'PROCESSING FAILED',
-  'INCONSISTENT' => 'INCONSISTENT INFORMATION',
-  'VERIFIED' => 'VERIFIED',
-  'VERIFIED_FROM_EVIDENCE' => 'VERIFIED FROM EVIDENCE',
-  'EMPLOYER_CONFIRMED' => 'EMPLOYER CONFIRMED',
-  'REJECTED' => 'REJECTED',
-  _ => status.replaceAll('_', ' '),
-};
+String _claimStatusLabel(String status) => experienceClaimStatusLabel(status);
 
 bool _hasPdfSignature(Uint8List bytes) =>
     bytes.length >= 5 && String.fromCharCodes(bytes.take(5)) == '%PDF-';

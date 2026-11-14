@@ -27,11 +27,14 @@ class FreshMySqlMigrationTest {
             "event_registrations", "connections", "conversations", "conversation_participants",
             "messages", "notifications", "otp_verifications", "email_outbox",
             "experience_claim_audit", "experience_claim_evidence", "experience_claim_processing",
-            "experience_corroboration_attempts");
+            "experience_corroboration_attempts", "experience_evidence_extraction",
+            "experience_evidence_extraction_field", "experience_evidence_extraction_candidate",
+            "experience_evidence_extraction_statement", "experience_evidence_extraction_provenance",
+            "experience_evidence_extraction_warning");
     private static final List<String> FRESH_HISTORY =
-            List.of("1", "2", "3", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19");
+            List.of("1", "2", "3", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22");
     private static final List<String> NORMALIZED_HISTORY =
-            List.of("1", "2", "3", "4", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19");
+            List.of("1", "2", "3", "4", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22");
     private static final String MIGRATION_TEST_PREFIX = "MENTORAX_MYSQL_MIGRATION_TEST";
     private static final String RECOVERY_TEST_PREFIX = "MENTORAX_MYSQL_RECOVERY_TEST";
 
@@ -39,6 +42,13 @@ class FreshMySqlMigrationTest {
     void freshMySqlSchemaMigratesAndPassesHibernateValidation() throws Exception {
         DatabaseSettings database = settings(MIGRATION_TEST_PREFIX);
         assertEmptySchema(database);
+        migrateFreshSchemaThrough21(database);
+        seedExistingEvidence(database);
+        Flyway.configure()
+                .dataSource(database.url(), database.username(), database.password())
+                .locations("classpath:db/fresh", "classpath:db/shared")
+                .load()
+                .migrate();
 
         try (ConfigurableApplicationContext ignored =
                      startApplication(database.url(), database.username(), database.password());
@@ -49,6 +59,53 @@ class FreshMySqlMigrationTest {
             assertMigrationHistory(connection, FRESH_HISTORY);
             assertFreshChecksums(connection);
             assertFinalSchema(connection);
+            assertEquals(1, count(connection,
+                    "SELECT COUNT(*) FROM experience_claim_evidence "
+                            + "WHERE id = 1001 AND evidence_status = 'ACTIVE'"));
+            assertEquals(1, count(connection,
+                    "SELECT COUNT(*) FROM experience_claims "
+                            + "WHERE id = 1001 AND claim_type = 'UNSPECIFIED'"));
+        }
+    }
+
+    private static void migrateFreshSchemaThrough21(DatabaseSettings database) {
+        Flyway.configure()
+                .dataSource(database.url(), database.username(), database.password())
+                .locations("classpath:db/fresh", "classpath:db/shared")
+                .baselineOnMigrate(true)
+                .baselineVersion("1")
+                .target(MigrationVersion.fromVersion("21"))
+                .load()
+                .migrate();
+    }
+
+    private static void seedExistingEvidence(DatabaseSettings database) throws Exception {
+        try (Connection connection = DriverManager.getConnection(
+                database.url(), database.username(), database.password());
+             var statement = connection.createStatement()) {
+            statement.executeUpdate("""
+                    INSERT INTO users
+                        (id, name, email, password_hash, role, status, email_verified, account_status)
+                    VALUES
+                        (1001, 'Migration Test', 'phase23-migration@example.test', 'not-a-login-password',
+                         'STUDENT', 'APPROVED', TRUE, 'ACTIVE')
+                    """);
+            statement.executeUpdate("""
+                    INSERT INTO experience_claims
+                        (id, user_id, company, job_title, summary, created_at, updated_at)
+                    VALUES
+                        (1001, 1001, 'Northstar', 'Mentor', 'Migration verification row',
+                         CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    """);
+            statement.executeUpdate("""
+                    INSERT INTO experience_claim_evidence (
+                        id, claim_id, evidence_version, evidence_storage_key, encrypted_evidence,
+                        evidence_file_name, evidence_media_type, evidence_size, evidence_hash, created_at
+                    ) VALUES (
+                        1001, 1001, 1, 'migration-key', X'01', 'migration.pdf',
+                        'application/pdf', 1, 'migration-test-hash', CURRENT_TIMESTAMP
+                    )
+                    """);
         }
     }
 
@@ -124,7 +181,7 @@ class FreshMySqlMigrationTest {
                 || "[::1]".equals(host);
         if (!"mysql".equalsIgnoreCase(endpoint.getScheme())
                 || !loopbackHost
-                || endpoint.getPort() != 3306
+                || !Set.of(3306, 3307, 3308).contains(endpoint.getPort())
                 || endpoint.getUserInfo() != null
                 || endpoint.getRawQuery() != null
                 || endpoint.getRawFragment() != null
@@ -139,7 +196,7 @@ class FreshMySqlMigrationTest {
     }
 
     private static IllegalArgumentException invalidTarget(String prefix, String expectedDatabase) {
-        return new IllegalArgumentException(prefix + " must target only jdbc:mysql://localhost:3306/"
+        return new IllegalArgumentException(prefix + " must target only jdbc:mysql://localhost:(3306, 3307, or 3308)/"
                 + expectedDatabase + " (or an equivalent loopback address), without URL credentials or options.");
     }
 
@@ -185,7 +242,7 @@ class FreshMySqlMigrationTest {
             }
         }
         assertEquals(expectedVersions, versions, "Unexpected or incomplete MySQL migration chain");
-        for (String version : List.of("17", "18", "19")) {
+        for (String version : List.of("17", "18", "19", "20", "21", "22")) {
             assertEquals(1, count(connection,
                     "SELECT COUNT(*) FROM flyway_schema_history "
                             + "WHERE version = '" + version + "' AND success = 1 "
@@ -227,8 +284,20 @@ class FreshMySqlMigrationTest {
                 new String[]{"experience_claims", "corroboration_status"},
                 new String[]{"experience_claims", "analysis_method"},
                 new String[]{"experience_claims", "ocr_status"},
+                new String[]{"experience_claims", "claim_type"},
                 new String[]{"experience_claim_evidence", "evidence_version"},
                 new String[]{"experience_claim_evidence", "encrypted_evidence"},
+                new String[]{"experience_claim_evidence", "evidence_status"},
+                new String[]{"experience_claim_evidence", "relationship_type"},
+                new String[]{"experience_claim_evidence", "related_evidence_id"},
+                new String[]{"experience_claim_evidence", "superseded_at"},
+                new String[]{"experience_evidence_extraction", "evidence_id"},
+                new String[]{"experience_evidence_extraction", "evidence_version"},
+                new String[]{"experience_evidence_extraction", "response_hash"},
+                new String[]{"experience_evidence_extraction_field", "field_name"},
+                new String[]{"experience_evidence_extraction_provenance", "page_number"},
+                new String[]{"experience_evidence_extraction_provenance", "text_excerpt"},
+                new String[]{"experience_evidence_extraction_provenance", "bounding_box_x"},
                 new String[]{"experience_claim_processing", "next_attempt_at"},
                 new String[]{"experience_corroboration_attempts", "independently_authenticated"})) {
             assertTrue(hasColumn(connection, column[0], column[1]),
@@ -248,6 +317,10 @@ class FreshMySqlMigrationTest {
                 new String[]{"notifications", "actor_id", "users"},
                 new String[]{"otp_verifications", "user_id", "users"},
                 new String[]{"experience_claim_evidence", "claim_id", "experience_claims"},
+                new String[]{"experience_claim_evidence", "related_evidence_id", "experience_claim_evidence"},
+                new String[]{"experience_evidence_extraction", "evidence_id", "experience_claim_evidence"},
+                new String[]{"experience_evidence_extraction_provenance", "source_evidence_id",
+                        "experience_evidence_extraction"},
                 new String[]{"experience_claim_processing", "claim_id", "experience_claims"},
                 new String[]{"experience_corroboration_attempts", "claim_id", "experience_claims"})) {
             assertTrue(hasImportedKey(connection, foreignKey[0], foreignKey[1], foreignKey[2]),
@@ -263,11 +336,16 @@ class FreshMySqlMigrationTest {
         assertTrue(hasUniqueIndex(connection, "otp_verifications", "reset_token_hash"));
         assertTrue(hasUniqueIndex(connection, "experience_claim_evidence", "claim_id", "evidence_version"));
         assertTrue(hasUniqueIndex(connection, "experience_claim_evidence", "claim_id", "evidence_hash"));
+        assertTrue(hasUniqueIndex(connection, "experience_claim_evidence", "id", "evidence_version"));
+        assertTrue(hasUniqueIndex(connection, "experience_evidence_extraction",
+                "evidence_id", "evidence_version", "response_hash"));
 
         assertTrue(hasIndex(connection, "users", "idx_users_role_status_id"));
         assertTrue(hasIndex(connection, "email_outbox", "idx_email_outbox_due"));
         assertTrue(hasIndex(connection, "email_outbox", "idx_email_outbox_expiry"));
         assertTrue(hasIndex(connection, "email_outbox", "idx_email_outbox_recipient_purpose"));
+        assertTrue(hasIndex(connection, "experience_claim_evidence", "idx_experience_claim_evidence_lifecycle"));
+        assertTrue(hasIndex(connection, "experience_evidence_extraction", "idx_experience_extraction_history"));
         assertTrue(hasCheckConstraint(connection, "events", "chk_event_capacity"));
         assertTrue(isNotNullable(connection, "email_outbox", "encrypted_otp"));
         assertTrue(isNullable(connection, "events", "max_capacity"),

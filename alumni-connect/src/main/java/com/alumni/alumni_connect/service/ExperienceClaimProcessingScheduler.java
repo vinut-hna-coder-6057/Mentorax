@@ -9,6 +9,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
+import java.util.OptionalInt;
 
 @Component
 @ConditionalOnProperty(
@@ -37,13 +38,16 @@ public class ExperienceClaimProcessingScheduler {
         processingRepository.findDueClaimIds(now).stream()
                 .limit(MAX_BATCH_SIZE)
                 .forEach(claimId -> {
-                    if (processingRepository.acquire(claimId, now, now.plusSeconds(leaseSeconds)) == 1) {
+                    LocalDateTime leaseUntil = now.plusSeconds(leaseSeconds);
+                    OptionalInt leaseAttempt = processingService.acquireLease(claimId, now, leaseUntil);
+                    if (leaseAttempt.isPresent()) {
+                        int attempt = leaseAttempt.getAsInt();
                         try {
-                            processingService.processClaim(claimId);
+                            processingService.processClaim(claimId, attempt);
                         } catch (RuntimeException exception) {
                             log.error("Experience verification job failed unexpectedly for claim {}",
                                     claimId, exception);
-                            processingService.recordUnexpectedFailure(claimId);
+                            processingService.recordUnexpectedFailure(claimId, attempt);
                         }
                     }
                 });

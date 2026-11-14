@@ -70,6 +70,7 @@ Students often struggle to find relevant alumni, discover career events, and mai
 - Jakarta Bean Validation for request validation.
 - Spring Data JPA/Hibernate for persistence.
 - Flyway migrations with Hibernate schema validation.
+- Versioned evidence lifecycles for experience claims: ACTIVE, SUPERSEDED, and WITHDRAWN records maintain historical evidence while preventing duplicate re-analysis.
 - Environment-configured CORS and WebSocket origins.
 - Bounded process-local rate limits for selected HTTP and STOMP operations.
 - GitHub Actions workflows for backend, Flutter, and Android build checks.
