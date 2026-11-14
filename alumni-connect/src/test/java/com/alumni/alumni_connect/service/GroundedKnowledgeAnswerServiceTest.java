@@ -1,6 +1,5 @@
 package com.alumni.alumni_connect.service;
 
-import com.alumni.alumni_connect.dto.MentorDiscoveryResponse;
 import com.alumni.alumni_connect.dto.knowledge.KnowledgeContributionResponse;
 import com.alumni.alumni_connect.dto.knowledge.KnowledgeRetrievalResponse;
 import org.junit.jupiter.api.BeforeEach;
@@ -42,7 +41,8 @@ class GroundedKnowledgeAnswerServiceTest {
         ReflectionTestUtils.setField(service, "provider", "ollama");
         when(retrieval.retrieve(anyString(), isNull(), eq(0), eq(5)))
                 .thenAnswer(invocation -> new KnowledgeRetrievalResponse(invocation.getArgument(0), 0, 5, false, List.of(source)));
-        when(mentors.discover(anyString())).thenReturn(new MentorDiscoveryResponse(List.of(), "local", true));
+        lenient().when(mentors.discover(anyString()))
+                .thenReturn(new com.alumni.alumni_connect.dto.MentorDiscoveryResponse(List.of(), "local", true));
     }
 
     @Test

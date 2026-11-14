@@ -131,8 +131,78 @@ class KnowledgeContributionIntegrationTest {
         mvc.perform(get("/api/knowledge/retrieval").param("query", "bounded example project Java")
                         .header("Authorization", bearer(student)))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.sources", org.hamcrest.Matchers.hasSize(0)));
-        org.junit.jupiter.api.Assertions.assertEquals(4,
+        org.junit.jupiter.api.Assertions.assertEquals(5,
                 jdbc.queryForObject("SELECT COUNT(*) FROM knowledge_contribution_audit", Integer.class));
+        org.junit.jupiter.api.Assertions.assertEquals(1, jdbc.queryForObject(
+                "SELECT COUNT(*) FROM knowledge_contribution_audit WHERE event_type='CONSENT_REVOKED' AND version_number=1 AND ai_retrieval_consent=FALSE",
+                Integer.class));
+    }
+
+    @Test
+    void consentGrantsAreVersionSpecificAndPublicationActivatesOnlyCurrentVersion() throws Exception {
+        User alumni = user("ALUMNI");
+        User student = user("STUDENT");
+        String created = mvc.perform(post("/api/alumni/knowledge").header("Authorization", bearer(alumni))
+                        .contentType(MediaType.APPLICATION_JSON).content(payload("Consent version one")))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        long id = objectMapper.readTree(created).get("id").asLong();
+        mvc.perform(post("/api/alumni/knowledge/{id}/publish", id).header("Authorization", bearer(alumni))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"studentVisibilityConsent\":true,\"aiRetrievalConsent\":true}"))
+                .andExpect(status().isOk());
+
+        mvc.perform(patch("/api/alumni/knowledge/{id}/consent", id).header("Authorization", bearer(alumni))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"studentVisibilityConsent\":true,\"aiRetrievalConsent\":false}"))
+                .andExpect(status().isOk());
+        org.junit.jupiter.api.Assertions.assertEquals(1, jdbc.queryForObject(
+                "SELECT COUNT(*) FROM knowledge_contribution_versions WHERE contribution_id=? AND version_number=1 AND student_visibility_consent=TRUE AND ai_retrieval_consent=FALSE",
+                Integer.class, id));
+        org.junit.jupiter.api.Assertions.assertEquals(0, contributionService.listAiEligible(0, 20).size());
+        mvc.perform(get("/api/knowledge/contributions").header("Authorization", bearer(student)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$[0].version").value(1));
+
+        mvc.perform(put("/api/alumni/knowledge/{id}", id).header("Authorization", bearer(alumni))
+                        .contentType(MediaType.APPLICATION_JSON).content(payload("Consent version two")))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.version").value(2))
+                .andExpect(jsonPath("$.studentVisibilityConsent").value(false))
+                .andExpect(jsonPath("$.aiRetrievalConsent").value(false));
+        mvc.perform(patch("/api/alumni/knowledge/{id}/consent", id).header("Authorization", bearer(alumni))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"studentVisibilityConsent\":true,\"aiRetrievalConsent\":true}"))
+                .andExpect(status().isOk());
+
+        org.junit.jupiter.api.Assertions.assertEquals(1, jdbc.queryForObject(
+                "SELECT COUNT(*) FROM knowledge_contribution_versions WHERE contribution_id=? AND version_number=1 AND student_visibility_consent=TRUE AND ai_retrieval_consent=FALSE",
+                Integer.class, id), "granting consent to draft v2 must not reactivate v1 AI consent");
+        org.junit.jupiter.api.Assertions.assertEquals(1, jdbc.queryForObject(
+                "SELECT COUNT(*) FROM knowledge_contribution_versions WHERE contribution_id=? AND version_number=2 AND student_visibility_consent=TRUE AND ai_retrieval_consent=TRUE",
+                Integer.class, id));
+        org.junit.jupiter.api.Assertions.assertEquals(0, contributionService.listAiEligible(0, 20).size(),
+                "consented draft v2 remains ineligible before publication");
+        mvc.perform(get("/api/knowledge/contributions").header("Authorization", bearer(student)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$[0].version").value(1));
+
+        mvc.perform(post("/api/alumni/knowledge/{id}/publish", id).header("Authorization", bearer(alumni))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"studentVisibilityConsent\":true,\"aiRetrievalConsent\":true}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.publishedVersion").value(2));
+        org.junit.jupiter.api.Assertions.assertEquals(1, contributionService.listAiEligible(0, 20).size());
+        mvc.perform(get("/api/knowledge/contributions").header("Authorization", bearer(student)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$[0].version").value(2));
+    }
+
+    @Test
+    void mentorshipGuidanceCategoryIsAcceptedAndStored() throws Exception {
+        User alumni = user("ALUMNI");
+        String request = "{\"category\":\"MENTORSHIP_GUIDANCE\",\"title\":\"Mentorship lessons\","
+                + "\"narrative\":\"Guidance from mentoring students.\",\"entries\":["
+                + "{\"type\":\"LESSON\",\"position\":0,\"value\":\"Ask before advising\"}]}";
+        mvc.perform(post("/api/alumni/knowledge").header("Authorization", bearer(alumni))
+                        .contentType(MediaType.APPLICATION_JSON).content(request))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.category").value("MENTORSHIP_GUIDANCE"))
+                .andExpect(jsonPath("$.entries[0].type").value("LESSON"));
     }
 
     @Test
@@ -366,7 +436,7 @@ class KnowledgeContributionIntegrationTest {
 
         String roadmapJson = mvc.perform(post("/api/knowledge/roadmaps").header("Authorization", bearer(student))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"goal\":\"backend internship Java preparation\"}"))
-                .andExpect(status().isCreated()).andExpect(jsonPath("$.items", org.hamcrest.Matchers.hasSize(4)))
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.items", org.hamcrest.Matchers.hasSize(7)))
                 .andExpect(jsonPath("$.items[0].sources[0].currentlyEligible").value(true))
                 .andReturn().getResponse().getContentAsString();
         long roadmapId = objectMapper.readTree(roadmapJson).get("id").asLong();

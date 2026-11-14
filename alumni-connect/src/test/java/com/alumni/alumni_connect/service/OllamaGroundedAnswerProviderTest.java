@@ -9,6 +9,7 @@ import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.List;
+import java.io.IOException;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
@@ -62,7 +63,7 @@ class OllamaGroundedAnswerProviderTest {
     void surfacesProviderTimeoutForSafeFallbackAtServiceBoundary() {
         RestTemplate rest = new RestTemplate();
         MockRestServiceServer.bindTo(rest).build().expect(requestTo(URL + "/api/chat"))
-                .andRespond(withException(new ResourceAccessException("timeout")));
+                .andRespond(withException(new IOException("timeout")));
         assertThrows(ResourceAccessException.class,
                 () -> provider(rest, URL).generate("question", List.of(source), false));
     }

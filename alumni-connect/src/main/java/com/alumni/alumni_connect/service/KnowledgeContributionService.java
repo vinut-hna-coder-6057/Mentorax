@@ -129,10 +129,35 @@ public class KnowledgeContributionService {
         Long targetId = base.versionId();
         jdbc.update("UPDATE knowledge_contribution_versions SET student_visibility_consent=?, ai_retrieval_consent=?, student_consent_at=?, ai_consent_at=? WHERE id=?",
                 student, ai, student ? now : null, ai ? now : null, targetId);
-        // Consent revocation is authoritative even for already-published snapshots.
-        if (base.publishedVersion() != null) {
-            jdbc.update("UPDATE knowledge_contribution_versions SET student_visibility_consent=?, ai_retrieval_consent=?, student_consent_at=?, ai_consent_at=? WHERE contribution_id=? AND version_number=?",
-                    student, ai, student ? now : null, ai ? now : null, id, base.publishedVersion());
+        // Grants apply only to the current immutable version. A revocation also
+        // suppresses that scope on the active published snapshot immediately.
+        // The AND preserves any prior revocation; a newer draft cannot re-grant it.
+        if (base.publishedVersion() != null && base.publishedVersion() != base.version()) {
+            Boolean[] previouslyPublishedConsent = jdbc.query("""
+                    SELECT student_visibility_consent, ai_retrieval_consent
+                    FROM knowledge_contribution_versions
+                    WHERE contribution_id=? AND version_number=?
+                    """, rs -> rs.next()
+                    ? new Boolean[]{rs.getBoolean(1), rs.getBoolean(2)} : null,
+                    id, base.publishedVersion());
+            if (previouslyPublishedConsent != null) {
+                boolean publishedStudent = previouslyPublishedConsent[0] && student;
+                boolean publishedAi = previouslyPublishedConsent[1] && ai;
+                boolean revoked = previouslyPublishedConsent[0] && !student
+                        || previouslyPublishedConsent[1] && !ai;
+                if (revoked) {
+                    jdbc.update("""
+                            UPDATE knowledge_contribution_versions
+                            SET student_visibility_consent=?, ai_retrieval_consent=?,
+                                student_consent_at=CASE WHEN ? THEN student_consent_at ELSE NULL END,
+                                ai_consent_at=CASE WHEN ? THEN ai_consent_at ELSE NULL END
+                            WHERE contribution_id=? AND version_number=?
+                            """, publishedStudent, publishedAi, publishedStudent, publishedAi,
+                            id, base.publishedVersion());
+                    audit(id, base.publishedVersion(), owner.getId(), "CONSENT_REVOKED",
+                            publishedStudent, publishedAi);
+                }
+            }
         }
         audit(id, base.version(), owner.getId(), "CONSENT_CHANGED", student, ai);
         return ownResponse(id, owner.getId());

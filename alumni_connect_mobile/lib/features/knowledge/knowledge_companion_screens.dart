@@ -548,7 +548,8 @@ class _KnowledgeRoadmapsScreenState
                       final sources = (item['sources'] as List? ?? const [])
                           .whereType<Map>()
                           .toList();
-                      final evidenceLabel = item['sourceKind'] == 'ALUMNI_REPORTED'
+                      final evidenceLabel =
+                          item['sourceKind'] == 'ALUMNI_REPORTED'
                           ? 'Alumni-reported guidance.'
                           : 'General suggestion.';
                       return ListTile(
@@ -615,19 +616,7 @@ class AlumniKnowledgeContributionsScreen extends ConsumerStatefulWidget {
 
 class _AlumniKnowledgeContributionsScreenState
     extends ConsumerState<AlumniKnowledgeContributionsScreen> {
-  static const _categories = [
-    'INTERVIEW_EXPERIENCE',
-    'PREPARATION_STRATEGY',
-    'PROJECT_EXPERIENCE',
-    'CAREER_JOURNEY',
-    'PROFESSIONAL_ADVICE',
-  ];
-  final _title = TextEditingController();
-  final _narrative = TextEditingController();
   late AppRepository _repository;
-  String _category = _categories.first;
-  bool _studentConsent = false;
-  bool _aiConsent = false;
   bool _busy = false;
   String? _error;
   List<Map<String, dynamic>> _contributions = [];
@@ -637,13 +626,6 @@ class _AlumniKnowledgeContributionsScreenState
     super.initState();
     _repository = ref.read(appRepositoryProvider);
     _load();
-  }
-
-  @override
-  void dispose() {
-    _title.dispose();
-    _narrative.dispose();
-    super.dispose();
   }
 
   Future<void> _load() async {
@@ -667,18 +649,23 @@ class _AlumniKnowledgeContributionsScreenState
   }
 
   Future<void> _create() async {
-    if (_title.text.trim().isEmpty || _narrative.text.trim().isEmpty || _busy) {
-      return;
-    }
+    if (_busy) return;
+    final draft = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (_) => const _ContributionEditorDialog(),
+    );
+    if (draft == null || !mounted) return;
     setState(() => _busy = true);
     try {
       await _repository.createAlumniKnowledgeContribution(
-        category: _category,
-        title: _title.text.trim(),
-        narrative: _narrative.text.trim(),
+        category: draft['category'] as String,
+        title: draft['title'] as String,
+        narrative: draft['narrative'] as String,
+        companyName: draft['companyName'] as String?,
+        jobRole: draft['jobRole'] as String?,
+        experienceYear: draft['experienceYear'] as int?,
+        entries: (draft['entries'] as List).cast<Map<String, dynamic>>(),
       );
-      _title.clear();
-      _narrative.clear();
       await _load();
     } catch (_) {
       if (mounted) setState(() => _error = 'Your draft could not be saved.');
@@ -688,12 +675,53 @@ class _AlumniKnowledgeContributionsScreenState
   }
 
   Future<void> _publish(Map<String, dynamic> row) async {
-    if (!_studentConsent || !_aiConsent) {
-      setState(() => _error = 'Select both consent scopes before publishing.');
-      return;
-    }
+    var student = row['studentVisibilityConsent'] as bool? ?? false;
+    var ai = row['aiRetrievalConsent'] as bool? ?? false;
+    final consent = await showDialog<List<bool>>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Publish this contribution?'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '“${row['title'] ?? 'Untitled'}” · version ${row['version']}\n\nA draft remains private until you confirm publication. Choose each consent scope for this version.',
+              ),
+              CheckboxListTile(
+                value: student,
+                onChanged: (v) => setDialogState(() => student = v ?? false),
+                title: const Text('Student visibility'),
+              ),
+              CheckboxListTile(
+                value: ai,
+                onChanged: (v) => setDialogState(() => ai = v ?? false),
+                title: const Text('AI retrieval'),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: student && ai
+                  ? () => Navigator.pop(context, [student, ai])
+                  : null,
+              child: const Text('Publish'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (consent == null) return;
     try {
-      await _repository.publishAlumniKnowledge((row['id'] as num).toInt());
+      await _repository.publishAlumniKnowledge(
+        (row['id'] as num).toInt(),
+        studentVisibilityConsent: consent[0],
+        aiRetrievalConsent: consent[1],
+      );
       await _load();
     } catch (_) {
       if (mounted) {
@@ -703,6 +731,26 @@ class _AlumniKnowledgeContributionsScreenState
   }
 
   Future<void> _withdraw(Map<String, dynamic> row) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Withdraw this contribution?'),
+        content: Text(
+          '“${row['title'] ?? 'Untitled'}” will immediately stop appearing to students and in AI retrieval. Its owner history and versions remain available.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Withdraw'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
     try {
       await _repository.withdrawAlumniKnowledge((row['id'] as num).toInt());
       await _load();
@@ -714,54 +762,21 @@ class _AlumniKnowledgeContributionsScreenState
   }
 
   Future<void> _edit(Map<String, dynamic> row) async {
-    final title = TextEditingController(text: row['title'] as String? ?? '');
-    final narrative = TextEditingController(
-      text: row['narrative'] as String? ?? '',
-    );
-    final save = await showDialog<bool>(
+    final data = await showDialog<Map<String, dynamic>>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Create a new version'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: title,
-              decoration: const InputDecoration(labelText: 'Title'),
-            ),
-            TextField(
-              controller: narrative,
-              minLines: 3,
-              maxLines: 6,
-              decoration: const InputDecoration(labelText: 'Narrative'),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Save draft version'),
-          ),
-        ],
-      ),
+      builder: (_) => _ContributionEditorDialog(initial: row),
     );
-    if (save == true) {
+    if (data != null) {
       try {
         await _repository.updateAlumniKnowledgeContribution(
           (row['id'] as num).toInt(),
-          category: row['category'] as String,
-          title: title.text,
-          narrative: narrative.text,
-          companyName: row['companyName'] as String?,
-          jobRole: row['jobRole'] as String?,
-          experienceYear: (row['experienceYear'] as num?)?.toInt(),
-          entries: (row['entries'] as List? ?? const [])
-              .map((entry) => Map<String, dynamic>.from(entry as Map))
-              .toList(),
+          category: data['category'] as String,
+          title: data['title'] as String,
+          narrative: data['narrative'] as String,
+          companyName: data['companyName'] as String?,
+          jobRole: data['jobRole'] as String?,
+          experienceYear: data['experienceYear'] as int?,
+          entries: (data['entries'] as List).cast<Map<String, dynamic>>(),
         );
         await _load();
       } catch (_) {
@@ -770,8 +785,6 @@ class _AlumniKnowledgeContributionsScreenState
         }
       }
     }
-    title.dispose();
-    narrative.dispose();
   }
 
   Future<void> _freshness(Map<String, dynamic> row) async {
@@ -819,10 +832,15 @@ class _AlumniKnowledgeContributionsScreenState
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          title: const Text('Consent scopes'),
+          title: Text(
+            'Consent · ${row['title'] ?? 'Contribution'} · v${row['version']}',
+          ),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              Text(
+                'These scopes apply to version ${row['version']}. Saving consent does not publish a draft. Turning a scope off immediately suppresses it on the active publication. A grant on a newer draft never reactivates a scope revoked on an older version.',
+              ),
               CheckboxListTile(
                 value: student,
                 onChanged: (value) =>
@@ -872,51 +890,12 @@ class _AlumniKnowledgeContributionsScreenState
           'Share practical experience. New content remains private until you publish with both consent scopes.',
         ),
         const SizedBox(height: 12),
-        DropdownButtonFormField<String>(
-          initialValue: _category,
-          items: [
-            for (final category in _categories)
-              DropdownMenuItem(
-                value: category,
-                child: Text(category.replaceAll('_', ' ')),
-              ),
-          ],
-          onChanged: (value) {
-            if (value != null) setState(() => _category = value);
-          },
-          decoration: const InputDecoration(labelText: 'Category'),
-        ),
-        TextField(
-          controller: _title,
-          maxLength: 160,
-          decoration: const InputDecoration(labelText: 'Title'),
-        ),
-        TextField(
-          controller: _narrative,
-          maxLength: 6000,
-          minLines: 4,
-          maxLines: 8,
-          decoration: const InputDecoration(
-            labelText: 'Experience and practical details',
-          ),
-        ),
-        CheckboxListTile(
-          value: _studentConsent,
-          onChanged: (value) =>
-              setState(() => _studentConsent = value ?? false),
-          title: const Text('I consent to student visibility'),
-        ),
-        CheckboxListTile(
-          value: _aiConsent,
-          onChanged: (value) => setState(() => _aiConsent = value ?? false),
-          title: const Text('I consent to AI retrieval'),
-        ),
         Align(
           alignment: Alignment.centerRight,
           child: FilledButton.icon(
             onPressed: _busy ? null : _create,
             icon: const Icon(Icons.save_outlined),
-            label: const Text('Save draft'),
+            label: const Text('Create structured draft'),
           ),
         ),
         if (_error != null)
@@ -935,7 +914,7 @@ class _AlumniKnowledgeContributionsScreenState
             child: ListTile(
               title: Text(row['title'] as String? ?? ''),
               subtitle: Text(
-                '${row['status']} · current v${row['version']} · published v${row['publishedVersion'] ?? '—'}',
+                '${row['status']} · current v${row['version']} · published v${row['publishedVersion'] ?? '—'} · students ${row['studentVisibilityConsent'] == true ? 'on' : 'off'} · AI ${row['aiRetrievalConsent'] == true ? 'on' : 'off'}',
               ),
               isThreeLine: true,
               trailing: PopupMenuButton<String>(
@@ -989,4 +968,398 @@ class _AlumniKnowledgeContributionsScreenState
       ],
     ),
   );
+}
+
+class _ContributionEditorDialog extends StatefulWidget {
+  const _ContributionEditorDialog({this.initial});
+  final Map<String, dynamic>? initial;
+
+  @override
+  State<_ContributionEditorDialog> createState() =>
+      _ContributionEditorDialogState();
+}
+
+class _ContributionEditorDialogState extends State<_ContributionEditorDialog> {
+  static const _categories = [
+    'INTERVIEW_EXPERIENCE',
+    'PREPARATION_STRATEGY',
+    'PROJECT_EXPERIENCE',
+    'CAREER_JOURNEY',
+    'PROFESSIONAL_ADVICE',
+    'MENTORSHIP_GUIDANCE',
+  ];
+  static const _entryTypes = [
+    'TECHNOLOGY',
+    'INTERVIEW_ROUND',
+    'INTERVIEW_TOPIC',
+    'INTERVIEW_QUESTION',
+    'RESOURCE',
+    'CHALLENGE',
+    'LESSON',
+    'ROLE_TRANSITION',
+  ];
+  final _formKey = GlobalKey<FormState>();
+  late final _title = TextEditingController(
+    text: widget.initial?['title'] as String? ?? '',
+  );
+  late final _narrative = TextEditingController(
+    text: widget.initial?['narrative'] as String? ?? '',
+  );
+  late final _company = TextEditingController(
+    text: widget.initial?['companyName'] as String? ?? '',
+  );
+  late final _role = TextEditingController(
+    text: widget.initial?['jobRole'] as String? ?? '',
+  );
+  late final _year = TextEditingController(
+    text: widget.initial?['experienceYear']?.toString() ?? '',
+  );
+  late String _category =
+      widget.initial?['category'] as String? ?? _categories.first;
+  late final List<_KnowledgeEntryDraft> _entries =
+      (widget.initial?['entries'] as List? ?? const [])
+          .whereType<Map>()
+          .map(
+            (entry) =>
+                _KnowledgeEntryDraft.fromMap(Map<String, dynamic>.from(entry)),
+          )
+          .toList();
+
+  @override
+  void dispose() {
+    _title.dispose();
+    _narrative.dispose();
+    _company.dispose();
+    _role.dispose();
+    _year.dispose();
+    for (final entry in _entries) {
+      entry.dispose();
+    }
+    super.dispose();
+  }
+
+  String get _guidance => switch (_category) {
+    'INTERVIEW_EXPERIENCE' =>
+      'Which company and role? What rounds, topics, questions, technologies, challenges, and preparation helped?',
+    'PREPARATION_STRATEGY' =>
+      'What role were you preparing for? Which topics, skills, and resources helped? What strategy, mistakes, and lessons would you share?',
+    'PROJECT_EXPERIENCE' =>
+      'What problem did the project solve? Describe your contribution, technologies, approach, challenges, resolution, and lessons.',
+    'CAREER_JOURNEY' =>
+      'Describe the move from your previous role to your new role, when it happened, the skills you learned, and useful resources and lessons.',
+    'PROFESSIONAL_ADVICE' =>
+      'Who is this for? What challenge are you addressing? Share practical recommendations, resources, and lessons.',
+    _ =>
+      'Describe your mentoring context, intended audience, common challenges, practical guidance, and lessons from experience.',
+  };
+
+  String? _required(String? value) =>
+      value == null || value.trim().isEmpty ? 'Required' : null;
+  void _save() {
+    if (!_formKey.currentState!.validate()) return;
+    Navigator.pop(context, <String, dynamic>{
+      'category': _category,
+      'title': _title.text.trim(),
+      'narrative': _narrative.text.trim(),
+      'companyName': _company.text.trim().isEmpty ? null : _company.text.trim(),
+      'jobRole': _role.text.trim().isEmpty ? null : _role.text.trim(),
+      'experienceYear': _year.text.trim().isEmpty
+          ? null
+          : int.parse(_year.text.trim()),
+      'entries': _entries
+          .where((entry) => entry.hasContent)
+          .map((entry) => entry.toMap())
+          .toList(),
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: Text(
+      widget.initial == null
+          ? 'New knowledge contribution'
+          : 'Create a new version',
+    ),
+    content: SizedBox(
+      width: 560,
+      child: Form(
+        key: _formKey,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              DropdownButtonFormField<String>(
+                key: const Key('contribution-category'),
+                initialValue: _category,
+                decoration: const InputDecoration(labelText: 'Category'),
+                items: [
+                  for (final category in _categories)
+                    DropdownMenuItem(
+                      value: category,
+                      child: Text(category.replaceAll('_', ' ')),
+                    ),
+                ],
+                onChanged: (value) {
+                  if (value != null) setState(() => _category = value);
+                },
+              ),
+              TextFormField(
+                key: const Key('contribution-title'),
+                controller: _title,
+                maxLength: 160,
+                validator: _required,
+                decoration: const InputDecoration(labelText: 'Title'),
+              ),
+              TextFormField(
+                key: const Key('contribution-company'),
+                controller: _company,
+                maxLength: 150,
+                decoration: const InputDecoration(
+                  labelText: 'Company or organization (optional)',
+                ),
+              ),
+              TextFormField(
+                key: const Key('contribution-role'),
+                controller: _role,
+                maxLength: 150,
+                decoration: const InputDecoration(
+                  labelText: 'Job role or career goal (optional)',
+                ),
+              ),
+              TextFormField(
+                key: const Key('contribution-year'),
+                controller: _year,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Experience year (optional)',
+                ),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) return null;
+                  final n = int.tryParse(value);
+                  return n == null || n < 1950 || n > 2100
+                      ? 'Enter a year from 1950 to 2100'
+                      : null;
+                },
+              ),
+              TextFormField(
+                key: const Key('contribution-narrative'),
+                controller: _narrative,
+                maxLength: 6000,
+                minLines: 3,
+                maxLines: 6,
+                validator: _required,
+                decoration: const InputDecoration(
+                  labelText: 'Experience and practical context',
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Text(
+                  _guidance,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Structured answers',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                  ),
+                  TextButton.icon(
+                    onPressed: () => setState(
+                      () => _entries.add(
+                        _KnowledgeEntryDraft(position: _entries.length),
+                      ),
+                    ),
+                    icon: const Icon(Icons.add),
+                    label: const Text('Add answer'),
+                  ),
+                ],
+              ),
+              if (_entries.isEmpty)
+                const Text(
+                  'Add technologies, rounds, topics, questions, resources, challenges, lessons, or role transitions as relevant.',
+                ),
+              for (var i = 0; i < _entries.length; i++) _entryCard(i),
+            ],
+          ),
+        ),
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Cancel'),
+      ),
+      FilledButton(
+        onPressed: _save,
+        child: Text(
+          widget.initial == null
+              ? 'Save private draft'
+              : 'Save new draft version',
+        ),
+      ),
+    ],
+  );
+
+  Widget _entryCard(int index) {
+    final entry = _entries[index];
+    return Card(
+      key: ValueKey(entry),
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: DropdownButtonFormField<String>(
+                    initialValue: entry.type,
+                    decoration: const InputDecoration(labelText: 'Answer type'),
+                    items: [
+                      for (final type in _entryTypes)
+                        DropdownMenuItem(
+                          value: type,
+                          child: Text(type.replaceAll('_', ' ')),
+                        ),
+                    ],
+                    onChanged: (value) {
+                      if (value != null) setState(() => entry.type = value);
+                    },
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Remove answer',
+                  onPressed: () => setState(() {
+                    _entries.removeAt(index).dispose();
+                  }),
+                  icon: const Icon(Icons.delete_outline),
+                ),
+              ],
+            ),
+            TextFormField(
+              controller: entry.value,
+              maxLength: 1000,
+              decoration: const InputDecoration(
+                labelText: 'Answer / resource / role detail',
+              ),
+            ),
+            TextFormField(
+              controller: entry.detail,
+              maxLength: 2000,
+              minLines: 1,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                labelText: 'Additional detail (optional)',
+              ),
+            ),
+            TextFormField(
+              controller: entry.url,
+              maxLength: 500,
+              keyboardType: TextInputType.url,
+              decoration: const InputDecoration(
+                labelText: 'HTTPS resource URL (optional)',
+              ),
+              validator: (value) =>
+                  value == null ||
+                      value.trim().isEmpty ||
+                      value.trim().startsWith('https://')
+                  ? null
+                  : 'Use an HTTPS URL',
+            ),
+            TextFormField(
+              controller: entry.year,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: 'Related year (optional)',
+              ),
+              validator: (value) {
+                if (value == null || value.trim().isEmpty) return null;
+                final n = int.tryParse(value);
+                return n == null || n < 1950 || n > 2100
+                    ? 'Enter a year from 1950 to 2100'
+                    : null;
+              },
+            ),
+            if (entry.type == 'ROLE_TRANSITION')
+              Row(
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      controller: entry.fromRole,
+                      decoration: const InputDecoration(
+                        labelText: 'Previous role',
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextFormField(
+                      controller: entry.toRole,
+                      decoration: const InputDecoration(labelText: 'New role'),
+                    ),
+                  ),
+                ],
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _KnowledgeEntryDraft {
+  _KnowledgeEntryDraft({
+    this.type = 'TECHNOLOGY',
+    this.position = 0,
+    Map<String, dynamic>? source,
+  }) : value = TextEditingController(text: source?['value'] as String? ?? ''),
+       detail = TextEditingController(text: source?['detail'] as String? ?? ''),
+       url = TextEditingController(text: source?['url'] as String? ?? ''),
+       fromRole = TextEditingController(
+         text: source?['fromRole'] as String? ?? '',
+       ),
+       toRole = TextEditingController(text: source?['toRole'] as String? ?? ''),
+       year = TextEditingController(text: source?['year']?.toString() ?? ''),
+       parentPosition = (source?['parentPosition'] as num?)?.toInt();
+  factory _KnowledgeEntryDraft.fromMap(Map<String, dynamic> source) =>
+      _KnowledgeEntryDraft(
+        type: source['type'] as String? ?? 'TECHNOLOGY',
+        position: (source['position'] as num?)?.toInt() ?? 0,
+        source: source,
+      );
+  String type;
+  final TextEditingController value, detail, url, fromRole, toRole, year;
+  final int? parentPosition;
+  int position;
+  bool get hasContent => [
+    value,
+    detail,
+    url,
+    fromRole,
+    toRole,
+    year,
+  ].any((c) => c.text.trim().isNotEmpty);
+  Map<String, dynamic> toMap() => {
+    'type': type,
+    'position': position,
+    'parentPosition': parentPosition,
+    'value': value.text.trim().isEmpty ? null : value.text.trim(),
+    'detail': detail.text.trim().isEmpty ? null : detail.text.trim(),
+    'url': url.text.trim().isEmpty ? null : url.text.trim(),
+    'fromRole': fromRole.text.trim().isEmpty ? null : fromRole.text.trim(),
+    'toRole': toRole.text.trim().isEmpty ? null : toRole.text.trim(),
+    'year': year.text.trim().isEmpty ? null : int.parse(year.text.trim()),
+  };
+  void dispose() {
+    value.dispose();
+    detail.dispose();
+    url.dispose();
+    fromRole.dispose();
+    toRole.dispose();
+    year.dispose();
+  }
 }
