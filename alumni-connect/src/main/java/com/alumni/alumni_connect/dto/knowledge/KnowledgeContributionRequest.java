@@ -15,7 +15,7 @@ public record KnowledgeContributionRequest(
 
     public enum Category {
         INTERVIEW_EXPERIENCE, PREPARATION_STRATEGY, PROJECT_EXPERIENCE,
-        CAREER_JOURNEY, PROFESSIONAL_ADVICE
+        CAREER_JOURNEY, PROFESSIONAL_ADVICE, MENTORSHIP_GUIDANCE
     }
 
     public enum EntryType {

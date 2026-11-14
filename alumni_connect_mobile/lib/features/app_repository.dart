@@ -103,13 +103,20 @@ class AppRepository {
     required String category,
     required String title,
     required String narrative,
+    String? companyName,
+    String? jobRole,
+    int? experienceYear,
+    List<Map<String, dynamic>> entries = const [],
   }) => api.post(
     '/api/alumni/knowledge',
     data: {
       'category': category,
       'title': title,
       'narrative': narrative,
-      'entries': <Map<String, dynamic>>[],
+      'companyName': companyName,
+      'jobRole': jobRole,
+      'experienceYear': experienceYear,
+      'entries': entries,
     },
     decode: (d) => Map<String, dynamic>.from(d as Map),
   );
@@ -135,9 +142,16 @@ class AppRepository {
     },
     decode: (d) => Map<String, dynamic>.from(d as Map),
   );
-  Future<Map<String, dynamic>> publishAlumniKnowledge(int id) => api.post(
+  Future<Map<String, dynamic>> publishAlumniKnowledge(
+    int id, {
+    required bool studentVisibilityConsent,
+    required bool aiRetrievalConsent,
+  }) => api.post(
     '/api/alumni/knowledge/$id/publish',
-    data: {'studentVisibilityConsent': true, 'aiRetrievalConsent': true},
+    data: {
+      'studentVisibilityConsent': studentVisibilityConsent,
+      'aiRetrievalConsent': aiRetrievalConsent,
+    },
     decode: (d) => Map<String, dynamic>.from(d as Map),
   );
   Future<Map<String, dynamic>> withdrawAlumniKnowledge(int id) => api.post(

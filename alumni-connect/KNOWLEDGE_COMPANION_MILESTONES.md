@@ -1,12 +1,17 @@
-# Knowledge Companion Milestones 2–8
+# Knowledge Companion Milestones 1–8
 
 ## Initial state and execution boundary
 
 - Initial branch: `phase-2-6-full-review`.
-- Initial HEAD: `5b7d227 Fix evaluation dataset provenance across platforms`.
-- The worktree already contained the uncommitted Milestone 1 implementation (V24, contribution services/tests/docs) and an existing modification to `mentorax-ai/evaluation/dataset.json`. Both were preserved; no commit, push, merge, or deployment was performed.
+- Initial HEAD: `f06efe97d97de68a65661293c1b08ecdb51e7409`. The worktree was clean. `origin/main` was fetched and pointed to merge commit `183c2f0a6357a968659f73eaa4f6e5907192c685`, which contains this implementation.
+- The existing `mentorax-ai/evaluation/dataset.json` provenance/history was already committed in the starting tree and was left byte-for-byte unchanged.
+- No commit, push, merge, or deployment was performed.
 - No ZIP files were accessed.
 - Spring is the sole authority for authentication, eligibility, consent, retrieval, persistence, and final response policy. Flutter uses Spring APIs only. No vector store was added because the current corpus is served by bounded lexical retrieval and an eligibility recheck.
+
+## Milestone 1 — Alumni contribution experience
+
+Flutter provides a guided contribution editor for all six categories, including `MENTORSHIP_GUIDANCE`, using the existing contribution request and typed entry schema. It collects company, role/career goal, experience year, narrative, structured entries, and optional HTTPS resource links. Editing starts from the complete current version and saves an immutable new draft. Consent is version-scoped and publication requires an explicit confirmation with independent student-visibility and AI-retrieval scopes. Mentorship guidance describes alumni's mentoring experiences; it does not add booking or private messaging.
 
 ## Milestone 2 — Trusted retrieval: COMPLETE
 
@@ -16,7 +21,7 @@ Primary files: `KnowledgeRetrievalService`, `KnowledgeRetrievalController`, `Kno
 
 ## Milestone 3 — Grounded answers: COMPLETE WITH PROVIDER LIMITATION
 
-Added `GroundedAnswerProvider` and a deterministic implementation. The Spring property `app.knowledge.answer-provider` selects a registered implementation; an unavailable selection falls back to deterministic output and is labeled `DETERMINISTIC_PROVIDER_UNAVAILABLE`. Answers cite current evidence and explicitly identify alumni-reported content, insufficient evidence, and the implemented same-company/role conflict heuristic. Prompt-injection text is filtered from excerpts. The repository has no configured external or local LLM answer provider, so no provider request, timeout, malformed-provider, or live LLM behavior was exercised. No answer is represented as LLM-generated.
+Added `GroundedAnswerProvider`, a deterministic implementation, and an optional Ollama adapter restricted to loopback hosts. The deterministic provider is the default. The configured Ollama model name defaults to `gemma3:1b`, but a model is not automatically available in production. Answers cite current evidence and identify alumni-reported content, insufficient evidence, and the implemented same-company/role conflict heuristic. Prompt-injection text is filtered from excerpts. Mocked Ollama tests validate request handling and citation syntax only; citation presence does not establish that every generated statement is entailed by the cited evidence. The real local-model test is opt-in (`-Dmentorax.test.ollama=true`) and was not run in this validation record. No remote LLM provider is configured.
 
 Primary files: `GroundedKnowledgeAnswerService`, `GroundedAnswerProvider`, `DeterministicGroundedAnswerProvider`, answer request/response DTOs, and the companion answer controller route.
 
@@ -52,24 +57,19 @@ Primary files: `KnowledgeRoadmapService`, `KnowledgeRoadmapController`, roadmap 
 
 ## Database and interfaces
 
-- V24 is the existing Milestone 1 contribution schema; it was not edited.
-- V25 additively adds freshness fields and conversation, source-reference, question-interest, and roadmap tables.
-- H2 fresh, normalized, and legacy routed migration checks pass. Real MySQL fresh/recovery migration tests require dedicated test URLs and credentials and were NOT RUN.
+- V24 is the existing contribution schema; it was not edited. Its category column is `VARCHAR(32)`, so adding `MENTORSHIP_GUIDANCE` required no database migration.
+- V25 additively adds freshness fields and conversation, source-reference, question-interest, and roadmap tables; it was not edited.
+- H2 routed migrations and real MySQL fresh/recovery migration tests use the existing migration routes; MySQL validation ran against dedicated disposable schemas.
 - Student APIs: contribution listing, retrieval, answer, conversation CRUD/messages, roadmap CRUD/items.
 - Alumni APIs: contribution ownership/lifecycle/consent, freshness settings/confirmation, and aggregated opportunities.
 - Exact paths and examples are in `ALUMNI_KNOWLEDGE_CONTRIBUTIONS.md` and the corresponding controllers.
 
 ## Validation record
 
-Recorded for this execution on Windows (Java 21.0.11):
-
-- Focused H2 migration/integration run after provider and conflict-path changes: 12 tests, 0 failures/errors/skips; BUILD SUCCESS.
-- Complete Maven suite excluding the credential-gated `FreshMySqlMigrationTest`: 358 tests, 0 failures/errors, 8 skipped; all non-MySQL suite reports passed.
-- Unfiltered complete Maven suite: 359 tests, 0 assertion failures, 2 errors because `MENTORAX_MYSQL_MIGRATION_TEST` and `MENTORAX_MYSQL_RECOVERY_TEST` URL/username/password are not configured; 8 skipped.
-- Flutter widget/unit suite: 136 tests passed.
-- Flutter analyze: `No issues found`.
-- Python unit/evaluation and synthetic-document evaluation: NOT RUN. The only available `python.exe` and `py.exe` resolve to WindowsApps aliases and could not be launched in this environment; there is no repository `.venv`.
-- GitHub CI and Linux-specific database execution: NOT RUN. No claim is made that GitHub Actions passed.
-- Real external answer provider: NOT CONFIGURED and NOT TESTED.
-
-These results establish local H2 and Flutter behavior, not production readiness. The MySQL dialect/recovery path and provider-based generation still need validation in an appropriately configured environment.
+- Initial state: branch `phase-2-6-full-review`, HEAD `f06efe97d97de68a65661293c1b08ecdb51e7409`; `origin/main` was `183c2f0a6357a968659f73eaa4f6e5907192c685`.
+- Backend compile: `mvnw -DskipTests compile` passed. The full Maven suite passed: 371 tests, 0 failures, 0 errors, 9 skipped. Fresh/recovery MySQL migration tests ran against disposable MySQL 8.0.46 schemas; the separate opt-in processing lifecycle suite passed all 5 tests. Focused knowledge contribution, grounded answer, and provider tests passed, including the v1 consent revocation/v2 republication regression.
+- Flutter: `flutter analyze` reported no issues; all 139 tests passed. A debug APK built successfully for `https://mentorax-production.up.railway.app` using Java 21. Flutter's temporary JDK override was restored after the build.
+- Python 3.12.8: source-only `compileall` passed; all 78 service unit tests and all 24 evaluation tests passed. OCR-heavy unit tests ran after installing the required native libraries in the disposable container. The tracked dataset and generated `latest_results.json` were byte-preserved around evaluation runs. Synthetic document evaluation was not run.
+- MySQL tests used only the two task-owned disposable containers and dedicated schemas. No production database or API write was performed.
+- No migration file was changed. `mentorax-ai/evaluation/dataset.json` remains byte-for-byte unchanged. No ZIP files were accessed. No commit, push, merge, or deployment was performed.
+- The deterministic answer provider remains the default. The real Ollama local-model test is opt-in and was not run; mocked adapter tests do not establish real model behavior or statement entailment. No claim is made that GitHub Actions passed.
