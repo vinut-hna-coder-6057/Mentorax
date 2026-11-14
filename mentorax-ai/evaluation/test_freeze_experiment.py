@@ -4,7 +4,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-import freeze_experiment as freeze
+if __package__:
+    from . import freeze_experiment as freeze
+else:
+    import freeze_experiment as freeze
 
 
 def sample_report(path):
@@ -102,6 +105,8 @@ class ExperimentFreezeTests(unittest.TestCase):
         data, _candidates, labels, _snapshots, provenance = freeze._materialized_assets(
             freeze.AI_ROOT / "evaluation" / "dataset.json",
             freeze.AI_ROOT / "evaluation" / "label-provenance.json")
+        self.assertEqual("existing_synthetic_grades_provenance_incomplete",
+                         provenance["annotationStatus"])
         self.assertEqual([case["relevance"] for case in data["questions"]],
                          [case["relevance"] for case in labels["questions"]])
         self.assertFalse(provenance["unresolvedJudgmentsRepresented"])
@@ -110,6 +115,54 @@ class ExperimentFreezeTests(unittest.TestCase):
         corrupted = dict(provenance, annotatorIdentityRecorded=True)
         with self.assertRaisesRegex(freeze.FreezeError, "annotatorIdentityRecorded"):
             freeze._validate_development_provenance(corrupted, provenance["sourceDatasetSha256"])
+
+    def test_development_provenance_binds_exact_dataset_bytes(self):
+        dataset_path = freeze.AI_ROOT / "evaluation" / "dataset.json"
+        provenance_path = freeze.AI_ROOT / "evaluation" / "label-provenance.json"
+        dataset_digest = freeze.sha256_file(dataset_path)
+        provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(dataset_digest, provenance["sourceDatasetSha256"])
+        freeze._validate_development_provenance(provenance, dataset_digest)
+
+    def test_modified_dataset_with_stale_provenance_is_rejected(self):
+        dataset_path = freeze.AI_ROOT / "evaluation" / "dataset.json"
+        provenance = json.loads(
+            (freeze.AI_ROOT / "evaluation" / "label-provenance.json").read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory(dir=self.directory) as temporary:
+            modified_dataset = Path(temporary) / "dataset.json"
+            modified_dataset.write_bytes(dataset_path.read_bytes() + b" ")
+            changed_digest = freeze.sha256_file(modified_dataset)
+
+        with self.assertRaisesRegex(freeze.FreezeError, "sourceDatasetSha256"):
+            freeze._validate_development_provenance(provenance, changed_digest)
+
+    def test_modified_or_missing_provenance_dataset_hash_is_rejected(self):
+        dataset_digest = freeze.sha256_file(freeze.AI_ROOT / "evaluation" / "dataset.json")
+        provenance = json.loads(
+            (freeze.AI_ROOT / "evaluation" / "label-provenance.json").read_text(encoding="utf-8"))
+        modified = dict(provenance, sourceDatasetSha256="0" * 64)
+        with self.assertRaisesRegex(freeze.FreezeError, "sourceDatasetSha256"):
+            freeze._validate_development_provenance(modified, dataset_digest)
+
+        missing = dict(provenance)
+        missing.pop("sourceDatasetSha256")
+        with self.assertRaisesRegex(freeze.FreezeError, "sourceDatasetSha256"):
+            freeze._validate_development_provenance(missing, dataset_digest)
+
+    def test_missing_development_provenance_file_is_rejected(self):
+        with self.assertRaisesRegex(freeze.FreezeError, "Cannot read required JSON input"):
+            freeze._materialized_assets(
+                freeze.AI_ROOT / "evaluation" / "dataset.json",
+                self.directory / "missing-label-provenance.json")
+
+    def test_missing_provenance_fields_are_rejected(self):
+        dataset_digest = freeze.sha256_file(freeze.AI_ROOT / "evaluation" / "dataset.json")
+        provenance = json.loads(
+            (freeze.AI_ROOT / "evaluation" / "label-provenance.json").read_text(encoding="utf-8"))
+        provenance.pop("annotatorIdentityRecorded")
+        with self.assertRaisesRegex(freeze.FreezeError, "annotatorIdentityRecorded"):
+            freeze._validate_development_provenance(provenance, dataset_digest)
 
     def test_heldout_evaluation_is_blocked_until_labels_and_review_provenance_are_frozen(self):
         self.create()
