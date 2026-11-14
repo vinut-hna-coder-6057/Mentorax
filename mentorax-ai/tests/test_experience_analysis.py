@@ -3,6 +3,7 @@ import json
 import os
 import unittest
 from copy import deepcopy
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 from fastapi.testclient import TestClient
@@ -41,7 +42,25 @@ def blank_pdf() -> bytes:
 def employment_image() -> bytes:
     image = Image.new("RGB", (1400, 500), "white")
     draw = ImageDraw.Draw(image)
-    font = ImageFont.truetype("C:\\Windows\\Fonts\\arial.ttf", 48)
+    font = None
+    for font_path in (
+        "C:/Windows/Fonts/arial.ttf",
+        "C:/Windows/Fonts/segoeui.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+    ):
+        try:
+            font = ImageFont.truetype(str(Path(font_path)), 48)
+            break
+        except OSError:
+            continue
+    if font is None:
+        try:
+            font = ImageFont.load_default(size=48)
+        except TypeError:
+            font = ImageFont.load_default()
     draw.text((60, 35), "EXPERIENCE CERTIFICATE", fill="black", font=font)
     draw.text((60, 145), "Employee Name: Example User", fill="black", font=font)
     draw.text((60, 245), "Employer: Northstar", fill="black", font=font)
