@@ -92,12 +92,12 @@ class RoutedMigrationTest {
 
     @Test
     void freshChainReceivesHardeningChangesAfterItsCurrentBaseline() throws Exception {
-        verifyChain("classpath:db/fresh", "1", "23");
+        verifyChain("classpath:db/fresh", "1", "25");
     }
 
     @Test
     void normalizedChainReceivesHardeningChangesAfterItsCurrentBaseline() throws Exception {
-        verifyChain("classpath:db/normalized", "2", "23");
+        verifyChain("classpath:db/normalized", "2", "25");
     }
 
     @Test
@@ -119,14 +119,18 @@ class RoutedMigrationTest {
 
         var result = flyway.migrate();
 
-        assertEquals(14, result.migrationsExecuted);
-        assertEquals("23", flyway.info().current().getVersion().getVersion());
+        assertEquals(16, result.migrationsExecuted);
+        assertEquals("25", flyway.info().current().getVersion().getVersion());
         try (var connection = DriverManager.getConnection(url, "sa", "")) {
             assertTrue(hasTable(connection, "email_outbox"));
             assertTrue(hasColumn(connection, "email_outbox", "purpose"));
             assertTrue(hasColumn(connection, "events", "max_capacity"));
             assertExperienceEvidenceSchema(connection);
             assertTrue(hasTable(connection, "experience_corroboration_attempts"));
+            assertKnowledgeContributionSchema(connection);
+            assertTrue(hasTable(connection, "knowledge_companion_conversations"));
+            assertTrue(hasTable(connection, "knowledge_question_interest"));
+            assertTrue(hasTable(connection, "knowledge_roadmaps"));
             try (var statement = connection.createStatement();
                  var resultSet = statement.executeQuery(
                          "SELECT email_verified FROM users WHERE id = 1")) {
@@ -156,7 +160,7 @@ class RoutedMigrationTest {
                 .baselineVersion(baselineVersion)
                 .load();
         var result = flyway.migrate();
-        assertEquals(16, result.migrationsExecuted);
+        assertEquals(18, result.migrationsExecuted);
         assertEquals(expectedVersion, flyway.info().current().getVersion().getVersion());
 
         try (var connection = DriverManager.getConnection(url, "sa", "")) {
@@ -169,6 +173,11 @@ class RoutedMigrationTest {
             assertExperienceEvidenceSchema(connection);
             assertExperienceExtractionSchema(connection);
             assertTrue(hasTable(connection, "experience_corroboration_attempts"));
+            assertKnowledgeContributionSchema(connection);
+            assertTrue(hasTable(connection, "knowledge_companion_conversations"));
+            assertTrue(hasTable(connection, "knowledge_question_interest"));
+            assertTrue(hasTable(connection, "knowledge_roadmaps"));
+            assertTrue(hasColumn(connection, "knowledge_contributions", "reminder_due_at"));
             assertTrue(hasColumn(connection, "experience_claim_processing", "lease_token"));
             assertTrue(hasColumn(connection, "experience_claims", "analysis_method"));
             assertTrue(hasColumn(connection, "experience_claims", "ocr_status"));
@@ -184,6 +193,17 @@ class RoutedMigrationTest {
                 assertTrue(verified.getBoolean(1));
             }
         }
+    }
+
+    private static void assertKnowledgeContributionSchema(java.sql.Connection connection) throws Exception {
+        assertTrue(hasTable(connection, "knowledge_contributions"));
+        assertTrue(hasTable(connection, "knowledge_contribution_versions"));
+        assertTrue(hasTable(connection, "knowledge_contribution_entries"));
+        assertTrue(hasTable(connection, "knowledge_contribution_audit"));
+        assertTrue(hasImportedKey(connection, "knowledge_contributions", "owner_user_id", "users"));
+        assertTrue(hasImportedKey(connection, "knowledge_contribution_versions", "contribution_id", "knowledge_contributions"));
+        assertTrue(hasIndex(connection, "knowledge_contributions", "idx_knowledge_contributions_public"));
+        assertTrue(hasIndex(connection, "knowledge_contribution_entries", "idx_knowledge_entries_version_position"));
     }
 
     private static void assertExperienceEvidenceSchema(java.sql.Connection connection) throws Exception {

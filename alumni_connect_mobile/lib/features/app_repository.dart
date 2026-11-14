@@ -35,6 +35,145 @@ class AppRepository {
     '/messages/$messageId/assistant',
     decode: (d) => Map<String, dynamic>.from(d as Map),
   );
+
+  Future<Map<String, dynamic>> createKnowledgeConversation({String? title}) =>
+      api.post(
+        '/api/knowledge/companion/conversations',
+        data: title == null ? <String, dynamic>{} : {'title': title},
+        decode: (d) => Map<String, dynamic>.from(d as Map),
+      );
+  Future<List<Map<String, dynamic>>> knowledgeConversations({int page = 0}) =>
+      api.get(
+        '/api/knowledge/companion/conversations',
+        query: {'page': page, 'size': 20},
+        decode: (d) => (d as List)
+            .map((e) => Map<String, dynamic>.from(e as Map))
+            .toList(),
+      );
+  Future<List<Map<String, dynamic>>> knowledgeMessages(
+    int conversationId, {
+    int page = 0,
+  }) => api.get(
+    '/api/knowledge/companion/conversations/$conversationId/messages',
+    query: {'page': page, 'size': 50},
+    decode: (d) =>
+        (d as List).map((e) => Map<String, dynamic>.from(e as Map)).toList(),
+  );
+  Future<List<Map<String, dynamic>>> askKnowledgeQuestion(
+    int conversationId,
+    String content,
+  ) => api.post(
+    '/api/knowledge/companion/conversations/$conversationId/messages',
+    data: {'content': content},
+    decode: (d) =>
+        (d as List).map((e) => Map<String, dynamic>.from(e as Map)).toList(),
+  );
+  Future<void> deleteKnowledgeConversation(int id) async =>
+      api.delete('/api/knowledge/companion/conversations/$id', decode: (_) {});
+  Future<List<Map<String, dynamic>>> knowledgeRoadmaps() => api.get(
+    '/api/knowledge/roadmaps',
+    decode: (d) =>
+        (d as List).map((e) => Map<String, dynamic>.from(e as Map)).toList(),
+  );
+  Future<Map<String, dynamic>> createKnowledgeRoadmap(String goal) => api.post(
+    '/api/knowledge/roadmaps',
+    data: {'goal': goal},
+    decode: (d) => Map<String, dynamic>.from(d as Map),
+  );
+  Future<Map<String, dynamic>> updateRoadmapItem(
+    int roadmapId,
+    int itemId, {
+    required String title,
+    required String description,
+    required String status,
+  }) => api.put(
+    '/api/knowledge/roadmaps/$roadmapId/items/$itemId',
+    data: {'title': title, 'description': description, 'status': status},
+    decode: (d) => Map<String, dynamic>.from(d as Map),
+  );
+  Future<void> deleteKnowledgeRoadmap(int id) async =>
+      api.delete('/api/knowledge/roadmaps/$id', decode: (_) {});
+  Future<List<Map<String, dynamic>>> alumniKnowledgeContributions() => api.get(
+    '/api/alumni/knowledge/mine',
+    query: {'page': 0, 'size': 50},
+    decode: (d) =>
+        (d as List).map((e) => Map<String, dynamic>.from(e as Map)).toList(),
+  );
+  Future<Map<String, dynamic>> createAlumniKnowledgeContribution({
+    required String category,
+    required String title,
+    required String narrative,
+  }) => api.post(
+    '/api/alumni/knowledge',
+    data: {
+      'category': category,
+      'title': title,
+      'narrative': narrative,
+      'entries': <Map<String, dynamic>>[],
+    },
+    decode: (d) => Map<String, dynamic>.from(d as Map),
+  );
+  Future<Map<String, dynamic>> updateAlumniKnowledgeContribution(
+    int id, {
+    required String category,
+    required String title,
+    required String narrative,
+    String? companyName,
+    String? jobRole,
+    int? experienceYear,
+    List<Map<String, dynamic>> entries = const [],
+  }) => api.put(
+    '/api/alumni/knowledge/$id',
+    data: {
+      'category': category,
+      'title': title,
+      'narrative': narrative,
+      'companyName': companyName,
+      'jobRole': jobRole,
+      'experienceYear': experienceYear,
+      'entries': entries,
+    },
+    decode: (d) => Map<String, dynamic>.from(d as Map),
+  );
+  Future<Map<String, dynamic>> publishAlumniKnowledge(int id) => api.post(
+    '/api/alumni/knowledge/$id/publish',
+    data: {'studentVisibilityConsent': true, 'aiRetrievalConsent': true},
+    decode: (d) => Map<String, dynamic>.from(d as Map),
+  );
+  Future<Map<String, dynamic>> withdrawAlumniKnowledge(int id) => api.post(
+    '/api/alumni/knowledge/$id/withdraw',
+    decode: (d) => Map<String, dynamic>.from(d as Map),
+  );
+  Future<Map<String, dynamic>> setKnowledgeConsent(
+    int id, {
+    required bool studentVisibilityConsent,
+    required bool aiRetrievalConsent,
+  }) => api.patch(
+    '/api/alumni/knowledge/$id/consent',
+    data: {
+      'studentVisibilityConsent': studentVisibilityConsent,
+      'aiRetrievalConsent': aiRetrievalConsent,
+    },
+    decode: (d) => Map<String, dynamic>.from(d as Map),
+  );
+  Future<List<Map<String, dynamic>>> knowledgeOpportunities() => api.get(
+    '/api/alumni/knowledge/opportunities',
+    decode: (d) =>
+        (d as List).map((e) => Map<String, dynamic>.from(e as Map)).toList(),
+  );
+  Future<Map<String, dynamic>> setKnowledgeFreshness(
+    int id, {
+    required int intervalDays,
+    required bool remindersEnabled,
+  }) => api.patch(
+    '/api/alumni/knowledge/$id/freshness',
+    data: {'intervalDays': intervalDays, 'remindersEnabled': remindersEnabled},
+    decode: (d) => Map<String, dynamic>.from(d as Map),
+  );
+  Future<Map<String, dynamic>> confirmKnowledgeFreshness(int id) => api.post(
+    '/api/alumni/knowledge/$id/freshness/confirm',
+    decode: (d) => Map<String, dynamic>.from(d as Map),
+  );
   Future<void> approveAlumni(int id) async {
     await api.put('/alumni/approve/$id', decode: (_) {});
   }

@@ -105,6 +105,18 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (_, __) => const MentorDiscoveryScreen(),
       ),
       GoRoute(
+        path: '/student/knowledge-companion',
+        builder: (_, __) => const KnowledgeCompanionScreen(),
+      ),
+      GoRoute(
+        path: '/student/knowledge-roadmaps',
+        builder: (_, __) => const KnowledgeRoadmapsScreen(),
+      ),
+      GoRoute(
+        path: '/alumni/knowledge-contributions',
+        builder: (_, __) => const AlumniKnowledgeContributionsScreen(),
+      ),
+      GoRoute(
         path: '/student/:tab',
         builder: (_, s) =>
             RoleShell(role: UserRole.student, tab: s.pathParameters['tab']!),
