@@ -27,6 +27,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalInt;
 import java.util.Set;
 
 @Service
@@ -40,6 +41,7 @@ public class ExperienceClaimProcessingService {
     private final ExperienceClaimAuditRepository auditRepository;
     private final ExperienceEvidenceCrypto evidenceCrypto;
     private final ExperienceEvidenceAnalysisService analysisService;
+    private final ExperienceEvidenceExtractionPersistenceService extractionPersistenceService;
     private final ExperienceVerificationDecisionEngine decisionEngine;
     private final EmploymentCorroborationService corroborationService;
     private final NotificationService notificationService;
@@ -53,6 +55,7 @@ public class ExperienceClaimProcessingService {
             ExperienceClaimAuditRepository auditRepository,
             ExperienceEvidenceCrypto evidenceCrypto,
             ExperienceEvidenceAnalysisService analysisService,
+            ExperienceEvidenceExtractionPersistenceService extractionPersistenceService,
             ExperienceVerificationDecisionEngine decisionEngine,
             EmploymentCorroborationService corroborationService,
             NotificationService notificationService,
@@ -64,6 +67,7 @@ public class ExperienceClaimProcessingService {
         this.auditRepository = auditRepository;
         this.evidenceCrypto = evidenceCrypto;
         this.analysisService = analysisService;
+        this.extractionPersistenceService = extractionPersistenceService;
         this.decisionEngine = decisionEngine;
         this.corroborationService = corroborationService;
         this.notificationService = notificationService;
@@ -72,10 +76,22 @@ public class ExperienceClaimProcessingService {
     }
 
     @Transactional
-    public void processClaim(Long claimId) {
+    public OptionalInt acquireLease(Long claimId, LocalDateTime now, LocalDateTime leaseUntil) {
+        if (processingRepository.acquire(claimId, now, leaseUntil) != 1) {
+            return OptionalInt.empty();
+        }
+        ExperienceClaimProcessing job = processingRepository.findById(claimId)
+                .orElseThrow(() -> new IllegalStateException(
+                        "Acquired experience processing job could not be reloaded"));
+        return OptionalInt.of(job.getAttemptCount());
+    }
+
+    @Transactional
+    public void processClaim(Long claimId, int leaseAttempt) {
         ExperienceClaim claim = claimRepository.findByIdForUpdate(claimId).orElse(null);
-        ExperienceClaimProcessing job = processingRepository.findById(claimId).orElse(null);
-        if (claim == null || job == null) return;
+        if (claim == null) return;
+        ExperienceClaimProcessing job = processingRepository.findByIdForUpdate(claimId).orElse(null);
+        if (job == null || !ownsLiveLease(job, leaseAttempt, LocalDateTime.now())) return;
 
         int processingVersion = job.getEvidenceVersion();
         if (claim.getEvidenceVersion() != processingVersion) return;
@@ -89,32 +105,50 @@ public class ExperienceClaimProcessingService {
         claimRepository.save(claim);
 
         try {
-            List<ExperienceClaimEvidence> evidenceVersions =
+            List<ExperienceClaimEvidence> allEvidence =
                     evidenceRepository.findByClaimIdOrderByEvidenceVersionAsc(claimId);
+            List<ExperienceClaimEvidence> evidenceVersions = allEvidence.stream()
+                    .filter(evidence -> "ACTIVE".equalsIgnoreCase(evidence.getEvidenceStatus()))
+                    .toList();
             List<AnalysisResult> analyses = new ArrayList<>();
+            List<ExperienceVerificationDecisionEngine.EvidenceInput> decisionEvidence = new ArrayList<>();
             List<Integer> analysisEvidenceVersions = new ArrayList<>();
             ArrayNode combinedFindings = objectMapper.createArrayNode();
             for (ExperienceClaimEvidence evidence : evidenceVersions) {
                 byte[] document = evidenceCrypto.decrypt(evidence.getEncryptedEvidence());
                 AnalysisResult result = analysisService.analyze(
-                        analysisRequest(claim),
+                        analysisRequest(claim, evidence),
                         document,
                         evidence.getEvidenceFileName(),
                         evidence.getEvidenceMediaType());
                 if ("UNAVAILABLE".equals(result.status())) {
                     throw new RetryableAnalysisException();
                 }
+                if (result.extraction() != null) {
+                    extractionPersistenceService.persist(evidence, result.extraction());
+                }
+                if (evidence.getId() == null) {
+                    throw new IllegalStateException("Active evidence has no persisted record identity");
+                }
+                var persistedExtraction = extractionPersistenceService
+                        .findLatest(evidence.getId(), evidence.getEvidenceVersion())
+                        .orElse(null);
                 evidence.setAnalysisStatus(result.status());
                 evidence.setAnalysisFindings(result.findings());
                 evidenceRepository.save(evidence);
                 analyses.add(result);
+                decisionEvidence.add(new ExperienceVerificationDecisionEngine.EvidenceInput(
+                        evidence.getId(),
+                        evidence.getEvidenceVersion(),
+                        evidence.getEvidenceStatus(),
+                        persistedExtraction));
                 analysisEvidenceVersions.add(evidence.getEvidenceVersion());
                 appendFindings(combinedFindings, result, evidence.getEvidenceVersion());
             }
 
-            if (analyses.isEmpty() && claim.getEncryptedEvidence() != null) {
+            if (analyses.isEmpty() && allEvidence.isEmpty() && claim.getEncryptedEvidence() != null) {
                 AnalysisResult result = analysisService.analyze(
-                        analysisRequest(claim),
+                        analysisRequest(claim, null),
                         evidenceCrypto.decrypt(claim.getEncryptedEvidence()),
                         claim.getEvidenceFileName(),
                         claim.getEvidenceMediaType());
@@ -128,19 +162,8 @@ public class ExperienceClaimProcessingService {
             appendCrossDocumentFindings(combinedFindings);
             appendDuplicateDocumentFindings(combinedFindings, analyses, analysisEvidenceVersions);
 
-            List<AnalysisResult> decisionAnalyses = new ArrayList<>(analyses);
-            ArrayNode crossDocumentFindings = crossDocumentFindings(combinedFindings);
-            if (!crossDocumentFindings.isEmpty()) {
-                decisionAnalyses.add(new AnalysisResult(
-                        "ANALYZED",
-                        objectMapper.writeValueAsString(crossDocumentFindings),
-                        "UNKNOWN",
-                        0,
-                        "HEURISTIC_FALLBACK",
-                        "NOT_NEEDED"));
-            }
             ExperienceVerificationDecisionEngine.Decision decision =
-                    decisionEngine.decideEvidenceBased(claim, decisionAnalyses);
+                    decisionEngine.decideEvidenceBased(claim, decisionEvidence);
             EmploymentCorroborationService.Result corroboration =
                     "VERIFIED_FROM_EVIDENCE".equals(decision.status())
                             ? corroborationService.verify(claim)
@@ -151,11 +174,12 @@ public class ExperienceClaimProcessingService {
                         "Submitted evidence is consistent and an independent employer verification provider confirmed the claim.",
                         List.of());
             }
-            claim.setAiStatus(analyses.stream().anyMatch(a -> "INCONCLUSIVE".equals(a.status()))
+            claim.setAiStatus(analyses.isEmpty()
+                    || analyses.stream().anyMatch(a -> "INCONCLUSIVE".equals(a.status()))
                     ? "INCONCLUSIVE" : "ANALYZED");
             claim.setAiFindings(objectMapper.writeValueAsString(combinedFindings));
-            claim.setAnalysisMethod(aggregateAnalysisMethod(analyses));
-            claim.setOcrStatus(aggregateOcrStatus(analyses));
+            claim.setAnalysisMethod(analyses.isEmpty() ? "NOT_RUN" : aggregateAnalysisMethod(analyses));
+            claim.setOcrStatus(analyses.isEmpty() ? "NOT_RUN" : aggregateOcrStatus(analyses));
             claim.setStatus(decision.status());
             claim.setDecisionExplanation(decision.explanation());
             claim.setRequestedEvidence(objectMapper.writeValueAsString(decision.requestedEvidence()));
@@ -187,16 +211,29 @@ public class ExperienceClaimProcessingService {
     }
 
     @Transactional
-    public void recordUnexpectedFailure(Long claimId) {
+    public void recordUnexpectedFailure(Long claimId, int leaseAttempt) {
         ExperienceClaim claim = claimRepository.findByIdForUpdate(claimId).orElse(null);
-        ExperienceClaimProcessing job = processingRepository.findById(claimId).orElse(null);
-        if (claim == null || job == null) return;
+        if (claim == null) return;
+        ExperienceClaimProcessing job = processingRepository.findByIdForUpdate(claimId).orElse(null);
+        if (job == null || !ownsLiveLease(job, leaseAttempt, LocalDateTime.now())) return;
         scheduleRetry(claim, job, claim.getStatus(),
                 "An unexpected processing error occurred.");
     }
 
-    private ExperienceEvidenceAnalysisRequest analysisRequest(ExperienceClaim claim) {
+    private boolean ownsLiveLease(
+            ExperienceClaimProcessing job, int leaseAttempt, LocalDateTime now) {
+        return job.getAttemptCount() == leaseAttempt
+                && job.getLeaseUntil() != null
+                && job.getLeaseUntil().isAfter(now);
+    }
+
+    private ExperienceEvidenceAnalysisRequest analysisRequest(ExperienceClaim claim, ExperienceClaimEvidence evidence) {
+        Long evidenceId = evidence != null && evidence.getId() != null ? evidence.getId() : claim.getId();
+        Integer evidenceVersion = evidence != null ? evidence.getEvidenceVersion() : claim.getEvidenceVersion();
         return new ExperienceEvidenceAnalysisRequest(
+                evidenceId,
+                evidenceVersion,
+                claim.getClaimType(),
                 claim.getCompany(),
                 claim.getJobTitle(),
                 claim.getStartMonth(),
@@ -283,16 +320,6 @@ public class ExperienceClaimProcessingService {
                     });
                     findings.add(duplicate);
                 });
-    }
-
-    private ArrayNode crossDocumentFindings(ArrayNode findings) {
-        ArrayNode crossDocument = objectMapper.createArrayNode();
-        for (JsonNode finding : findings) {
-            if (finding.has("evidenceVersions")) {
-                crossDocument.add(finding.deepCopy());
-            }
-        }
-        return crossDocument;
     }
 
     private void scheduleRetry(ExperienceClaim claim, ExperienceClaimProcessing job,

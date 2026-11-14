@@ -24,6 +24,10 @@ public class ExperienceClaim {
     @Column(name = "job_title", nullable = false, length = 150)
     private String jobTitle;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "claim_type", nullable = false, length = 32)
+    private ExperienceClaimType claimType = ExperienceClaimType.UNSPECIFIED;
+
     @Column(name = "request_id", length = 36)
     private String requestId;
 
@@ -141,6 +145,14 @@ public class ExperienceClaim {
 
     public void setJobTitle(String jobTitle) {
         this.jobTitle = jobTitle;
+    }
+
+    public ExperienceClaimType getClaimType() {
+        return claimType == null ? ExperienceClaimType.UNSPECIFIED : claimType;
+    }
+
+    public void setClaimType(ExperienceClaimType claimType) {
+        this.claimType = claimType == null ? ExperienceClaimType.UNSPECIFIED : claimType;
     }
 
     public String getRequestId() {

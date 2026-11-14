@@ -1,13 +1,17 @@
 package com.alumni.alumni_connect.repository;
 
 import com.alumni.alumni_connect.entity.ExperienceClaimProcessing;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 public interface ExperienceClaimProcessingRepository extends JpaRepository<ExperienceClaimProcessing, Long> {
     @Query("""
@@ -19,7 +23,12 @@ public interface ExperienceClaimProcessingRepository extends JpaRepository<Exper
             """)
     List<Long> findDueClaimIds(@Param("now") LocalDateTime now);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select job from ExperienceClaimProcessing job where job.claimId = :claimId")
+    Optional<ExperienceClaimProcessing> findByIdForUpdate(@Param("claimId") Long claimId);
+
     @Modifying
+    @Transactional
     @Query("""
             update ExperienceClaimProcessing job
             set job.attemptCount = job.attemptCount + 1,

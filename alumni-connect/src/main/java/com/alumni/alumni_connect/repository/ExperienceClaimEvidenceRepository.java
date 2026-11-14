@@ -11,5 +11,7 @@ public interface ExperienceClaimEvidenceRepository extends JpaRepository<Experie
 
     Optional<ExperienceClaimEvidence> findByClaimIdAndEvidenceHash(Long claimId, String evidenceHash);
 
+    Optional<ExperienceClaimEvidence> findByIdAndClaimId(Long id, Long claimId);
+
     void deleteByClaimId(Long claimId);
 }

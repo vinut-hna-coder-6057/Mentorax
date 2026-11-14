@@ -1,5 +1,139 @@
 enum UserRole { student, alumni, admin, unknown }
 
+enum ExperienceClaimType { internship, mentorship, unspecified }
+
+extension ExperienceClaimTypeDetails on ExperienceClaimType {
+  String get apiValue => switch (this) {
+    ExperienceClaimType.internship => 'INTERNSHIP',
+    ExperienceClaimType.mentorship => 'MENTORSHIP',
+    ExperienceClaimType.unspecified => 'UNSPECIFIED',
+  };
+
+  String get label => switch (this) {
+    ExperienceClaimType.internship => 'Internship',
+    ExperienceClaimType.mentorship => 'Mentorship',
+    ExperienceClaimType.unspecified => 'Unspecified',
+  };
+}
+
+enum ExperienceEvidenceLifecycle { active, superseded, withdrawn, unknown }
+
+ExperienceEvidenceLifecycle experienceEvidenceLifecycle(String? value) =>
+    switch (value?.toUpperCase()) {
+      'ACTIVE' => ExperienceEvidenceLifecycle.active,
+      'SUPERSEDED' => ExperienceEvidenceLifecycle.superseded,
+      'WITHDRAWN' => ExperienceEvidenceLifecycle.withdrawn,
+      _ => ExperienceEvidenceLifecycle.unknown,
+    };
+
+String experienceEvidenceLifecycleLabel(String? value) =>
+    switch (experienceEvidenceLifecycle(value)) {
+      ExperienceEvidenceLifecycle.active => 'Current',
+      ExperienceEvidenceLifecycle.superseded => 'Replaced',
+      ExperienceEvidenceLifecycle.withdrawn => 'Withdrawn',
+      ExperienceEvidenceLifecycle.unknown => 'Status unavailable',
+    };
+
+String experienceEvidenceLifecycleExplanation(
+  String? value,
+) => switch (experienceEvidenceLifecycle(value)) {
+  ExperienceEvidenceLifecycle.active =>
+    'This evidence is included in the current assessment.',
+  ExperienceEvidenceLifecycle.superseded =>
+    'This evidence was replaced. It remains in history and is not included in the current assessment.',
+  ExperienceEvidenceLifecycle.withdrawn =>
+    'This evidence was withdrawn. It remains in history and is not included in the current assessment.',
+  ExperienceEvidenceLifecycle.unknown =>
+    'The evidence status is unknown, so its use in the current assessment cannot be confirmed.',
+};
+
+String experienceEvidenceRelationshipLabel(String? value) =>
+    switch (value?.toUpperCase()) {
+      'COMPLEMENTARY' => 'Adds supporting information',
+      'REPLACEMENT' => 'Replaces an earlier document',
+      'CORRECTION' => 'Corrects an earlier document',
+      'CONFLICTS_WITH' => 'Differs from another document',
+      _ => 'Relationship unavailable',
+    };
+
+String experienceEvidenceRelationshipExplanation(String? value) => switch (value
+    ?.toUpperCase()) {
+  'COMPLEMENTARY' =>
+    'Adds context alongside other active evidence; it does not replace it.',
+  'REPLACEMENT' =>
+    'The server marks the linked earlier document as replaced after this upload succeeds.',
+  'CORRECTION' =>
+    'The server marks the linked earlier document as replaced after this correction succeeds.',
+  'CONFLICTS_WITH' =>
+    'Links documents with different information. A conflict alone is not a finding of fraud.',
+  _ => 'The relationship details are not available.',
+};
+
+String experienceClaimStatusLabel(String? value) => switch (value
+    ?.toUpperCase()) {
+  'PENDING' => 'Submitted',
+  'AWAITING_EVIDENCE' ||
+  'NEEDS_INFO' ||
+  'ADDITIONAL_EVIDENCE_REQUIRED' ||
+  'INSUFFICIENT_EVIDENCE' => 'More evidence needed',
+  'PROCESSING' => 'Review in progress',
+  'PROCESSING_FAILED' => 'Review could not finish',
+  'INCONSISTENT' => 'Conflicting information',
+  'VERIFIED' || 'VERIFIED_FROM_EVIDENCE' => 'Supported by submitted evidence',
+  'EMPLOYER_CONFIRMED' => 'Employer independently confirmed',
+  'REJECTED' => 'Rejected',
+  _ => 'Status unavailable',
+};
+
+String experienceClaimStatusExplanation(String? value) => switch (value
+    ?.toUpperCase()) {
+  'VERIFIED' || 'VERIFIED_FROM_EVIDENCE' =>
+    'The submitted documents support the claim. This does not guarantee document authenticity or independently confirm the issuer.',
+  'EMPLOYER_CONFIRMED' =>
+    'An independent verification provider confirmed the claim.',
+  'INCONSISTENT' =>
+    'Documents differ on some information. This is not by itself a finding of fraud.',
+  'PROCESSING' => 'The submitted evidence is being assessed.',
+  'PROCESSING_FAILED' =>
+    'The assessment did not finish. You can retry it without replacing your evidence.',
+  'AWAITING_EVIDENCE' ||
+  'NEEDS_INFO' ||
+  'ADDITIONAL_EVIDENCE_REQUIRED' ||
+  'INSUFFICIENT_EVIDENCE' =>
+    'More information is needed before the claim can be assessed.',
+  'PENDING' => 'Your claim has been submitted.',
+  'REJECTED' => 'The claim was rejected.',
+  _ => 'The current claim status is not available.',
+};
+
+String experienceAnalysisStatusLabel(String? value) =>
+    switch (value?.toUpperCase()) {
+      'QUEUED' || 'PROCESSING' => 'Being reviewed',
+      'ANALYZED' => 'Analysis complete',
+      'INCONCLUSIVE' => 'Inconclusive — not a fraud finding',
+      'UNREADABLE' => 'Document could not be read',
+      'UNAVAILABLE' || 'FAILED' => 'Analysis unavailable',
+      'NOT_RUN' => 'Not started',
+      _ => 'Analysis status unavailable',
+    };
+
+String experienceFindingOutcomeLabel(String? value) =>
+    switch (value?.toUpperCase()) {
+      'MATCH' => 'Consistent with the claim',
+      'MISMATCH' => 'Differs from the claim',
+      'MISSING' => 'Not found in the document',
+      'INCONCLUSIVE' => 'Could not be assessed',
+      _ => 'Needs review',
+    };
+
+ExperienceClaimType experienceClaimType(String? value) =>
+    switch (value?.toUpperCase()) {
+      'INTERNSHIP' => ExperienceClaimType.internship,
+      'MENTORSHIP' => ExperienceClaimType.mentorship,
+      'UNSPECIFIED' || null => ExperienceClaimType.unspecified,
+      _ => ExperienceClaimType.unspecified,
+    };
+
 UserRole userRole(String? value) => switch (value?.toUpperCase()) {
   'STUDENT' => UserRole.student,
   'ALUMNI' => UserRole.alumni,
@@ -253,6 +387,7 @@ class ExperienceClaim {
     required this.status,
     required this.aiStatus,
     required this.evidenceAvailable,
+    this.claimType = ExperienceClaimType.unspecified,
     this.requestId,
     this.startMonth,
     this.endMonth,
@@ -279,6 +414,7 @@ class ExperienceClaim {
   final String status;
   final String aiStatus;
   final bool evidenceAvailable;
+  final ExperienceClaimType claimType;
   final String? requestId;
   final String? startMonth;
   final String? endMonth;
@@ -303,9 +439,10 @@ class ExperienceClaim {
         company: json['company'] as String? ?? '',
         jobTitle: json['jobTitle'] as String? ?? '',
         summary: json['summary'] as String? ?? '',
-        status: json['status'] as String? ?? 'PENDING',
-        aiStatus: json['aiStatus'] as String? ?? 'PENDING',
+        status: json['status'] as String? ?? 'UNKNOWN',
+        aiStatus: json['aiStatus'] as String? ?? 'UNKNOWN',
         evidenceAvailable: json['evidenceAvailable'] as bool? ?? false,
+        claimType: experienceClaimType(json['claimType'] as String?),
         requestId: json['requestId'] as String?,
         startMonth: json['startMonth'] as String?,
         endMonth: json['endMonth'] as String?,
@@ -349,5 +486,54 @@ class ExperienceClaimAudit {
         oldStatus: json['oldStatus'] as String?,
         newStatus: json['newStatus'] as String?,
         eventNote: json['eventNote'] as String?,
+      );
+}
+
+class ExperienceClaimEvidence {
+  const ExperienceClaimEvidence({
+    required this.id,
+    required this.evidenceVersion,
+    required this.evidenceFileName,
+    required this.evidenceMediaType,
+    required this.evidenceStatus,
+    required this.analysisStatus,
+    required this.createdAt,
+    this.evidenceSize,
+    this.evidenceHash,
+    this.analysisFindings,
+    this.relationshipType,
+    this.relatedEvidenceId,
+    this.supersededAt,
+  });
+
+  final int id;
+  final int evidenceVersion;
+  final String evidenceFileName;
+  final String evidenceMediaType;
+  final String evidenceStatus;
+  final String analysisStatus;
+  final String createdAt;
+  final int? evidenceSize;
+  final String? evidenceHash;
+  final String? analysisFindings;
+  final String? relationshipType;
+  final int? relatedEvidenceId;
+  final String? supersededAt;
+
+  factory ExperienceClaimEvidence.fromJson(Map<String, dynamic> json) =>
+      ExperienceClaimEvidence(
+        id: (json['id'] as num).toInt(),
+        evidenceVersion: (json['evidenceVersion'] as num).toInt(),
+        evidenceFileName: json['evidenceFileName'] as String? ?? '',
+        evidenceMediaType: json['evidenceMediaType'] as String? ?? '',
+        evidenceStatus: json['evidenceStatus'] as String? ?? 'UNKNOWN',
+        analysisStatus: json['analysisStatus'] as String? ?? 'UNKNOWN',
+        createdAt: json['createdAt'] as String? ?? '',
+        evidenceSize: (json['evidenceSize'] as num?)?.toInt(),
+        evidenceHash: json['evidenceHash'] as String?,
+        analysisFindings: json['analysisFindings'] as String?,
+        relationshipType: json['relationshipType'] as String?,
+        relatedEvidenceId: (json['relatedEvidenceId'] as num?)?.toInt(),
+        supersededAt: json['supersededAt'] as String?,
       );
 }

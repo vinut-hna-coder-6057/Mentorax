@@ -36,6 +36,14 @@ class FreshMySqlMigrationTestConfigurationTest {
     }
 
     @Test
+    void acceptsAnAdditionalLoopbackPortForAnIsolatedDisposableMySqlInstance() {
+        FreshMySqlMigrationTest.DatabaseSettings settings = FreshMySqlMigrationTest.settings(
+                PREFIX, environment("jdbc:mysql://127.0.0.1:3308/mentorax_migration_test"));
+
+        assertEquals("mentorax_migration_test", settings.schema());
+    }
+
+    @Test
     void rejectsMissingCredentialsInsteadOfSkippingTheMySqlTest() {
         IllegalStateException exception = assertThrows(IllegalStateException.class,
                 () -> FreshMySqlMigrationTest.settings(PREFIX, Map.of()));
@@ -49,7 +57,7 @@ class FreshMySqlMigrationTestConfigurationTest {
         for (String url : new String[]{
                 "jdbc:mysql://localhost:3306/mentorax",
                 "jdbc:mysql://db.example.com:3306/mentorax_migration_test",
-                "jdbc:mysql://localhost:3307/mentorax_migration_test",
+                "jdbc:mysql://localhost:3309/mentorax_migration_test",
                 "jdbc:mysql://user:pass@localhost:3306/mentorax_migration_test",
                 "jdbc:mysql://localhost:3306/mentorax_migration_test?socketFactory=custom"
         }) {

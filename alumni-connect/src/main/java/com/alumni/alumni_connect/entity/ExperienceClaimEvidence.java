@@ -49,6 +49,18 @@ public class ExperienceClaimEvidence {
     @Column(name = "analysis_findings", columnDefinition = "TEXT")
     private String analysisFindings;
 
+    @Column(name = "evidence_status", nullable = false, length = 32)
+    private String evidenceStatus = "ACTIVE";
+
+    @Column(name = "relationship_type", length = 32)
+    private String relationshipType;
+
+    @Column(name = "related_evidence_id")
+    private Long relatedEvidenceId;
+
+    @Column(name = "superseded_at")
+    private LocalDateTime supersededAt;
+
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 
@@ -81,5 +93,13 @@ public class ExperienceClaimEvidence {
     public void setAnalysisStatus(String analysisStatus) { this.analysisStatus = analysisStatus; }
     public String getAnalysisFindings() { return analysisFindings; }
     public void setAnalysisFindings(String analysisFindings) { this.analysisFindings = analysisFindings; }
+    public String getEvidenceStatus() { return evidenceStatus; }
+    public void setEvidenceStatus(String evidenceStatus) { this.evidenceStatus = evidenceStatus; }
+    public String getRelationshipType() { return relationshipType; }
+    public void setRelationshipType(String relationshipType) { this.relationshipType = relationshipType; }
+    public Long getRelatedEvidenceId() { return relatedEvidenceId; }
+    public void setRelatedEvidenceId(Long relatedEvidenceId) { this.relatedEvidenceId = relatedEvidenceId; }
+    public LocalDateTime getSupersededAt() { return supersededAt; }
+    public void setSupersededAt(LocalDateTime supersededAt) { this.supersededAt = supersededAt; }
     public LocalDateTime getCreatedAt() { return createdAt; }
 }

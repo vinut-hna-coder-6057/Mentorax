@@ -165,6 +165,7 @@ class AppRepository {
   Future<ExperienceClaim> createExperienceClaim({
     required String company,
     required String jobTitle,
+    required ExperienceClaimType claimType,
     required String requestId,
     required String summary,
     String? startMonth,
@@ -174,6 +175,7 @@ class AppRepository {
     data: {
       'company': company,
       'jobTitle': jobTitle,
+      'claimType': claimType.apiValue,
       'requestId': requestId,
       'summary': summary,
       'startMonth': startMonth,
@@ -187,6 +189,7 @@ class AppRepository {
     int id, {
     required String company,
     required String jobTitle,
+    required ExperienceClaimType claimType,
     required String summary,
     required String requestId,
     String? startMonth,
@@ -196,6 +199,7 @@ class AppRepository {
     data: {
       'company': company,
       'jobTitle': jobTitle,
+      'claimType': claimType.apiValue,
       'requestId': requestId,
       'summary': summary,
       'startMonth': startMonth,
@@ -230,14 +234,31 @@ class AppRepository {
         .toList(),
   );
 
+  Future<List<ExperienceClaimEvidence>> experienceEvidenceHistory(int id) =>
+      api.get(
+        '/experience-claims/$id/evidence/history',
+        decode: (data) => (data as List)
+            .map(
+              (item) => ExperienceClaimEvidence.fromJson(
+                Map<String, dynamic>.from(item as Map),
+              ),
+            )
+            .toList(),
+      );
+
   Future<ExperienceClaim> uploadExperienceEvidence(
     int id,
     String filename,
     Uint8List bytes, {
+    String relationshipType = 'COMPLEMENTARY',
+    int? relatedEvidenceId,
     ProgressCallback? onSendProgress,
   }) => api.postForm(
     '/experience-claims/$id/evidence',
     data: FormData.fromMap({
+      'relationshipType': relationshipType,
+      if (relatedEvidenceId != null)
+        'relatedEvidenceId': relatedEvidenceId.toString(),
       'file': MultipartFile.fromBytes(
         bytes,
         filename: filename,
@@ -257,6 +278,12 @@ class AppRepository {
     '/experience-claims/$id/evidence',
     decode: (data) => Uint8List.fromList(List<int>.from(data as List)),
   );
+
+  Future<Uint8List> experienceEvidenceVersion(int claimId, int evidenceId) =>
+      api.getBytes(
+        '/experience-claims/$claimId/evidence/$evidenceId',
+        decode: (data) => Uint8List.fromList(List<int>.from(data as List)),
+      );
 
   Future<void> deleteExperienceEvidence(int id) =>
       api.delete('/experience-claims/$id/evidence', decode: (_) {});

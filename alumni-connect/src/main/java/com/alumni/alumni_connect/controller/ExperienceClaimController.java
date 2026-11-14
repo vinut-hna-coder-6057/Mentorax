@@ -2,6 +2,7 @@ package com.alumni.alumni_connect.controller;
 
 import com.alumni.alumni_connect.dto.*;
 import com.alumni.alumni_connect.entity.ExperienceClaim;
+import com.alumni.alumni_connect.entity.ExperienceClaimType;
 import com.alumni.alumni_connect.entity.ExperienceClaimAudit;
 import com.alumni.alumni_connect.entity.ExperienceClaimEvidence;
 import com.alumni.alumni_connect.entity.ExperienceClaimProcessing;
@@ -32,6 +33,7 @@ import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 
 import static org.springframework.http.HttpStatus.*;
@@ -105,6 +107,7 @@ public class ExperienceClaimController {
             ExperienceClaim existing = duplicate.get();
             if (!existing.getCompany().equals(request.company().trim())
                     || !existing.getJobTitle().equals(request.jobTitle().trim())
+                    || existing.getClaimType() != requestedClaimType(request)
                     || !existing.getSummary().equals(request.summary().trim())
                     || !java.util.Objects.equals(existing.getStartMonth(), blankToNull(request.startMonth()))
                     || !java.util.Objects.equals(existing.getEndMonth(), blankToNull(request.endMonth()))) {
@@ -193,7 +196,9 @@ public class ExperienceClaimController {
     @PostMapping(value = "/{id}/evidence", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @Transactional
     public ExperienceClaimResponse uploadEvidence(@PathVariable Long id,
-                                                  @RequestPart("file") MultipartFile file) {
+                                                  @RequestPart("file") MultipartFile file,
+                                                  @RequestParam(required = false) String relationshipType,
+                                                  @RequestParam(required = false) Long relatedEvidenceId) {
         User caller = requireMember();
         ExperienceClaim claim = repository.findByIdAndUserId(id, caller.getId())
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Claim not found"));
@@ -223,6 +228,30 @@ public class ExperienceClaimController {
         if (evidenceRepository.findByClaimIdAndEvidenceHash(id, hash).isPresent()) {
             return ExperienceClaimResponse.from(claim);
         }
+        String normalizedRelationship = relationshipType == null || relationshipType.isBlank()
+                ? "COMPLEMENTARY" : relationshipType.trim().toUpperCase(Locale.ROOT);
+        if (!List.of("COMPLEMENTARY", "REPLACEMENT", "CORRECTION", "CONFLICTS_WITH")
+                .contains(normalizedRelationship)) {
+            throw new ResponseStatusException(BAD_REQUEST, "Evidence relationship type is invalid");
+        }
+        if (("REPLACEMENT".equals(normalizedRelationship) || "CORRECTION".equals(normalizedRelationship))
+                && relatedEvidenceId == null) {
+            throw new ResponseStatusException(BAD_REQUEST,
+                    "Replacement and correction evidence must identify the evidence they supersede");
+        }
+        if ("CONFLICTS_WITH".equals(normalizedRelationship) && relatedEvidenceId == null) {
+            throw new ResponseStatusException(BAD_REQUEST,
+                    "Conflicting evidence must identify the evidence it conflicts with");
+        }
+        ExperienceClaimEvidence relatedEvidence = null;
+        if (relatedEvidenceId != null) {
+            relatedEvidence = evidenceRepository.findByIdAndClaimId(relatedEvidenceId, id)
+                    .orElseThrow(() -> new ResponseStatusException(
+                            BAD_REQUEST, "Related evidence must belong to this claim"));
+            if (!"ACTIVE".equalsIgnoreCase(relatedEvidence.getEvidenceStatus())) {
+                throw new ResponseStatusException(BAD_REQUEST, "Related evidence must be active");
+            }
+        }
         if (!List.of("PENDING", "AWAITING_EVIDENCE", "NEEDS_INFO", "PROCESSING",
                 "ADDITIONAL_EVIDENCE_REQUIRED", "INCONSISTENT",
                 "INSUFFICIENT_EVIDENCE", "PROCESSING_FAILED", "VERIFIED",
@@ -235,12 +264,26 @@ public class ExperienceClaimController {
 
         byte[] encrypted = evidenceCrypto.encrypt(document);
         int version = claim.getEvidenceVersion() + 1;
+        if (relatedEvidence != null && relatedEvidence.getEvidenceVersion() >= version) {
+            throw new ResponseStatusException(BAD_REQUEST,
+                    "Related evidence must precede the new evidence version");
+        }
         String oldStatus = claim.getStatus();
         String storageKey = UUID.randomUUID().toString();
         String safeName = StringUtils.getFilename(cleanedName);
-        evidenceRepository.save(new ExperienceClaimEvidence(
+        ExperienceClaimEvidence newEvidence = new ExperienceClaimEvidence(
                 claim.getId(), version, storageKey, encrypted, safeName, mediaType,
-                (long) document.length, hash));
+                (long) document.length, hash);
+        newEvidence.setEvidenceStatus("ACTIVE");
+        newEvidence.setRelationshipType(normalizedRelationship);
+        newEvidence.setRelatedEvidenceId(relatedEvidence == null ? null : relatedEvidence.getId());
+        evidenceRepository.saveAndFlush(newEvidence);
+        if (relatedEvidence != null && ("REPLACEMENT".equals(normalizedRelationship)
+                || "CORRECTION".equals(normalizedRelationship))) {
+            relatedEvidence.setEvidenceStatus("SUPERSEDED");
+            relatedEvidence.setSupersededAt(LocalDateTime.now());
+            evidenceRepository.save(relatedEvidence);
+        }
         claim.setEvidenceVersion(version);
         claim.setEvidenceStorageKey(storageKey);
         claim.setEncryptedEvidence(encrypted);
@@ -313,6 +356,39 @@ public class ExperienceClaimController {
                 .body(document);
     }
 
+    @GetMapping("/{id}/evidence/history")
+    @Transactional(readOnly = true)
+    public List<ExperienceClaimEvidenceResponse> evidenceHistory(@PathVariable Long id) {
+        requireAccessibleClaim(id);
+        return evidenceRepository.findByClaimIdOrderByEvidenceVersionAsc(id).stream()
+                .map(ExperienceClaimEvidenceResponse::from)
+                .toList();
+    }
+
+    @GetMapping("/{id}/evidence/{evidenceId}")
+    @Transactional(readOnly = true)
+    public ResponseEntity<byte[]> downloadEvidenceVersion(@PathVariable Long id,
+                                                          @PathVariable Long evidenceId) {
+        requireAccessibleClaim(id);
+        ExperienceClaimEvidence evidence = evidenceRepository.findByIdAndClaimId(evidenceId, id)
+                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Evidence not found"));
+        byte[] document;
+        try {
+            document = evidenceCrypto.decrypt(evidence.getEncryptedEvidence());
+        } catch (IllegalStateException exception) {
+            throw new ResponseStatusException(SERVICE_UNAVAILABLE, "Evidence is temporarily unavailable");
+        }
+        ContentDisposition disposition = ContentDisposition.attachment()
+                .filename(evidence.getEvidenceFileName()).build();
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType(evidence.getEvidenceMediaType()))
+                .contentLength(document.length)
+                .header(HttpHeaders.CONTENT_DISPOSITION, disposition.toString())
+                .header(HttpHeaders.CACHE_CONTROL, "private, no-store")
+                .header("X-Content-Type-Options", "nosniff")
+                .body(document);
+    }
+
     @DeleteMapping("/{id}/evidence")
     @Transactional
     public ResponseEntity<Void> deleteEvidence(@PathVariable Long id) {
@@ -323,7 +399,16 @@ public class ExperienceClaimController {
             throw new ResponseStatusException(NOT_FOUND, "Evidence not found");
         }
         String oldStatus = claim.getStatus();
-        evidenceRepository.deleteByClaimId(id);
+        LocalDateTime withdrawnAt = LocalDateTime.now();
+        List<ExperienceClaimEvidence> activeEvidence =
+                evidenceRepository.findByClaimIdOrderByEvidenceVersionAsc(id).stream()
+                        .filter(evidence -> "ACTIVE".equalsIgnoreCase(evidence.getEvidenceStatus()))
+                        .toList();
+        for (ExperienceClaimEvidence evidence : activeEvidence) {
+            evidence.setEvidenceStatus("WITHDRAWN");
+            evidence.setSupersededAt(withdrawnAt);
+        }
+        evidenceRepository.saveAll(activeEvidence);
         processingRepository.deleteByClaimId(id);
         claim.setEncryptedEvidence(null);
         claim.setEvidenceStorageKey(null);
@@ -396,11 +481,18 @@ public class ExperienceClaimController {
     private void setClaimFields(ExperienceClaim claim, ExperienceClaimRequest request) {
         claim.setCompany(request.company().trim());
         claim.setJobTitle(request.jobTitle().trim());
+        if (request.claimType() != null || claim.getId() == null) {
+            claim.setClaimType(requestedClaimType(request));
+        }
         if (claim.getRequestId() == null) claim.setRequestId(request.requestId());
         claim.setStartMonth(blankToNull(request.startMonth()));
         claim.setEndMonth(blankToNull(request.endMonth()));
         claim.setSummary(request.summary().trim());
         claim.setEvidenceSummary(blankToNull(request.evidenceSummary()));
+    }
+
+    private ExperienceClaimType requestedClaimType(ExperienceClaimRequest request) {
+        return request.claimType() == null ? ExperienceClaimType.UNSPECIFIED : request.claimType();
     }
 
     private void enqueue(ExperienceClaim claim) {
