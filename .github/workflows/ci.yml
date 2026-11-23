@@ -218,7 +218,7 @@ jobs:
 
   python:
     name: Python Analysis Tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       MENTOR_ENVIRONMENT: production
       MENTOR_API_DOCS_ENABLED: 'false'
@@ -234,7 +234,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: '3.12.8'
+          python-version: '3.12'
           cache: pip
           cache-dependency-path: |
             mentorax-ai/requirements.txt
