@@ -4,13 +4,19 @@ Flutter client for the Spring Boot service in `../alumni-connect`.
 
 ## Development
 
-The Android debug build defaults to the Android emulator host at
-`http://10.0.2.2:8080`. Override it with `--dart-define` when needed:
+The Spring Boot API base URL is managed centrally in `lib/app/env.dart`.
+Unconfigured Android debug builds use the emulator host at
+`http://10.0.2.2:8080`; profile and release builds default to
+`https://mentorax-backend.onrender.com`. Tests and local/staging runs can
+override it with `--dart-define`:
 
 ```sh
 flutter pub get
 flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8080
 ```
+
+The Render Python service (`https://mentorax.onrender.com`) is a separate,
+server-to-server analysis service. Do not set it as the mobile API URL.
 
 Debug Android permits cleartext traffic for local development. Main/release
 Android manifests deny cleartext traffic.
@@ -36,18 +42,26 @@ Alternatively provide `ANDROID_RELEASE_STORE_FILE`,
 Release builds fail with a configuration message when a complete signing setup
 and keystore file are missing; they never fall back to the debug key.
 
-Supply the real production API base URL at build time:
+The release default already points at Spring Boot on Render. To override it for
+staging, pass an HTTPS URL explicitly:
 
 ```sh
-flutter build apk --release --dart-define=API_BASE_URL=https://mentorax-production.up.railway.app
+flutter build apk --release --dart-define=API_BASE_URL=https://staging-api.example.test
 ```
 
-Profile/release API configuration requires this HTTPS URL; the app rejects a
-missing or non-HTTPS API URL when its API configuration is initialized, and the
-Android release manifest blocks cleartext HTTP. Do not put API secrets in Dart
-defines; values compiled into an app are public. The Android application ID is
-configured as `com.mentorax.app` for release publishing and must stay unique to
-this app.
+Profile/release API configuration requires HTTPS and rejects the retired
+Railway backend host. Run `dart run tool/validate_api_config.dart` to validate
+the centrally configured production default. For a production-configured debug
+APK, run `flutter build apk --debug` (or supply the HTTPS Render URL as a
+`--dart-define`). Do not put API secrets in Dart defines; values compiled into
+an app are public. The Android application ID is configured as
+`com.mentorax.app` for release publishing and must stay unique to this app.
+
+For isolated tests without any production network access:
+
+```sh
+flutter test --dart-define=API_BASE_URL=https://api.example.test
+```
 
 Realtime messaging uses the same `API_BASE_URL` with the SockJS `/chat`
 endpoint. The STOMP client converts HTTPS to secure WebSocket (`wss://`) and

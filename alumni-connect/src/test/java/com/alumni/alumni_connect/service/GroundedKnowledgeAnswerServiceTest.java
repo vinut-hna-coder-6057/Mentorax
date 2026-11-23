@@ -23,6 +23,7 @@ class GroundedKnowledgeAnswerServiceTest {
     @Mock KnowledgeContributionService contributions;
     @Mock GroundedAnswerProvider ollama;
     @Mock GroundedAnswerProvider deterministic;
+    @Mock GroundedAnswerProvider openai;
 
     private GroundedKnowledgeAnswerService service;
     private final KnowledgeRetrievalResponse.Source source = new KnowledgeRetrievalResponse.Source(
@@ -35,7 +36,8 @@ class GroundedKnowledgeAnswerServiceTest {
 
     @BeforeEach
     void setUp() {
-        when(ollama.id()).thenReturn("ollama");
+        lenient().when(ollama.id()).thenReturn("ollama");
+        lenient().when(ollama.isConfigured()).thenReturn(true);
         when(deterministic.id()).thenReturn("deterministic");
         service = new GroundedKnowledgeAnswerService(retrieval, mentors, contributions, List.of(ollama, deterministic));
         ReflectionTestUtils.setField(service, "provider", "ollama");
@@ -69,5 +71,56 @@ class GroundedKnowledgeAnswerServiceTest {
         assertEquals("INSUFFICIENT_EVIDENCE", response.evidenceStatus());
         assertTrue(response.sources().isEmpty());
         assertFalse(response.answer().contains("Revoked secret claim"));
+    }
+
+    @Test
+    void explicitOpenAiSelectionIsReportedOnlyWhenConfigured() {
+        when(openai.id()).thenReturn("openai");
+        when(openai.isConfigured()).thenReturn(false);
+        when(deterministic.generate(anyString(), anyList(), anyBoolean())).thenReturn("safe fallback [8:3]");
+        when(contributions.recheckAiEligible(anyList())).thenReturn(List.of(eligible));
+        service = new GroundedKnowledgeAnswerService(retrieval, mentors, contributions,
+                List.of(openai, deterministic));
+        ReflectionTestUtils.setField(service, "provider", "openai");
+
+        var response = service.answer("What project?");
+
+        assertEquals("DETERMINISTIC_PROVIDER_MISCONFIGURED", response.answerMode());
+        assertEquals("safe fallback [8:3]", response.answer());
+        verify(openai, never()).generate(anyString(), anyList(), anyBoolean());
+    }
+
+    @Test
+    void configuredOpenAiProviderIsDistinguishedFromDeterministicFallback() {
+        when(openai.id()).thenReturn("openai");
+        when(openai.isConfigured()).thenReturn(true);
+        when(openai.generate(anyString(), anyList(), anyBoolean())).thenReturn("Built a Java API. [8:3]");
+        when(contributions.recheckAiEligible(anyList())).thenReturn(List.of(eligible));
+        service = new GroundedKnowledgeAnswerService(retrieval, mentors, contributions,
+                List.of(openai, deterministic));
+        ReflectionTestUtils.setField(service, "provider", "openai");
+
+        var response = service.answer("What project?");
+
+        assertEquals("OPENAI_GROUNDED", response.answerMode());
+        assertEquals("Built a Java API. [8:3]", response.answer());
+    }
+
+    @Test
+    void providerInsufficientEvidenceIsNotReplacedWithAnUnqualifiedAnswer() {
+        when(openai.id()).thenReturn("openai");
+        when(openai.isConfigured()).thenReturn(true);
+        when(openai.generate(anyString(), anyList(), anyBoolean()))
+                .thenThrow(new GroundedInsufficientEvidenceException());
+        service = new GroundedKnowledgeAnswerService(retrieval, mentors, contributions,
+                List.of(openai, deterministic));
+        ReflectionTestUtils.setField(service, "provider", "openai");
+
+        var response = service.answer("What project?");
+
+        assertEquals("INSUFFICIENT_EVIDENCE", response.evidenceStatus());
+        assertEquals("OPENAI_INSUFFICIENT_EVIDENCE", response.answerMode());
+        assertTrue(response.sources().isEmpty());
+        verify(deterministic, never()).generate(anyString(), anyList(), anyBoolean());
     }
 }

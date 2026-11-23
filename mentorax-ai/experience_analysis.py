@@ -218,12 +218,12 @@ class BoundedOCRWorker:
             child.close()
             raise OCRExecutionError("OCR worker could not be started") from exception
         child.close()
-        self.deadline = time.monotonic() + timeout
 
     def extract(self, page_number: int, image_bytes: bytes, width: int, height: int) -> dict:
         try:
+            deadline = time.monotonic() + self.timeout
             self.parent.send((page_number, image_bytes, width, height))
-            remaining = self.deadline - time.monotonic()
+            remaining = deadline - time.monotonic()
             if remaining <= 0 or not self.parent.poll(remaining):
                 raise OCRExecutionError("OCR worker exceeded its time limit")
             succeeded, result = self.parent.recv()
@@ -307,7 +307,8 @@ def _extract_document(data: bytes, content_type: str) -> tuple[str, list[str], l
                         text = str(page_result.get("text", "")).strip()
                         page_words = page_result.get("words", [])
                     except (OCRExecutionError, OSError, ValueError) as exception:
-                        _logger.warning("OCR failed for evidence page %s: %s", index + 1, exception)
+                        _logger.warning("OCR failed for evidence page %s (%s)",
+                                        index + 1, type(exception).__name__)
                         ocr_failed = True
                         page_ocr_failed = True
                 pages.append({"page": index + 1, "text": text, "method": page_method,
@@ -335,7 +336,7 @@ def _extract_document(data: bytes, content_type: str) -> tuple[str, list[str], l
                 pages.append({"page": 1, "text": extracted, "method": "OCR",
                               "ocrFailed": False, "words": page_result.get("words", [])})
             except (OCRExecutionError, OSError, ValueError) as exception:
-                _logger.warning("OCR failed for image evidence: %s", exception)
+                _logger.warning("OCR failed for image evidence (%s)", type(exception).__name__)
                 ocr_failed = True
                 pages.append({"page": 1, "text": "", "method": "OCR",
                               "ocrFailed": True, "words": []})
@@ -924,8 +925,12 @@ async def analyze_experience_document(
     authorization: str | None = Header(default=None),
 ):
     _provider_settings()
-    expected = os.getenv("EXPERIENCE_ANALYSIS_API_TOKEN", "")
-    supplied = authorization.removeprefix("Bearer ") if authorization else ""
+    expected = os.getenv("EXPERIENCE_ANALYSIS_API_TOKEN", "").strip()
+    supplied = ""
+    if authorization:
+        auth_parts = authorization.strip().split()
+        if len(auth_parts) == 2 and auth_parts[0].lower() == "bearer":
+            supplied = auth_parts[1]
     if not expected:
         raise HTTPException(status_code=503, detail="Experience analysis unavailable")
     if not hmac.compare_digest(supplied.encode(), expected.encode()):

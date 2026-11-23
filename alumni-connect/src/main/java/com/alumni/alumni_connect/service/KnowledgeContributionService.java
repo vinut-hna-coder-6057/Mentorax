@@ -8,6 +8,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.PreparedStatementCreator;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.http.HttpStatus;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
@@ -19,14 +22,23 @@ import java.util.stream.Collectors;
 
 @Service
 public class KnowledgeContributionService {
+    private static final Logger log = LoggerFactory.getLogger(KnowledgeContributionService.class);
     private final JdbcTemplate jdbc;
     private final CurrentUserService currentUser;
     private final UserRepository users;
+    private final KnowledgeAnswerCacheStore answerCache;
 
     public KnowledgeContributionService(JdbcTemplate jdbc, CurrentUserService currentUser, UserRepository users) {
+        this(jdbc, currentUser, users, null);
+    }
+
+    @Autowired
+    public KnowledgeContributionService(JdbcTemplate jdbc, CurrentUserService currentUser, UserRepository users,
+                                        KnowledgeAnswerCacheStore answerCache) {
         this.jdbc = jdbc;
         this.currentUser = currentUser;
         this.users = users;
+        this.answerCache = answerCache;
     }
 
     @Transactional
@@ -104,6 +116,7 @@ public class KnowledgeContributionService {
         int freshnessDays = jdbc.queryForObject("SELECT freshness_interval_days FROM knowledge_contributions WHERE id=?", Integer.class, id);
         jdbc.update("UPDATE knowledge_contributions SET status='PUBLISHED', published_version=current_version, published_at=?, withdrawn_at=NULL, updated_at=?, last_confirmed_at=?, reminder_due_at=?, last_reminder_sent_at=NULL WHERE id=? AND owner_user_id=?",
                 now, now, now, now.plusDays(freshnessDays), id, owner.getId());
+        invalidateCachedAnswers(id, "contribution_republished");
         audit(id, base.version(), owner.getId(), "PUBLISHED", true, true);
         return ownResponse(id, owner.getId());
     }
@@ -115,6 +128,7 @@ public class KnowledgeContributionService {
         LocalDateTime now = LocalDateTime.now();
         jdbc.update("UPDATE knowledge_contributions SET status='WITHDRAWN', withdrawn_at=?, updated_at=? WHERE id=? AND owner_user_id=?",
                 now, now, id, owner.getId());
+        invalidateCachedAnswers(id, "contribution_withdrawn");
         audit(id, base.version(), owner.getId(), "WITHDRAWN", null, null);
         return ownResponse(id, owner.getId());
     }
@@ -125,6 +139,7 @@ public class KnowledgeContributionService {
         Base base = ownedBase(id, owner.getId());
         boolean student = request.studentVisibilityConsent();
         boolean ai = request.aiRetrievalConsent();
+        boolean revoking = !student || !ai;
         LocalDateTime now = LocalDateTime.now();
         Long targetId = base.versionId();
         jdbc.update("UPDATE knowledge_contribution_versions SET student_visibility_consent=?, ai_retrieval_consent=?, student_consent_at=?, ai_consent_at=? WHERE id=?",
@@ -159,6 +174,7 @@ public class KnowledgeContributionService {
                 }
             }
         }
+        if (revoking) invalidateCachedAnswers(id, "consent_revoked");
         audit(id, base.version(), owner.getId(), "CONSENT_CHANGED", student, ai);
         return ownResponse(id, owner.getId());
     }
@@ -235,6 +251,34 @@ public class KnowledgeContributionService {
         return withEntries(rows);
     }
 
+    /** Cache hits require both current consent/version eligibility and a fresh author confirmation. */
+    @Transactional(readOnly = true)
+    public Set<String> recheckFreshAiEligibleKeys(List<ContributionVersionRef> references) {
+        if (references == null || references.isEmpty()) return Set.of();
+        List<ContributionVersionRef> bounded = references.stream().distinct().limit(5).toList();
+        String predicates = String.join(" OR ", Collections.nCopies(bounded.size(),
+                "(c.id=? AND c.published_version=? AND v.version_number=c.published_version)"));
+        String sql = """
+                SELECT c.id,c.published_version
+                FROM knowledge_contributions c
+                JOIN knowledge_contribution_versions v
+                  ON v.contribution_id=c.id AND v.version_number=c.published_version
+                JOIN users u ON u.id=c.owner_user_id
+                WHERE c.status='PUBLISHED' AND v.student_visibility_consent=TRUE AND v.ai_retrieval_consent=TRUE
+                  AND u.role='ALUMNI' AND u.status='APPROVED'
+                  AND c.last_confirmed_at IS NOT NULL
+                  AND DATE_ADD(c.last_confirmed_at, INTERVAL c.freshness_interval_days DAY)>CURRENT_TIMESTAMP(6)
+                  AND (
+                """ + predicates + ")";
+        List<Object> args = new ArrayList<>();
+        for (ContributionVersionRef ref : bounded) {
+            args.add(ref.contributionId());
+            args.add(ref.version());
+        }
+        return jdbc.query(sql, (rs, n) -> rs.getLong(1) + ":" + rs.getInt(2), args.toArray())
+                .stream().collect(Collectors.toUnmodifiableSet());
+    }
+
     public record ContributionVersionRef(long contributionId, int version) {}
 
     private User requireEligibleAlumni() {
@@ -242,6 +286,17 @@ public class KnowledgeContributionService {
         if (!"ALUMNI".equalsIgnoreCase(user.getRole()) || !"APPROVED".equalsIgnoreCase(user.getStatus()))
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Approved alumni only");
         return user;
+    }
+
+    private void invalidateCachedAnswers(long contributionId, String reason) {
+        if (answerCache == null) return;
+        try {
+            answerCache.invalidateContribution(contributionId, reason);
+        } catch (RuntimeException failure) {
+            // Reads independently recheck consent/version/freshness. Cache invalidation is an optimization.
+            log.warn("Shared knowledge answer cache invalidation failed (errorType={})",
+                    failure.getClass().getSimpleName());
+        }
     }
 
     private void validateContent(KnowledgeContributionRequest r) {

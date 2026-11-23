@@ -92,12 +92,12 @@ class RoutedMigrationTest {
 
     @Test
     void freshChainReceivesHardeningChangesAfterItsCurrentBaseline() throws Exception {
-        verifyChain("classpath:db/fresh", "1", "25");
+        verifyChain("classpath:db/fresh", "1", "26");
     }
 
     @Test
     void normalizedChainReceivesHardeningChangesAfterItsCurrentBaseline() throws Exception {
-        verifyChain("classpath:db/normalized", "2", "25");
+        verifyChain("classpath:db/normalized", "2", "26");
     }
 
     @Test
@@ -119,8 +119,8 @@ class RoutedMigrationTest {
 
         var result = flyway.migrate();
 
-        assertEquals(16, result.migrationsExecuted);
-        assertEquals("25", flyway.info().current().getVersion().getVersion());
+        assertEquals(17, result.migrationsExecuted);
+        assertEquals("26", flyway.info().current().getVersion().getVersion());
         try (var connection = DriverManager.getConnection(url, "sa", "")) {
             assertTrue(hasTable(connection, "email_outbox"));
             assertTrue(hasColumn(connection, "email_outbox", "purpose"));
@@ -131,6 +131,9 @@ class RoutedMigrationTest {
             assertTrue(hasTable(connection, "knowledge_companion_conversations"));
             assertTrue(hasTable(connection, "knowledge_question_interest"));
             assertTrue(hasTable(connection, "knowledge_roadmaps"));
+            assertTrue(hasTable(connection, "knowledge_shared_answer_cache"));
+            assertTrue(hasTable(connection, "knowledge_shared_answer_cache_source"));
+            assertTrue(hasTable(connection, "knowledge_shared_answer_cache_lock"));
             try (var statement = connection.createStatement();
                  var resultSet = statement.executeQuery(
                          "SELECT email_verified FROM users WHERE id = 1")) {
@@ -160,7 +163,7 @@ class RoutedMigrationTest {
                 .baselineVersion(baselineVersion)
                 .load();
         var result = flyway.migrate();
-        assertEquals(18, result.migrationsExecuted);
+        assertEquals(19, result.migrationsExecuted);
         assertEquals(expectedVersion, flyway.info().current().getVersion().getVersion());
 
         try (var connection = DriverManager.getConnection(url, "sa", "")) {

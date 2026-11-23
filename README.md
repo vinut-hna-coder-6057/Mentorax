@@ -242,6 +242,8 @@ flutter run
 
 Choose an available emulator or connected device. Ensure the app's API base URL points to an address reachable from that device. For an Android emulator, `localhost` refers to the emulator itself, not automatically to your development computer.
 
+The Flutter API URL is centrally configured in `alumni_connect_mobile/lib/app/env.dart`: debug builds default to `http://10.0.2.2:8080`, and profile/release builds default to the Spring Boot production service at `https://mentorax-backend.onrender.com`. Override local or staging runs with `--dart-define=API_BASE_URL=https://your-staging-host`. The Python support service at `https://mentorax.onrender.com` is server-to-server and must not be used as the mobile API URL. See `alumni_connect_mobile/README.md` for production APK, URL validation, and offline test commands.
+
 ### 5. Build an Android debug APK
 
 ```bash

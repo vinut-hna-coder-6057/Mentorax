@@ -25,6 +25,7 @@ from experience_analysis import (
     ClaimFields,
     _field_finding,
     _legacy_to_strict_document_response,
+    _extract_document,
     analyze_document,
     _validate_llm_response,
 )
@@ -442,6 +443,21 @@ class ExperienceAnalysisTests(unittest.TestCase):
 
     def test_requires_internal_service_token(self):
         self.assertEqual(401, self._upload(blank_pdf(), authorization="Bearer wrong").status_code)
+
+    def test_missing_internal_service_token_fails_closed(self):
+        with patch.dict(os.environ, {"EXPERIENCE_ANALYSIS_API_TOKEN": "   "}):
+            response = self._upload(blank_pdf())
+        self.assertEqual(503, response.status_code)
+
+    def test_ocr_failure_logs_only_exception_type_not_document_error_text(self):
+        private_error = "private-document-fragment-7842"
+        with patch("experience_analysis.BoundedOCRWorker") as worker:
+            worker.return_value.extract.side_effect = ValueError(private_error)
+            with self.assertLogs("experience_analysis", level="WARNING") as captured:
+                _extract_document(scanned_pdf(), "application/pdf")
+        output = "\n".join(captured.output)
+        self.assertIn("ValueError", output)
+        self.assertNotIn(private_error, output)
 
     def test_rejects_malformed_claim_without_echoing_document(self):
         response = self._upload(blank_pdf(), claim='{"evidenceId":42,"evidenceVersion":7,"company":""}')

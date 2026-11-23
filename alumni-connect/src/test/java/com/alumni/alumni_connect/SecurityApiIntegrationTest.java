@@ -129,7 +129,11 @@ private EmailOutboxService emailOutboxService;
 private EmailOutboxCipher emailOutboxCipher;
     @BeforeEach
     void setUpUsers() {
-        emailOutboxRepository.deleteAllInBatch();
+        // Some tests opt out of the class transaction and commit queued mail.
+        // Commit cleanup independently so those rows cannot affect later tests.
+        TransactionTemplate cleanup = new TransactionTemplate(transactionManager);
+        cleanup.setPropagationBehavior(Propagation.REQUIRES_NEW.value());
+        cleanup.executeWithoutResult(status -> emailOutboxRepository.deleteAllInBatch());
         ((java.util.Map<?, ?>) ReflectionTestUtils.getField(rateLimiter, "buckets")).clear();
         String suffix = UUID.randomUUID().toString();
         student = users.save(new User("Security Student", "security-student-" + suffix + "@example.test",

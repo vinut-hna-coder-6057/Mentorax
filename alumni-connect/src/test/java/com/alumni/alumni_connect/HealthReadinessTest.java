@@ -17,10 +17,10 @@ class HealthReadinessTest {
     private MockMvc mockMvc;
 
     @Test
-    void readinessIsPublicAndReportsDatabaseAvailability() throws Exception {
+    void readinessIsPublicWithoutExposingComponentDetails() throws Exception {
         mockMvc.perform(get("/actuator/health/readiness"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("UP"))
-                .andExpect(jsonPath("$.components.db.status").value("UP"));
+                .andExpect(jsonPath("$.components").doesNotExist());
     }
 }

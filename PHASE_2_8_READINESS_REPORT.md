@@ -32,7 +32,7 @@ No production deployment or production-data operation was performed.
 
 ## Release blockers and limitations
 
-- **Trusted staging E2E:** No isolated staging backend, MySQL database, trusted HTTPS hostname, or staging credentials were available. The documented Railway hostname is production and was not used for synthetic testing. An operator must provide an isolated staging deployment and test account before Flutter release E2E.
+- **Trusted staging E2E:** No isolated staging backend, MySQL database, trusted HTTPS hostname, or staging credentials were available. The documented Render hostname is production and was not used for synthetic testing. An operator must provide an isolated staging deployment and test account before Flutter release E2E.
 - **Historical production review:** No authorized SELECT-only production database or redacted aggregate report was available. No production data was queried or changed.
 - **Release signing:** `android/key.properties` exists, but no `.jks`/`.keystore` file is present in the Android project directory. Its contents were not read. No release build was attempted; the debug APK is not a release artifact. Confirm the referenced signing file and secret configuration locally or in the release environment without disclosing their values.
 - **Backup and restore:** No isolated backup/restore test was performed.

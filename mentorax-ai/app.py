@@ -25,6 +25,13 @@ def configured_strategy() -> str:
     return os.getenv("MENTOR_RANKING_STRATEGY", "tfidf").strip().lower()
 
 
+def api_docs_enabled() -> bool:
+    """Keep schemas private by default and never expose them in production."""
+    return (os.getenv("MENTOR_API_DOCS_ENABLED", "false").strip().lower() == "true"
+            and os.getenv("MENTOR_ENVIRONMENT", "production").strip().lower() not in {
+                "prod", "production"})
+
+
 @asynccontextmanager
 async def lifespan(_application):
     if configured_strategy() in {"semantic", "hybrid"}:
@@ -32,7 +39,11 @@ async def lifespan(_application):
     yield
 
 
-app = FastAPI(title="Mentorax local ranking service", docs_url=None, redoc_url=None,
+_docs_enabled = api_docs_enabled()
+app = FastAPI(title="Mentorax local ranking service",
+              docs_url="/docs" if _docs_enabled else None,
+              redoc_url="/redoc" if _docs_enabled else None,
+              openapi_url="/openapi.json" if _docs_enabled else None,
               lifespan=lifespan)
 
 
@@ -218,17 +229,17 @@ def percentile_scores(scores: list[float]) -> list[float]:
 
 def _require_ranking_auth(authorization: str | None) -> None:
     expected = os.getenv("MENTOR_RANKING_API_TOKEN", "").strip()
-    if expected and not hmac.compare_digest(
-            (authorization or "").removeprefix("Bearer ").encode("utf-8"),
-            expected.encode("utf-8")):
+    supplied = ""
+    if authorization:
+        parts = authorization.strip().split()
+        if len(parts) == 2 and parts[0].lower() == "bearer":
+            supplied = parts[1]
+    if not expected or not hmac.compare_digest(supplied.encode("utf-8"), expected.encode("utf-8")):
         raise HTTPException(status_code=503, detail="Ranking service unavailable")
 
 
-@app.post("/rank")
-def rank(request: RankingRequest, strategy: str | None = None,
-         authorization: str | None = Header(default=None)):
-    """Rank one request; profile embeddings are bounded, process-local cache entries."""
-    _require_ranking_auth(authorization)
+def rank_candidates(request: RankingRequest, strategy: str | None = None):
+    """Trusted in-process ranker; HTTP callers must use the authenticated route below."""
     selected_strategy = strategy or request.strategy or os.getenv("MENTOR_RANKING_STRATEGY", "tfidf").lower()
     if selected_strategy not in {"tfidf", "semantic", "hybrid"}:
         raise HTTPException(status_code=422, detail="Invalid ranking strategy")
@@ -290,6 +301,14 @@ def rank(request: RankingRequest, strategy: str | None = None,
     return result
 
 
+@app.post("/rank")
+def rank(request: RankingRequest, strategy: str | None = None,
+         authorization: str | None = Header(default=None)):
+    """Authenticated HTTP endpoint for the in-process bounded ranker."""
+    _require_ranking_auth(authorization)
+    return rank_candidates(request, strategy)
+
+
 def _minimum_recommendation_score(strategy: str) -> float:
     variable = "MENTOR_MIN_RECOMMENDATION_SCORE"
     default = "0.0"
@@ -309,7 +328,7 @@ def rank_batch(batch: RankingBatch, authorization: str | None = Header(default=N
     results = []
     for request in batch.requests:
         try:
-            results.append({"result": rank(request)})
+            results.append({"result": rank(request, authorization=authorization)})
         except HTTPException:
             # Keep failures isolated to their page and avoid returning request data.
             results.append({"available": False})

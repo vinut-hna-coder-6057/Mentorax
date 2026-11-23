@@ -3,7 +3,10 @@
 # =========================================
 
 server.port=${PORT:8080}
-spring.datasource.url=${DB_URL:jdbc:mysql://${MYSQLHOST}:${MYSQLPORT:3306}/${MYSQLDATABASE}}
+# MySqlTlsUrlPostProcessor adds sslMode=VERIFY_IDENTITY when absent and rejects weaker modes.
+# Set DB_CA_TRUSTSTORE_PATH, DB_CA_TRUSTSTORE_PASSWORD, and optionally
+# DB_CA_TRUSTSTORE_TYPE=PKCS12 to a protected truststore containing the official Aiven CA.
+spring.datasource.url=${DB_URL}
 spring.datasource.driver-class-name=com.mysql.cj.jdbc.Driver
 spring.datasource.username=${DB_USERNAME:${MYSQLUSER}}
 spring.datasource.password=${DB_PASSWORD:${MYSQLPASSWORD}}
@@ -24,6 +27,7 @@ management.endpoint.health.probes.enabled=true
 management.endpoint.health.group.readiness.include=readinessState,db
 management.endpoint.health.show-details=never
 management.endpoint.health.show-components=always
+management.endpoint.health.group.readiness.show-components=never
 
 # =====================================
 # EMAIL CONFIGURATION
@@ -53,3 +57,19 @@ app.rate-limit.otp-email=${RATE_LIMIT_OTP_EMAIL:5}
 app.rate-limit.window-ms=${RATE_LIMIT_WINDOW_MS:900000}
 app.websocket.rate-limit.messages=${WEBSOCKET_RATE_LIMIT_MESSAGES:60}
 app.websocket.rate-limit.window-ms=${WEBSOCKET_RATE_LIMIT_WINDOW_MS:60000}
+
+# Knowledge Companion answer generation (default is deterministic and requires no key).
+app.knowledge.answer-provider=${KNOWLEDGE_ANSWER_PROVIDER:deterministic}
+app.knowledge.ollama.base-url=${KNOWLEDGE_OLLAMA_BASE_URL:http://127.0.0.1:11434}
+app.knowledge.ollama.model=${KNOWLEDGE_OLLAMA_MODEL:gemma3:1b}
+app.knowledge.openai.api-key=${OPENAI_API_KEY:}
+app.knowledge.openai.model=${KNOWLEDGE_OPENAI_MODEL:gpt-4.1-mini}
+app.knowledge.provider.timeout-ms=${KNOWLEDGE_PROVIDER_TIMEOUT_MS:20000}
+app.knowledge.cache.enabled=${KNOWLEDGE_ANSWER_CACHE_ENABLED:true}
+app.knowledge.cache.cleanup-delay-ms=${KNOWLEDGE_ANSWER_CACHE_CLEANUP_DELAY_MS:3600000}
+app.knowledge.cache.single-flight-wait-ms=${KNOWLEDGE_ANSWER_CACHE_WAIT_MS:22000}
+app.knowledge.cache.lock-lease-seconds=${KNOWLEDGE_ANSWER_CACHE_LOCK_LEASE_SECONDS:60}
+app.knowledge.cache.ttl.stable-days=${KNOWLEDGE_ANSWER_CACHE_TTL_STABLE_DAYS:30}
+app.knowledge.cache.ttl.preparation-days=${KNOWLEDGE_ANSWER_CACHE_TTL_PREPARATION_DAYS:14}
+app.knowledge.cache.ttl.company-days=${KNOWLEDGE_ANSWER_CACHE_TTL_COMPANY_DAYS:7}
+app.knowledge.cache.ttl.cycle-days=${KNOWLEDGE_ANSWER_CACHE_TTL_CYCLE_DAYS:3}

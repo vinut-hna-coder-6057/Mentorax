@@ -37,9 +37,9 @@ public class RestTemplateConfig {
     @Bean
     @Qualifier("knowledgeAnswerRestTemplate")
     public RestTemplate knowledgeAnswerRestTemplate(
-            @Value("${app.knowledge.ollama.timeout-ms:30000}") int timeoutMs) {
-        if (timeoutMs < 1000 || timeoutMs > 120000)
-            throw new IllegalArgumentException("Ollama timeout must be between 1000 and 120000 milliseconds");
+            @Value("${app.knowledge.provider.timeout-ms:20000}") int timeoutMs) {
+        if (timeoutMs < 1000 || timeoutMs > 60000)
+            throw new IllegalArgumentException("Knowledge provider timeout must be between 1000 and 60000 milliseconds");
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
         requestFactory.setConnectTimeout(Duration.ofSeconds(2));
         requestFactory.setReadTimeout(Duration.ofMillis(timeoutMs));

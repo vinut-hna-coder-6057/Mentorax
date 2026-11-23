@@ -44,7 +44,7 @@ def process_rss_bytes():
 
 def python_evaluation(dataset, strategy):
     sys.path.insert(0, str(AI_ROOT))
-    from app import Candidate, RankingRequest, rank, semantic_ranker
+    from app import Candidate, RankingRequest, rank_candidates, semantic_ranker
 
     # The API intentionally returns 503 while the model warms in the
     # background. Evaluation is not serving an HTTP request, so wait for that
@@ -65,7 +65,7 @@ def python_evaluation(dataset, strategy):
     for case in searchable:
         try:
             question_started = time.perf_counter()
-            result = rank(RankingRequest(goal=materialize_question(case["question"]),
+            result = rank_candidates(RankingRequest(goal=materialize_question(case["question"]),
                                          candidates=candidates, strategy=strategy))
             validate_ranking_result(result, [profile["id"] for profile in profiles])
             ranked[case["id"]] = result["rankedIds"]
@@ -82,7 +82,7 @@ def python_evaluation(dataset, strategy):
     repeated = {}
     if not errors:
         for case in searchable:
-            result = rank(RankingRequest(goal=materialize_question(case["question"]),
+            result = rank_candidates(RankingRequest(goal=materialize_question(case["question"]),
                                          candidates=candidates, strategy=strategy))
             validate_ranking_result(result, [profile["id"] for profile in profiles])
             repeated[case["id"]] = result["rankedIds"]
@@ -93,7 +93,7 @@ def python_evaluation(dataset, strategy):
     elapsed = (time.perf_counter() - started) * 1000
     rss_after = process_rss_bytes()
     return {"status": "evaluated" if not errors else "failed", "strategy": strategy,
-            "implementation": "mentorax-ai/app.py rank()",
+            "implementation": "mentorax-ai/app.py rank_candidates()",
             "scope": f"Isolated Python {strategy} ranker over all synthetic profiles; no Java evidence gate or intent routing",
             "caseCount": len(searchable), "deterministicRepeatedRun": deterministic,
             "errors": errors, "metrics": summary, "careerQualityMetrics": quality_summary,
@@ -248,8 +248,11 @@ def print_summary(report):
         if item is None:
             print(f"{mode}: NOT EVALUATED")
             continue
-        if item["status"] == "NOT_EVALUATED":
-            print(f"{mode}: NOT EVALUATED ({item['reason']})")
+        if item["status"] != "evaluated" or not item.get("careerQualityMetrics"):
+            detail = item.get("reason") or "; ".join(
+                error.get("errorType", "evaluation error") for error in item.get("errors", []))
+            status = "NOT EVALUATED" if item["status"] == "NOT_EVALUATED" else item["status"].upper()
+            print(f"{mode}: {status}" + (f" ({detail})" if detail else ""))
             continue
         metrics = item["careerQualityMetrics"]["overall"]
         precision = metrics["precisionAt3"]["value"]

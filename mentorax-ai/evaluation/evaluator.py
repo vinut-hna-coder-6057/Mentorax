@@ -80,11 +80,11 @@ def validate_ranking_result(result, candidate_ids):
     ranked_ids = result["rankedIds"]
     if any(not isinstance(item, int) or isinstance(item, bool) for item in ranked_ids):
         raise ValueError("rankedIds must contain integer IDs")
-    if len(ranked_ids) != len(set(ranked_ids)) or set(ranked_ids) != set(expected_ids):
-        raise ValueError("rankedIds must contain each candidate ID exactly once")
+    if len(ranked_ids) != len(set(ranked_ids)) or not set(ranked_ids).issubset(expected_ids):
+        raise ValueError("rankedIds must contain unique known candidate IDs")
     scores = result["scores"]
-    if set(scores) != {str(item) for item in expected_ids}:
-        raise ValueError("score keys must exactly match candidate IDs")
+    if set(scores) != {str(item) for item in ranked_ids}:
+        raise ValueError("score keys must exactly match ranked candidate IDs")
     for score in scores.values():
         if not isinstance(score, (int, float)) or isinstance(score, bool) or not math.isfinite(score) or not 0 <= score <= 1:
             raise ValueError("scores must be finite numbers in [0, 1]")

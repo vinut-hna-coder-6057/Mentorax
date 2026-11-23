@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 from evaluator import ranking_metrics, validate_dataset, validate_ranking_result
-from app import Candidate, RankingRequest, rank
+from app import Candidate, RankingRequest, rank_candidates
 
 
 class EvaluationMetricTests(unittest.TestCase):
@@ -57,9 +57,12 @@ class EvaluationMetricTests(unittest.TestCase):
     def test_malformed_ranking_contract_is_rejected(self):
         valid = {"rankedIds": [1, 2], "scores": {"1": 0.7, "2": 0.2}}
         self.assertTrue(validate_ranking_result(valid, [1, 2]))
+        self.assertTrue(validate_ranking_result(
+            {"rankedIds": [1], "scores": {"1": 0.7}}, [1, 2]))
+        self.assertTrue(validate_ranking_result({"rankedIds": [], "scores": {}}, [1, 2]))
         invalid_results = [
             {"rankedIds": [1, 1], "scores": {"1": 0.7, "2": 0.2}},
-            {"rankedIds": [1], "scores": {"1": 0.7}},
+            {"rankedIds": [3], "scores": {"3": 0.7}},
             {"rankedIds": [1, 2], "scores": {"1": 0.7}},
             {"rankedIds": [1, 2], "scores": {"1": float("nan"), "2": 0.2}},
             {"rankedIds": [1, 2], "scores": {"1": 1.1, "2": 0.2}},
@@ -71,7 +74,7 @@ class EvaluationMetricTests(unittest.TestCase):
             validate_ranking_result(valid, [1, 1])
 
     def test_equal_tfidf_scores_have_deterministic_id_tie_break(self):
-        result = rank(RankingRequest(goal="shared term", candidates=[
+        result = rank_candidates(RankingRequest(goal="shared term", candidates=[
             Candidate(id=9, bio="shared term"), Candidate(id=2, bio="shared term")]))
         self.assertEqual([2, 9], result["rankedIds"])
 

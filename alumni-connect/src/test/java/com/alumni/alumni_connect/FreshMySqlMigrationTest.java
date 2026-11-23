@@ -6,16 +6,29 @@ import org.junit.jupiter.api.Test;
 import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
+import com.alumni.alumni_connect.service.KnowledgeAnswerCacheStore;
+import org.springframework.context.ApplicationContext;
+import org.springframework.jdbc.core.JdbcTemplate;
+import com.alumni.alumni_connect.service.JdbcKnowledgeAnswerCacheStore;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.net.URI;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -33,11 +46,12 @@ class FreshMySqlMigrationTest {
             "experience_evidence_extraction_warning", "knowledge_contributions",
             "knowledge_contribution_versions", "knowledge_contribution_entries", "knowledge_contribution_audit",
             "knowledge_companion_conversations", "knowledge_companion_messages", "knowledge_companion_message_sources",
-            "knowledge_question_interest", "knowledge_roadmaps", "knowledge_roadmap_items", "knowledge_roadmap_item_sources");
+            "knowledge_question_interest", "knowledge_roadmaps", "knowledge_roadmap_items", "knowledge_roadmap_item_sources",
+            "knowledge_shared_answer_cache", "knowledge_shared_answer_cache_source", "knowledge_shared_answer_cache_lock");
     private static final List<String> FRESH_HISTORY =
-            List.of("1", "2", "3", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25");
+            List.of("1", "2", "3", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26");
     private static final List<String> NORMALIZED_HISTORY =
-            List.of("1", "2", "3", "4", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25");
+            List.of("1", "2", "3", "4", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26");
     private static final String MIGRATION_TEST_PREFIX = "MENTORAX_MYSQL_MIGRATION_TEST";
     private static final String RECOVERY_TEST_PREFIX = "MENTORAX_MYSQL_RECOVERY_TEST";
 
@@ -48,15 +62,16 @@ class FreshMySqlMigrationTest {
         migrateFreshSchemaThrough21(database);
         seedExistingEvidence(database);
         Flyway.configure()
-                .dataSource(database.url(), database.username(), database.password())
+                .dataSource(verifiedJdbcUrl(database), database.username(), database.password())
                 .locations("classpath:db/fresh", "classpath:db/shared")
                 .load()
                 .migrate();
+        seedKnowledgeCacheSource(database);
 
         try (ConfigurableApplicationContext ignored =
                      startApplication(database.url(), database.username(), database.password());
              Connection connection = DriverManager.getConnection(
-                     database.url(), database.username(), database.password())) {
+                     verifiedJdbcUrl(database), database.username(), database.password())) {
             assertConnectedToExpectedSchema(connection, database);
             assertTables(connection);
             assertMigrationHistory(connection, FRESH_HISTORY);
@@ -68,12 +83,168 @@ class FreshMySqlMigrationTest {
             assertEquals(1, count(connection,
                     "SELECT COUNT(*) FROM experience_claims "
                             + "WHERE id = 1001 AND claim_type = 'UNSPECIFIED'"));
+            assertCacheStoreCleanup(database, ignored, connection);
+        }
+    }
+
+    private static void assertCacheStoreCleanup(DatabaseSettings database, ApplicationContext application,
+                                                Connection connection) throws Exception {
+        try (Connection applicationConnection = application.getBean(javax.sql.DataSource.class).getConnection();
+             var statement = applicationConnection.createStatement();
+             var rows = statement.executeQuery("SELECT @@session.time_zone")) {
+            assertTrue(rows.next());
+            assertEquals("+00:00", rows.getString(1), "Application MySQL sessions must use UTC");
+        }
+        KnowledgeAnswerCacheStore cache = application.getBean(KnowledgeAnswerCacheStore.class);
+        assertIndependentMySqlCacheClients(application, cache, connection);
+        String expiredKey = UUID.randomUUID().toString().replace("-", "").repeat(2);
+        String expiredLease = UUID.randomUUID().toString();
+        assertTrue(cache.tryAcquire(expiredKey, expiredLease, Duration.ofSeconds(60)));
+        assertTrue(cache.save(new KnowledgeAnswerCacheStore.Entry(expiredKey, 1, "INTERVIEW_PREPARATION",
+                "INTERVIEW_PREPARATION", "Grounded answer [1001:1]", "ALUMNI_REPORTED_EVIDENCE",
+                "OPENAI_GROUNDED", "openai", "gpt-4.1-mini", "grounded-answer-v1", List.of(),
+                LocalDateTime.now(ZoneOffset.UTC).minusSeconds(1)), expiredLease));
+
+        cache.cleanupExpired();
+
+        assertEquals(0, count(connection,
+                "SELECT COUNT(*) FROM knowledge_shared_answer_cache WHERE cache_key='" + expiredKey + "'"));
+        assertEquals(1, count(connection,
+                "SELECT COUNT(*) FROM knowledge_shared_answer_cache_lock WHERE cache_key='" + expiredKey + "'"));
+        cache.release(expiredKey, expiredLease);
+
+        String activeKey = UUID.randomUUID().toString().replace("-", "").repeat(2);
+        String activeLease = UUID.randomUUID().toString();
+        assertTrue(cache.tryAcquire(activeKey, activeLease, Duration.ofSeconds(60)));
+        assertTrue(cache.save(new KnowledgeAnswerCacheStore.Entry(activeKey, 1, "INTERVIEW_PREPARATION",
+                "INTERVIEW_PREPARATION", "Grounded answer [1001:1]", "ALUMNI_REPORTED_EVIDENCE",
+                "OPENAI_GROUNDED", "openai", "gpt-4.1-mini", "grounded-answer-v1",
+                List.of(new KnowledgeAnswerCacheStore.SourceRef(2001, 1)),
+                LocalDateTime.now(ZoneOffset.UTC).plusDays(1)), activeLease));
+        cache.cleanupExpired();
+        assertEquals(1, count(connection,
+                "SELECT COUNT(*) FROM knowledge_shared_answer_cache WHERE cache_key='" + activeKey + "'"));
+        assertEquals("Grounded answer [1001:1]", cache.find(activeKey).orElseThrow().answer());
+
+        cache.invalidateContribution(2001, "consent_revoked");
+        assertEquals(1, count(connection, "SELECT COUNT(*) FROM knowledge_shared_answer_cache "
+                + "WHERE cache_key='" + activeKey + "' AND cache_status='INVALIDATED' "
+                + "AND invalidation_reason='consent_revoked'"));
+        cache.cleanupExpired();
+        assertEquals(0, count(connection,
+                "SELECT COUNT(*) FROM knowledge_shared_answer_cache WHERE cache_key='" + activeKey + "'"));
+        try (var statement = connection.createStatement()) {
+            statement.executeUpdate("UPDATE knowledge_shared_answer_cache_lock "
+                    + "SET lease_expires_at=TIMESTAMPADD(SECOND,-1,CURRENT_TIMESTAMP(6)) WHERE cache_key='"
+                    + activeKey + "'");
+        }
+        cache.cleanupExpired();
+        assertEquals(0, count(connection,
+                "SELECT COUNT(*) FROM knowledge_shared_answer_cache_lock WHERE cache_key='" + activeKey + "'"));
+
+        insertExpiredCacheBacklog(connection, 5_001);
+        cache.cleanupExpired();
+        assertEquals(1, count(connection,
+                "SELECT COUNT(*) FROM knowledge_shared_answer_cache WHERE cache_status='EXPIRED' "
+                        + "AND expires_at<=CURRENT_TIMESTAMP(6)"),
+                "One cleanup run must stop after its ten 500-row batches");
+        cache.cleanupExpired();
+        assertEquals(0, count(connection,
+                "SELECT COUNT(*) FROM knowledge_shared_answer_cache WHERE cache_status='EXPIRED' "
+                        + "AND expires_at<=CURRENT_TIMESTAMP(6)"),
+                "A later cleanup run must drain the remaining backlog");
+    }
+
+    private static void assertIndependentMySqlCacheClients(ApplicationContext application,
+                                                            KnowledgeAnswerCacheStore springStore,
+                                                            Connection connection) throws Exception {
+        var dataSource = application.getBean(javax.sql.DataSource.class);
+        var first = new JdbcKnowledgeAnswerCacheStore(new JdbcTemplate(dataSource), new SimpleMeterRegistry());
+        var second = new JdbcKnowledgeAnswerCacheStore(new JdbcTemplate(dataSource), new SimpleMeterRegistry());
+        String concurrentKey = "f".repeat(64);
+        String firstToken = UUID.randomUUID().toString();
+        String secondToken = UUID.randomUUID().toString();
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        try (var pool = java.util.concurrent.Executors.newFixedThreadPool(2)) {
+            var firstAttempt = pool.submit(() -> {
+                ready.countDown();
+                if (!start.await(5, TimeUnit.SECONDS)) throw new IllegalStateException("lease race start timed out");
+                return first.tryAcquire(concurrentKey, firstToken, Duration.ofSeconds(60));
+            });
+            var secondAttempt = pool.submit(() -> {
+                ready.countDown();
+                if (!start.await(5, TimeUnit.SECONDS)) throw new IllegalStateException("lease race start timed out");
+                return second.tryAcquire(concurrentKey, secondToken, Duration.ofSeconds(60));
+            });
+            assertTrue(ready.await(5, TimeUnit.SECONDS), "Both MySQL clients must reach the lease barrier");
+            start.countDown();
+            boolean firstAcquired = firstAttempt.get(10, TimeUnit.SECONDS);
+            boolean secondAcquired = secondAttempt.get(10, TimeUnit.SECONDS);
+            assertTrue(firstAcquired ^ secondAcquired, "Exactly one independent MySQL client may own the lease");
+        }
+        first.release(concurrentKey, firstToken);
+        second.release(concurrentKey, secondToken);
+
+        String recoveryKey = "e".repeat(64);
+        String staleToken = UUID.randomUUID().toString();
+        String ownerToken = UUID.randomUUID().toString();
+        assertTrue(first.tryAcquire(recoveryKey, staleToken, Duration.ofSeconds(60)));
+        try (var statement = connection.prepareStatement("UPDATE knowledge_shared_answer_cache_lock "
+                + "SET lease_expires_at=TIMESTAMPADD(SECOND,-1,CURRENT_TIMESTAMP(6)) WHERE cache_key=?")) {
+            statement.setString(1, recoveryKey);
+            assertEquals(1, statement.executeUpdate());
+        }
+        assertTrue(second.tryAcquire(recoveryKey, ownerToken, Duration.ofSeconds(60)));
+        first.release(recoveryKey, staleToken);
+        assertEquals(ownerToken, countOwnerToken(connection, recoveryKey));
+        var shared = new KnowledgeAnswerCacheStore.Entry(recoveryKey, 1, "INTERVIEW_PREPARATION",
+                "INTERVIEW_PREPARATION", "Shared grounded answer [2001:1]", "ALUMNI_REPORTED_EVIDENCE",
+                "OPENAI_GROUNDED", "openai", "gpt-4.1-mini", "grounded-answer-v1",
+                List.of(new KnowledgeAnswerCacheStore.SourceRef(2001, 1)),
+                LocalDateTime.now(ZoneOffset.UTC).plusDays(1));
+        assertTrue(!first.save(shared, staleToken), "An expired owner must not overwrite the new owner's entry");
+        assertTrue(second.save(shared, ownerToken));
+        assertEquals(shared.answer(), springStore.find(recoveryKey).orElseThrow().answer());
+        assertEquals(shared.answer(), first.find(recoveryKey).orElseThrow().answer());
+        first.release(recoveryKey, staleToken);
+        assertEquals(ownerToken, countOwnerToken(connection, recoveryKey));
+        second.release(recoveryKey, ownerToken);
+    }
+
+    private static String countOwnerToken(Connection connection, String cacheKey) throws Exception {
+        try (var statement = connection.prepareStatement(
+                "SELECT lock_token FROM knowledge_shared_answer_cache_lock WHERE cache_key=?")) {
+            statement.setString(1, cacheKey);
+            try (var rows = statement.executeQuery()) {
+                assertTrue(rows.next());
+                return rows.getString(1);
+            }
+        }
+    }
+
+    private static void insertExpiredCacheBacklog(Connection connection, int count) throws Exception {
+        String sql = """
+                INSERT INTO knowledge_shared_answer_cache (
+                    cache_key,cache_version,canonical_intent,canonical_question,answer_text,evidence_status,
+                    answer_mode,provider_id,model_id,prompt_version,cache_status,expires_at
+                ) VALUES (?,1,'INTERVIEW_PREPARATION','Interview preparation','Expired test row',
+                    'ALUMNI_REPORTED_EVIDENCE','OPENAI_GROUNDED','openai','gpt-4.1-mini',
+                    'grounded-answer-v1','EXPIRED',TIMESTAMPADD(SECOND,-1,CURRENT_TIMESTAMP(6)))
+                """;
+        try (var statement = connection.prepareStatement(sql)) {
+            for (int i = 0; i < count; i++) {
+                statement.setString(1, String.format(java.util.Locale.ROOT, "%064x", i + 1));
+                statement.addBatch();
+                if ((i + 1) % 1_000 == 0) statement.executeBatch();
+            }
+            statement.executeBatch();
         }
     }
 
     private static void migrateFreshSchemaThrough21(DatabaseSettings database) {
         Flyway.configure()
-                .dataSource(database.url(), database.username(), database.password())
+                .dataSource(verifiedJdbcUrl(database), database.username(), database.password())
                 .locations("classpath:db/fresh", "classpath:db/shared")
                 .baselineOnMigrate(true)
                 .baselineVersion("1")
@@ -84,7 +255,7 @@ class FreshMySqlMigrationTest {
 
     private static void seedExistingEvidence(DatabaseSettings database) throws Exception {
         try (Connection connection = DriverManager.getConnection(
-                database.url(), database.username(), database.password());
+                verifiedJdbcUrl(database), database.username(), database.password());
              var statement = connection.createStatement()) {
             statement.executeUpdate("""
                     INSERT INTO users
@@ -112,20 +283,39 @@ class FreshMySqlMigrationTest {
         }
     }
 
+    private static void seedKnowledgeCacheSource(DatabaseSettings database) throws Exception {
+        try (Connection connection = DriverManager.getConnection(
+                verifiedJdbcUrl(database), database.username(), database.password());
+             var statement = connection.createStatement()) {
+            statement.executeUpdate("""
+                    INSERT INTO knowledge_contributions
+                        (id, owner_user_id, status, current_version, published_version, last_confirmed_at)
+                    VALUES (2001, 1001, 'PUBLISHED', 1, 1, CURRENT_TIMESTAMP(6))
+                    """);
+            statement.executeUpdate("""
+                    INSERT INTO knowledge_contribution_versions
+                        (contribution_id, version_number, category, title, narrative,
+                         student_visibility_consent, ai_retrieval_consent, created_by_user_id)
+                    VALUES (2001, 1, 'GENERAL', 'Migration cache source', 'Disposable migration test source',
+                            TRUE, TRUE, 1001)
+                    """);
+        }
+    }
+
     @Test
     void knownFailedLegacyV2AfterNormalizedV1IsRepairedAndMigrated() throws Exception {
         DatabaseSettings database = settings(RECOVERY_TEST_PREFIX);
         assertEmptySchema(database);
 
         Flyway.configure()
-                .dataSource(database.url(), database.username(), database.password())
+                .dataSource(verifiedJdbcUrl(database), database.username(), database.password())
                 .locations("classpath:db/normalized")
                 .target(MigrationVersion.fromVersion("1"))
                 .load()
                 .migrate();
 
         try (Connection connection = DriverManager.getConnection(
-                database.url(), database.username(), database.password());
+                verifiedJdbcUrl(database), database.username(), database.password());
              var statement = connection.createStatement()) {
             assertConnectedToExpectedSchema(connection, database);
             statement.executeUpdate("""
@@ -139,7 +329,7 @@ class FreshMySqlMigrationTest {
         try (ConfigurableApplicationContext ignored =
                      startApplication(database.url(), database.username(), database.password());
              Connection connection = DriverManager.getConnection(
-                     database.url(), database.username(), database.password())) {
+                     verifiedJdbcUrl(database), database.username(), database.password())) {
             assertConnectedToExpectedSchema(connection, database);
             assertMigrationHistory(connection, NORMALIZED_HISTORY);
             assertEquals(1, count(connection,
@@ -184,7 +374,7 @@ class FreshMySqlMigrationTest {
                 || "[::1]".equals(host);
         if (!"mysql".equalsIgnoreCase(endpoint.getScheme())
                 || !loopbackHost
-                || !Set.of(3306, 3307, 3308).contains(endpoint.getPort())
+                || !Set.of(3306, 3307, 3308, 3309).contains(endpoint.getPort())
                 || endpoint.getUserInfo() != null
                 || endpoint.getRawQuery() != null
                 || endpoint.getRawFragment() != null
@@ -199,13 +389,13 @@ class FreshMySqlMigrationTest {
     }
 
     private static IllegalArgumentException invalidTarget(String prefix, String expectedDatabase) {
-        return new IllegalArgumentException(prefix + " must target only jdbc:mysql://localhost:(3306, 3307, or 3308)/"
+        return new IllegalArgumentException(prefix + " must target only jdbc:mysql://localhost:(3306, 3307, 3308, or 3309)/"
                 + expectedDatabase + " (or an equivalent loopback address), without URL credentials or options.");
     }
 
     private static void assertEmptySchema(DatabaseSettings database) throws Exception {
         try (Connection connection = DriverManager.getConnection(
-                database.url(), database.username(), database.password())) {
+                verifiedJdbcUrl(database), database.username(), database.password())) {
             assertConnectedToExpectedSchema(connection, database);
             try (var tables = connection.getMetaData().getTables(
                     connection.getCatalog(), null, "%", new String[]{"TABLE"})) {
@@ -215,6 +405,25 @@ class FreshMySqlMigrationTest {
                         "Refusing to run a MySQL migration test against a non-empty database: " + existing);
             }
         }
+    }
+
+    private static String verifiedJdbcUrl(DatabaseSettings database) {
+        String path = System.getenv("DB_CA_TRUSTSTORE_PATH");
+        String password = System.getenv("DB_CA_TRUSTSTORE_PASSWORD");
+        String type = System.getenv().getOrDefault("DB_CA_TRUSTSTORE_TYPE", "PKCS12");
+        if (path == null || path.isBlank() || password == null || password.isBlank()) {
+            throw new IllegalStateException(
+                    "DB_CA_TRUSTSTORE_PATH and DB_CA_TRUSTSTORE_PASSWORD are required for MySQL integration tests");
+        }
+        String encodedTruststore = URLEncoder.encode(
+                java.nio.file.Path.of(path).toAbsolutePath().toUri().toString(), StandardCharsets.UTF_8);
+        String encodedPassword = URLEncoder.encode(password, StandardCharsets.UTF_8);
+        String encodedType = URLEncoder.encode(type, StandardCharsets.UTF_8);
+        return database.url() + "?sslMode=VERIFY_IDENTITY"
+                + "&trustCertificateKeyStoreUrl=" + encodedTruststore
+                + "&trustCertificateKeyStoreType=" + encodedType
+                + "&trustCertificateKeyStorePassword=" + encodedPassword
+                + "&fallbackToSystemTrustStore=false";
     }
 
     private static void assertConnectedToExpectedSchema(Connection connection, DatabaseSettings database)
@@ -381,6 +590,10 @@ class FreshMySqlMigrationTest {
         assertTrue(hasIndex(connection, "knowledge_companion_conversations", "idx_knowledge_conversation_owner_updated"));
         assertTrue(hasIndex(connection, "knowledge_question_interest", "idx_knowledge_question_topic"));
         assertTrue(hasIndex(connection, "knowledge_roadmaps", "idx_knowledge_roadmap_owner_updated"));
+        assertTrue(hasIndex(connection, "knowledge_shared_answer_cache", "idx_knowledge_shared_answer_cache_expiry"));
+        assertTrue(hasIndex(connection, "knowledge_shared_answer_cache", "idx_knowledge_shared_answer_cache_intent"));
+        assertTrue(hasIndex(connection, "knowledge_shared_answer_cache_source", "idx_knowledge_answer_cache_source_version"));
+        assertTrue(hasIndex(connection, "knowledge_shared_answer_cache_lock", "idx_knowledge_answer_cache_lock_expiry"));
         assertTrue(hasCheckConstraint(connection, "events", "chk_event_capacity"));
         assertTrue(isNotNullable(connection, "email_outbox", "encrypted_otp"));
         assertTrue(isNullable(connection, "events", "max_capacity"),
