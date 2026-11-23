@@ -324,7 +324,7 @@ jobs:
         run: |
           gradle_version="$(./android/gradlew --version)"
           printf '%s\n' "$gradle_version"
-          printf '%s\n' "$gradle_version" | grep -Eq 'JVM: 21([.]|[+])'
+          printf '%s\n' "$gradle_version" | grep -Eq 'Launcher JVM:[[:space:]]*21([.]|[+])'
 
       - name: Get dependencies
         run: flutter pub get
