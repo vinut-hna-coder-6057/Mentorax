@@ -87,14 +87,15 @@ def python_evaluation(dataset, strategy):
             validate_ranking_result(result, [profile["id"] for profile in profiles])
             repeated[case["id"]] = result["rankedIds"]
     deterministic = not errors and ranked == repeated
-    summary = summarize(searchable, ranked) if ranked else None
+    summary = summarize(searchable, ranked, candidate_count=len(profiles)) if ranked else None
     quality_cases = [case for case in searchable if any(int(value) > 0 for value in case["relevance"].values())]
-    quality_summary = summarize(quality_cases, ranked) if ranked else None
+    quality_summary = summarize(quality_cases, ranked, candidate_count=len(profiles)) if ranked else None
     elapsed = (time.perf_counter() - started) * 1000
     rss_after = process_rss_bytes()
     return {"status": "evaluated" if not errors else "failed", "strategy": strategy,
             "implementation": "mentorax-ai/app.py rank_candidates()",
             "scope": f"Isolated Python {strategy} ranker over all synthetic profiles; no Java evidence gate or intent routing",
+            "candidatePoolSize": len(profiles),
             "caseCount": len(searchable), "deterministicRepeatedRun": deterministic,
             "errors": errors, "metrics": summary, "careerQualityMetrics": quality_summary,
             "runtime": {"totalRankingMilliseconds": round(elapsed, 3),
@@ -157,8 +158,10 @@ def java_evaluation(dataset, java_raw, cases_key="cases", mode="disabled"):
             "mode": mode,
             "scope": "Real Java classifier and MentorDiscoveryService with synthetic approved alumni fixtures; "
                      + ("Python ranking disabled" if mode == "disabled" else "Python transport failure injected into RestTemplate"),
-            "metrics": summarize(dataset["questions"], rankings),
-            "careerQualityMetrics": summarize(quality_cases, rankings),
+            "metrics": summarize(dataset["questions"], rankings,
+                                 candidate_count=len(dataset["profiles"])),
+            "careerQualityMetrics": summarize(quality_cases, rankings,
+                                               candidate_count=len(dataset["profiles"])),
             "intentAccuracy": {"numerator": intents_correct, "denominator": len(dataset["questions"]),
                                "value": intents_correct / len(dataset["questions"])},
             "falseMentorRecommendations": {"numerator": false_recommendations, "denominator": len(forbidden),
@@ -173,7 +176,9 @@ def java_evaluation(dataset, java_raw, cases_key="cases", mode="disabled"):
                        "fallbackUsed": rows[case["id"]]["fallbackUsed"],
                        "recommendedRelevance": {str(profile_id): case["relevance"].get(str(profile_id), 0)
                                                 for profile_id in rows[case["id"]]["recommendedIds"]},
-                       "rankingMetrics": ranking_metrics(rows[case["id"]]["recommendedIds"], case["relevance"])}
+                       "rankingMetrics": ranking_metrics(
+                           rows[case["id"]]["recommendedIds"], case["relevance"],
+                           candidate_count=len(dataset["profiles"]))}
                       for case in dataset["questions"]]}
 
 
@@ -301,7 +306,15 @@ def main():
                              "pythonRankedIds": python_ids,
                              "pythonSemanticRankedIds": semantic_ids,
                              "pythonHybridRankedIds": hybrid_ids,
-                             "pythonRankingMetrics": ranking_metrics(python_ids, case["relevance"]) if python_ids else None,
+                             "pythonRankingMetrics": ranking_metrics(
+                                 python_ids, case["relevance"], candidate_count=len(dataset["profiles"]))
+                             if case["expectedRecommendations"] and python_result["status"] == "evaluated" else None,
+                             "pythonSemanticRankingMetrics": ranking_metrics(
+                                 semantic_ids, case["relevance"], candidate_count=len(dataset["profiles"]))
+                             if case["expectedRecommendations"] and python_results["semantic"]["status"] == "evaluated" else None,
+                             "pythonHybridRankingMetrics": ranking_metrics(
+                                 hybrid_ids, case["relevance"], candidate_count=len(dataset["profiles"]))
+                             if case["expectedRecommendations"] and python_results["hybrid"]["status"] == "evaluated" else None,
                              "javaRecommendedIds": java_case["recommendedIds"] if java_case else None,
                              "javaUnavailableRecommendedIds": unavailable_case["recommendedIds"] if unavailable_case else None,
                              "javaRecommendedRelevance": java_case["recommendedRelevance"] if java_case else None,

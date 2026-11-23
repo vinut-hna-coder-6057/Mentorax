@@ -8,6 +8,7 @@ on:
     branches:
       - main
       - ci-cd
+      - phase-2-6-full-review
 
   pull_request:
     branches:
@@ -183,11 +184,15 @@ jobs:
       - name: Run real-MySQL migration tests
         run: ./mvnw -q "-Dtest=FreshMySqlMigrationTest" test
 
-      - name: Create isolated lifecycle test schema
+      - name: Verify lifecycle test database connectivity
         run: |
-          mysql --host=127.0.0.1 --port=3308 --user=root \
-            --password="$PHASE26_PROCESSING_MYSQL_PASSWORD" \
-            --execute="CREATE DATABASE mentorax_phase26_lifecycle_test;"
+          MYSQL_PWD="$PHASE26_PROCESSING_MYSQL_PASSWORD" mysql \
+            --host=127.0.0.1 --port=3308 \
+            --user="$PHASE26_PROCESSING_MYSQL_USERNAME" \
+            --ssl-mode=VERIFY_IDENTITY \
+            --ssl-ca="$RUNNER_TEMP/mentorax-mysql-tls/ca.pem" \
+            --database=mentorax_phase26_lifecycle_test \
+            --execute="SELECT 1;"
 
       - name: Run database-backed processing lifecycle tests
         run: ./mvnw "-Dphase26.processing.mysql=true" "-Dtest=ExperienceClaimProcessingMySqlLifecycleTest" test
