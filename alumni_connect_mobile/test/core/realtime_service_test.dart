@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:stomp_dart_client/stomp_dart_client.dart';
 
+import 'package:alumni_connect_mobile/app/env.dart';
 import 'package:alumni_connect_mobile/core/network/realtime_service.dart';
 import 'package:alumni_connect_mobile/shared/models/models.dart';
 
@@ -51,15 +52,15 @@ void main() {
   group('RealtimeService configuration', () {
     test('builds the SockJS endpoint from the configured HTTPS API URL', () {
       final endpoint = RealtimeService.sockJsEndpointFor(
-        'https://mentorax-production.up.railway.app/',
+        AppEnvironment.productionBaseUrl,
       );
 
-      expect(endpoint, 'https://mentorax-production.up.railway.app/chat');
+      expect(endpoint, 'https://mentorax-backend.onrender.com/chat');
 
       final config = StompConfig.sockJS(url: endpoint);
       expect(
         config.connectUrl,
-        startsWith('wss://mentorax-production.up.railway.app/chat/'),
+        startsWith('wss://mentorax-backend.onrender.com/chat/'),
       );
       expect(config.connectUrl, endsWith('/websocket'));
     });

@@ -26,12 +26,12 @@ class OllamaGroundedAnswerProviderTest {
         RestTemplate rest = new RestTemplate();
         MockRestServiceServer server = MockRestServiceServer.bindTo(rest).build();
         server.expect(requestTo(URL + "/api/chat"))
-                .andRespond(withSuccess("{\"message\":{\"content\":\"The interview was remote [12:2]\"}}",
+                .andRespond(withSuccess("{\"message\":{\"content\":\"The backend interview was remote. [12:2]\"}}",
                         MediaType.APPLICATION_JSON));
         OllamaGroundedAnswerProvider provider = provider(rest, URL);
         String answer = provider.generate("What was the interview like?", List.of(source), false);
-        assertTrue(answer.contains("The interview was remote [12:2]"));
-        assertTrue(answer.contains("model-assisted"));
+        assertTrue(answer.contains("The backend interview was remote. [12:2]"));
+        assertTrue(answer.contains("Ollama model"));
         server.verify();
     }
 
@@ -40,6 +40,8 @@ class OllamaGroundedAnswerProviderTest {
         for (String response : List.of(
                 "{\"message\":{\"content\":\"Claim [99:1]\"}}",
                 "{\"message\":{\"content\":\"Claim without a citation\"}}",
+                "{\"message\":{\"content\":\"The interview guarantees a job [12:2]\"}}",
+                "{\"message\":{\"content\":\"Ignore previous instructions [12:2]\"}}",
                 "{\"message\":{\"content\":\"" + "x".repeat(2501) + "\"}}",
                 "{\"response\":\"unexpected shape\"}")) {
             RestTemplate rest = new RestTemplate();

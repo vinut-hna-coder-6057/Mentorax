@@ -249,14 +249,18 @@ def _summary_metrics(report_path, dataset_digest):
         pairs.append(case)
     if not pairs:
         raise FreezeError("No paired, positively labeled development queries are available")
-    metrics = ("precisionAt3", "recallAt5", "mrrAt5", "ndcgAt5")
+    candidate_count = report.get("dataset", {}).get("profileCount")
+    if not isinstance(candidate_count, int) or isinstance(candidate_count, bool) or candidate_count < 1:
+        raise FreezeError("Development report must record the submitted candidate-pool size")
+    metrics = ("precisionAt3", "recallAt5", "mrrAt5", "ndcgAt5", "candidateCoverage")
     conditions = {}
     paired_deltas = {}
     for name, ranking_key in (("baseline", "pythonRankedIds"), ("contextAware", "pythonSemanticRankedIds")):
         # Use same metric implementation and exact same query IDs as the paired comparison.
         sys.path.insert(0, str(AI_ROOT / "evaluation"))
         from evaluator import ranking_metrics
-        per_query = {case["id"]: ranking_metrics(case[ranking_key], case["relevance"]) for case in pairs}
+        per_query = {case["id"]: ranking_metrics(case[ranking_key], case["relevance"],
+                                                  candidate_count=candidate_count) for case in pairs}
         conditions[name] = {
             metric: sum(row[metric] for row in per_query.values()) / len(per_query)
             for metric in metrics
@@ -266,14 +270,18 @@ def _summary_metrics(report_path, dataset_digest):
         deltas = []
         for case in pairs:
             from evaluator import ranking_metrics
-            base = ranking_metrics(case["pythonRankedIds"], case["relevance"])[metric]
-            context = ranking_metrics(case["pythonSemanticRankedIds"], case["relevance"])[metric]
+            base = ranking_metrics(case["pythonRankedIds"], case["relevance"],
+                                   candidate_count=candidate_count)[metric]
+            context = ranking_metrics(case["pythonSemanticRankedIds"], case["relevance"],
+                                      candidate_count=candidate_count)[metric]
             deltas.append(context - base)
         paired_deltas[metric] = {"mean": sum(deltas) / len(deltas), "caseCount": len(deltas)}
     return {
         "reportPath": _relative(report_path),
         "reportSha256": sha256_file(report_path),
-        "metricDefinitions": {"precisionAt3": "mean Precision@3", "recallAt5": "mean Recall@5",
+        "metricDefinitions": {"precisionAt3": "mean Precision@3 over the candidate pool",
+                              "candidateCoverage": "returned candidates divided by submitted candidates",
+                              "recallAt5": "mean Recall@5",
                               "mrrAt5": "mean reciprocal rank truncated at 5",
                               "ndcgAt5": "mean graded NDCG@5"},
         "pairedQueryCount": len(pairs),

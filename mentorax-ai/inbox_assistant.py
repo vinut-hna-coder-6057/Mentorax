@@ -150,8 +150,12 @@ def assist_inbox_message(
     request: InboxAssistRequest,
     authorization: str | None = Header(default=None),
 ):
-    expected = os.getenv("INBOX_ASSISTANT_API_TOKEN", "")
-    supplied = authorization.removeprefix("Bearer ") if authorization else ""
+    expected = os.getenv("INBOX_ASSISTANT_API_TOKEN", "").strip()
+    supplied = ""
+    if authorization:
+        auth_parts = authorization.strip().split()
+        if len(auth_parts) == 2 and auth_parts[0].lower() == "bearer":
+            supplied = auth_parts[1]
     if not expected or not hmac.compare_digest(supplied.encode("utf-8"), expected.encode("utf-8")):
         raise HTTPException(status_code=503, detail="Inbox assistant unavailable")
     if not _slots.acquire(blocking=False):

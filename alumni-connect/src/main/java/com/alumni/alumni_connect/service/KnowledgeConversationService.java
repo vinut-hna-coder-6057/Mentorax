@@ -119,7 +119,7 @@ public class KnowledgeConversationService {
                 (rs, n) -> rs.getString(1), conversationId);
         String contextualQuery = String.join(" ", previous) + " " + question;
         KnowledgeAnswerResponse answer = answers.answer(contextualQuery.length() > 500
-                ? contextualQuery.substring(contextualQuery.length() - 500) : contextualQuery);
+                ? contextualQuery.substring(contextualQuery.length() - 500) : contextualQuery, false);
         if ("INSUFFICIENT_EVIDENCE".equals(answer.evidenceStatus())
                 || "CONFLICTING_REPORTS".equals(answer.evidenceStatus())) unanswered.record(student.getId(), question);
         String answerContent = answer.followUpReason() == null ? answer.answer()

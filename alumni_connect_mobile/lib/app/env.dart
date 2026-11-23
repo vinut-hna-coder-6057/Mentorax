@@ -1,32 +1,26 @@
 import 'package:flutter/foundation.dart';
+import 'api_endpoints.dart';
 
 abstract final class AppEnvironment {
-  /// Set with `--dart-define=API_BASE_URL=https://your-api-host` for production.
+  /// The release default is the Spring Boot service; Python is configured only on Spring.
+  static const productionBaseUrl = ApiEndpoints.springProductionBaseUrl;
+
+  /// Set with `--dart-define=API_BASE_URL=...` for local, staging, or CI overrides.
   static const _configuredBaseUrl = String.fromEnvironment('API_BASE_URL');
 
   /// The emulator host is a debug-only default. Profile/release builds must
   /// opt in to their real HTTPS service URL at build time.
-  static final String baseUrl = _resolveBaseUrl();
+  static final String baseUrl = resolveBaseUrl(
+    debug: kDebugMode,
+    configuredBaseUrl: _configuredBaseUrl,
+  );
 
-  static String _resolveBaseUrl() {
-    final url = _configuredBaseUrl.isNotEmpty
-        ? _configuredBaseUrl.trim()
-        : (kDebugMode ? 'http://10.0.2.2:8080' : '');
-    final uri = Uri.tryParse(url);
-
-    if (kDebugMode) {
-      if (uri == null || !uri.hasScheme || uri.host.isEmpty) {
-        throw StateError('API_BASE_URL must be a valid absolute URL.');
-      }
-      return url;
-    }
-
-    if (uri == null || uri.scheme != 'https' || uri.host.isEmpty) {
-      throw StateError(
-        'Profile and release builds require an HTTPS API URL. '
-        'Pass --dart-define=API_BASE_URL=https://your-api-host.',
-      );
-    }
-    return url;
-  }
+  /// Validates a compile-time override and applies the build-mode default.
+  static String resolveBaseUrl({
+    required bool debug,
+    String configuredBaseUrl = '',
+  }) => ApiEndpoints.resolveSpringBaseUrl(
+    debug: debug,
+    configuredBaseUrl: configuredBaseUrl,
+  );
 }

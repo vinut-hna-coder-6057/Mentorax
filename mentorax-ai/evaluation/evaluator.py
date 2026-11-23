@@ -71,7 +71,12 @@ def validate_dataset(dataset):
 
 
 def validate_ranking_result(result, candidate_ids):
-    """Validate the rank endpoint contract before consuming IDs for metrics."""
+    """Validate the threshold-filtered rank endpoint contract before computing metrics.
+
+    The endpoint intentionally returns only candidates above its recommendation
+    threshold, so rankedIds may be a subset or empty. Every returned ID and
+    score must still be valid and correspond exactly to that subset.
+    """
     expected_ids = list(candidate_ids)
     if len(expected_ids) != len(set(expected_ids)):
         raise ValueError("evaluation candidates contain duplicate IDs")
@@ -80,20 +85,23 @@ def validate_ranking_result(result, candidate_ids):
     ranked_ids = result["rankedIds"]
     if any(not isinstance(item, int) or isinstance(item, bool) for item in ranked_ids):
         raise ValueError("rankedIds must contain integer IDs")
-    if len(ranked_ids) != len(set(ranked_ids)) or set(ranked_ids) != set(expected_ids):
-        raise ValueError("rankedIds must contain each candidate ID exactly once")
+    if len(ranked_ids) != len(set(ranked_ids)) or not set(ranked_ids).issubset(expected_ids):
+        raise ValueError("rankedIds must contain unique known candidate IDs")
     scores = result["scores"]
-    if set(scores) != {str(item) for item in expected_ids}:
-        raise ValueError("score keys must exactly match candidate IDs")
+    if set(scores) != {str(item) for item in ranked_ids}:
+        raise ValueError("score keys must exactly match ranked candidate IDs")
     for score in scores.values():
         if not isinstance(score, (int, float)) or isinstance(score, bool) or not math.isfinite(score) or not 0 <= score <= 1:
             raise ValueError("scores must be finite numbers in [0, 1]")
     return True
 
 
-def ranking_metrics(ranked_ids, relevance, cutoffs=(3, 5, 10)):
+def ranking_metrics(ranked_ids, relevance, *, candidate_count, cutoffs=(3, 5, 10)):
     """Binary relevance is label > 0; NDCG uses graded gain 2**label - 1."""
     ranked = list(ranked_ids)
+    if (not isinstance(candidate_count, int) or isinstance(candidate_count, bool)
+            or candidate_count < 0 or len(ranked) > candidate_count):
+        raise ValueError("candidate_count must be a nonnegative integer at least as large as the ranking")
     if len(ranked) != len(set(ranked)):
         raise ValueError("ranking contains duplicate candidate IDs")
     if any(not isinstance(score, int) or isinstance(score, bool) or score not in (0, 1, 2)
@@ -104,7 +112,8 @@ def ranking_metrics(ranked_ids, relevance, cutoffs=(3, 5, 10)):
     for k in cutoffs:
         top = ranked[:k]
         hits = sum(str(item) in positive for item in top)
-        result[f"precisionAt{k}"] = hits / len(top) if top else None
+        precision_denominator = min(k, candidate_count)
+        result[f"precisionAt{k}"] = hits / precision_denominator if precision_denominator else None
         result[f"recallAt{k}"] = hits / len(positive) if positive else None
         result[f"hitRateAt{k}"] = float(hits > 0)
         first_relevant = next((index + 1 for index, item in enumerate(ranked) if str(item) in positive), None)
@@ -113,27 +122,39 @@ def ranking_metrics(ranked_ids, relevance, cutoffs=(3, 5, 10)):
         ideal = sorted((int(score) for score in relevance.values()), reverse=True)[:k]
         idcg = sum((2 ** score - 1) / math.log2(index + 2) for index, score in enumerate(ideal))
         result[f"ndcgAt{k}"] = dcg / idcg if idcg else None
+    result["candidateCoverage"] = len(ranked) / candidate_count if candidate_count else None
     result["reciprocalRank"] = next((1 / (index + 1) for index, item in enumerate(ranked) if str(item) in positive), 0.0) if positive else None
     return result
 
 
-def summarize(cases, ranked_by_id):
+def summarize(cases, ranked_by_id, *, candidate_count):
     groups = defaultdict(list)
     for case in cases:
         groups[case["category"]].append(case)
     return {"caseCount": len(cases), "categories": {
-        category: _aggregate(items, ranked_by_id) for category, items in sorted(groups.items())
-    }, "overall": _aggregate(cases, ranked_by_id)}
+        category: _aggregate(items, ranked_by_id, candidate_count) for category, items in sorted(groups.items())
+    }, "overall": _aggregate(cases, ranked_by_id, candidate_count)}
 
 
-def _aggregate(cases, ranked_by_id):
-    rankings = [ranking_metrics(ranked_by_id.get(case["id"], []), case["relevance"]) for case in cases]
+def _aggregate(cases, ranked_by_id, candidate_count):
+    rankings = [ranking_metrics(ranked_by_id.get(case["id"], []), case["relevance"],
+                                candidate_count=candidate_count) for case in cases]
     values = {}
     for key in rankings[0] if rankings else ():
+        if key == "candidateCoverage":
+            continue
         present = [row[key] for row in rankings if row[key] is not None]
         values[key] = {"value": sum(present) / len(present) if present else None,
                        "numerator": round(sum(present), 6) if present else 0,
                        "denominator": len(present), "excludedUndefined": len(rankings) - len(present)}
+    returned = sum(row["recommendedCount"] for row in rankings)
+    candidates = candidate_count * len(cases)
+    values["candidateCoverage"] = {
+        "value": returned / candidates if candidates else None,
+        "numerator": returned,
+        "denominator": candidates,
+        "excludedUndefined": 0 if candidates else len(rankings),
+    }
     recommendations = sum(row["recommendedCount"] for row in rankings)
     irrelevant = sum(row["irrelevantRecommendations"] for row in rankings)
     values["irrelevantRecommendationRate"] = {"value": irrelevant / recommendations if recommendations else None,

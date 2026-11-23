@@ -8,15 +8,18 @@ from unittest.mock import patch
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
-from app import MAX_REQUEST_BYTES, app
+from app import MAX_REQUEST_BYTES, api_docs_enabled, app
 from semantic_ranker import SemanticEmbeddingError, SentenceEmbeddingRanker
 
 
 class MentorRankerApiTests(unittest.TestCase):
     def setUp(self):
-        self.strategy_env = patch.dict(os.environ, {"MENTOR_RANKING_STRATEGY": "tfidf"})
+        self.strategy_env = patch.dict(os.environ, {
+            "MENTOR_RANKING_STRATEGY": "tfidf",
+            "MENTOR_RANKING_API_TOKEN": "test-ranking-token",
+        })
         self.strategy_env.start()
-        self.client = TestClient(app)
+        self.client = TestClient(app, headers={"Authorization": "Bearer test-ranking-token"})
         self.client.__enter__()
 
     def tearDown(self):
@@ -50,7 +53,8 @@ class MentorRankerApiTests(unittest.TestCase):
             return DeterministicModel()
 
         ranker = SentenceEmbeddingRanker(model_loader=load_model)
-        with patch("app.semantic_ranker", ranker), TestClient(app) as client:
+        with patch("app.semantic_ranker", ranker), TestClient(
+                app, headers={"Authorization": "Bearer test-ranking-token"}) as client:
             warming = client.get("/ready?strategy=semantic")
             self.assertTrue(load_entered.wait(timeout=3), "semantic readiness starts model warmup")
             self.assertEqual(503, warming.status_code)
@@ -95,7 +99,8 @@ class MentorRankerApiTests(unittest.TestCase):
             raise OSError("secret local model path")
 
         ranker = SentenceEmbeddingRanker(model_loader=fail_to_load)
-        with patch("app.semantic_ranker", ranker), TestClient(app) as client:
+        with patch("app.semantic_ranker", ranker), TestClient(
+                app, headers={"Authorization": "Bearer test-ranking-token"}) as client:
             initial = client.get("/ready?strategy=semantic")
             self.assertEqual(503, initial.status_code)
             ranker.start_model_initialization().result(timeout=3)
@@ -128,7 +133,8 @@ class MentorRankerApiTests(unittest.TestCase):
 
         ranker = SentenceEmbeddingRanker(model_loader=load_model)
         with patch.dict(os.environ, {"MENTOR_RANKING_STRATEGY": "semantic"}), \
-                patch("app.semantic_ranker", ranker), TestClient(app) as client:
+                patch("app.semantic_ranker", ranker), TestClient(
+                    app, headers={"Authorization": "Bearer test-ranking-token"}) as client:
             self.assertTrue(load_entered.wait(timeout=3), "application startup should launch background warmup")
             self.assertEqual(200, client.get("/health").status_code)
             warming = client.get("/ready")
@@ -162,12 +168,34 @@ class MentorRankerApiTests(unittest.TestCase):
         with patch.dict("os.environ", {"MENTOR_RANKING_API_TOKEN": "ranking-token"}):
             response = self.client.post("/rank", json={
                 "goal": "Python", "candidates": [{"id": 1, "skills": ["Python"]}],
-            })
+            }, headers={"Authorization": "Bearer wrong-token"})
             self.assertEqual(503, response.status_code)
             response = self.client.post("/rank", json={
                 "goal": "Python", "candidates": [{"id": 1, "skills": ["Python"]}],
             }, headers={"Authorization": "Bearer ranking-token"})
             self.assertEqual(200, response.status_code)
+            batch = self.client.post("/rank/batch", json={"requests": [{
+                "goal": "Python", "candidates": [{"id": 2, "skills": ["Python"]}],
+            }]}, headers={"Authorization": "Bearer ranking-token"})
+            self.assertEqual(200, batch.status_code)
+            self.assertEqual([2], batch.json()["results"][0]["result"]["rankedIds"])
+            denied_batch = self.client.post("/rank/batch", json={"requests": [{
+                "goal": "Python", "candidates": [{"id": 2, "skills": ["Python"]}],
+            }]}, headers={"Authorization": "Bearer wrong-token"})
+            self.assertEqual(503, denied_batch.status_code)
+
+    def test_empty_ranking_token_fails_closed_for_single_and_batch_routes(self):
+        with patch.dict(os.environ, {"MENTOR_RANKING_API_TOKEN": "   "}):
+            body = {"goal": "Python", "candidates": [{"id": 1, "skills": ["Python"]}]}
+            self.assertEqual(503, self.client.post("/rank", json=body).status_code)
+            self.assertEqual(503, self.client.post("/rank/batch", json={"requests": [body]}).status_code)
+
+    def test_api_docs_are_off_by_default_and_production_cannot_enable_them(self):
+        self.assertIsNone(app.openapi_url)
+        with patch.dict(os.environ, {"MENTOR_API_DOCS_ENABLED": "true", "MENTOR_ENVIRONMENT": "development"}):
+            self.assertTrue(api_docs_enabled())
+        with patch.dict(os.environ, {"MENTOR_API_DOCS_ENABLED": "true", "MENTOR_ENVIRONMENT": "production"}):
+            self.assertFalse(api_docs_enabled())
 
     def test_semantic_strategy_is_selected_and_model_failure_is_explicit(self):
         with patch("app.ensure_semantic_model_ready"), \

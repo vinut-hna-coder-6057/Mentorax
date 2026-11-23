@@ -16,7 +16,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from app import RankingRequest, app, rank, semantic_ranker
+from app import RankingRequest, app, rank_candidates, semantic_ranker
 
 
 def percentile(values, fraction):
@@ -115,7 +115,7 @@ def main():
     def rank_concurrently(request):
         started = time.perf_counter()
         try:
-            rank(request)
+            rank_candidates(request)
             return {"latency_ms": (time.perf_counter() - started) * 1000, "success": True}
         except Exception:
             return {"latency_ms": (time.perf_counter() - started) * 1000, "success": False}

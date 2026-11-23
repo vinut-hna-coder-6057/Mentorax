@@ -1,0 +1,1 @@
+org.springframework.boot.env.EnvironmentPostProcessor=com.alumni.alumni_connect.config.MySqlTlsUrlPostProcessor

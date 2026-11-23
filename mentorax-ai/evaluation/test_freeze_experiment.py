@@ -22,7 +22,7 @@ def sample_report(path):
          "pythonRankedIds": [], "pythonSemanticRankedIds": []},
     ]
     dataset_hash = freeze.sha256_file(freeze.AI_ROOT / "evaluation" / "dataset.json")
-    path.write_text(json.dumps({"dataset": {"sha256": dataset_hash},
+    path.write_text(json.dumps({"dataset": {"sha256": dataset_hash, "profileCount": 2},
                                 "pythonTfidf": {"status": "evaluated"},
                                 "pythonSemantic": {"status": "evaluated"},
                                 "perQuestion": cases}), encoding="utf-8")

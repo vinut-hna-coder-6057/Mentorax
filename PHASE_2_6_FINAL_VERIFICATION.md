@@ -64,7 +64,7 @@ The synthetic certificate planted OTP and verification codes, a PIN, password an
 
 - `flutter test`: 132 passed. `flutter analyze`: no issues.
 - The prior release build used `API_BASE_URL=https://127.0.0.1:8443` and rendered the login screen, but this is not evidence of a backend journey.
-- The supported release URL documented in `alumni_connect_mobile/README.md` is `https://mentorax-production.up.railway.app`; it is a production endpoint and was not used for synthetic acceptance data.
+- At the time of this historical run, the release URL documented in `alumni_connect_mobile/README.md` was the Railway endpoint. It is retired; current builds use the centrally managed Spring Render URL documented in that README.
 - `alumni_connect_mobile/lib/app/env.dart` requires an absolute HTTPS URL in profile/release builds. It does not bypass or pin certificates. The default Dio client installs no custom certificate adapter or bad-certificate callback; HTTPS validation is left to the platform transport (the browser's certificate validation for Flutter web). The Android main manifest denies cleartext traffic; the debug manifest alone permits it for local development.
 - Spring's main `application.properties` configures the local service port but no `server.ssl.*` keystore, so the local Spring API is HTTP by default.
 - A read-only check of CurrentUser and LocalMachine certificate stores found no localhost certificate, and no listener was present on ports 443, 8443, 5000, 8080, or 8090. The only Docker services present were unrelated Redis/Mongo containers, which were left untouched. No local HTTPS API endpoint with a trusted certificate was available.

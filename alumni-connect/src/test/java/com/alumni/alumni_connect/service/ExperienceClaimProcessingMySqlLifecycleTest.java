@@ -29,6 +29,7 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.sql.Connection;
@@ -498,7 +499,7 @@ class ExperienceClaimProcessingMySqlLifecycleTest {
 
     private static void assertEmptySchema(DatabaseSettings settings) {
         try (Connection connection = DriverManager.getConnection(
-                settings.url(), settings.username(), settings.password())) {
+                verifiedJdbcUrl(settings), settings.username(), settings.password())) {
             assertEquals(settings.schema(), connection.getCatalog());
             try (var tables = connection.getMetaData().getTables(
                     connection.getCatalog(), null, "%", new String[]{"TABLE"})) {
@@ -508,6 +509,25 @@ class ExperienceClaimProcessingMySqlLifecycleTest {
         } catch (Exception exception) {
             throw new IllegalStateException("Could not validate the fresh disposable lifecycle MySQL schema", exception);
         }
+    }
+
+    private static String verifiedJdbcUrl(DatabaseSettings settings) {
+        String path = System.getenv("DB_CA_TRUSTSTORE_PATH");
+        String password = System.getenv("DB_CA_TRUSTSTORE_PASSWORD");
+        String type = System.getenv().getOrDefault("DB_CA_TRUSTSTORE_TYPE", "PKCS12");
+        if (path == null || path.isBlank() || password == null || password.isBlank()) {
+            throw new IllegalStateException(
+                    "DB_CA_TRUSTSTORE_PATH and DB_CA_TRUSTSTORE_PASSWORD are required for MySQL integration tests");
+        }
+        String encodedTruststore = URLEncoder.encode(
+                java.nio.file.Path.of(path).toAbsolutePath().toUri().toString(), StandardCharsets.UTF_8);
+        String encodedPassword = URLEncoder.encode(password, StandardCharsets.UTF_8);
+        String encodedType = URLEncoder.encode(type, StandardCharsets.UTF_8);
+        return settings.url() + "?sslMode=VERIFY_IDENTITY"
+                + "&trustCertificateKeyStoreUrl=" + encodedTruststore
+                + "&trustCertificateKeyStoreType=" + encodedType
+                + "&trustCertificateKeyStorePassword=" + encodedPassword
+                + "&fallbackToSystemTrustStore=false";
     }
 
     private record SeededEvidence(long claimId, long evidenceId, String documentHash, int evidenceVersion) {}

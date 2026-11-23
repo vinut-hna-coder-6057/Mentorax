@@ -28,6 +28,12 @@ Shared V24 adds `knowledge_contributions`, immutable `knowledge_contribution_ver
 
 Shared V25 adds companion conversations/messages and source-reference rows, privacy-preserving unanswered-topic groups, owned roadmaps/items/source references, and freshness interval/reminder columns on contributions. These tables contain only authenticated student-owned conversation history, one normalized keyword group row per student/topic, and roadmap references to contribution ID/version. Source-dependent conversation text and source metadata are suppressed if the referenced version is no longer AI-eligible. Freshness reminders are claimed with a conditional update in the same transaction as writing an existing in-app notification; if the transaction fails, the due reminder remains retryable. Freshness intervals are limited to 90 or 180 days. The migration is additive and does not rewrite the prior V1–V24 history.
 
+Shared V26 adds the shared Knowledge Companion answer cache, exact contribution-version references, and expiring MySQL generation leases. Cache rows contain only a conservative intent label, a grounded answer, provider/prompt versions, and approved contribution/version IDs; they have no original question text, user, or conversation identifier. The question/context key is a one-way SHA-256 digest. Reads recheck current published consent, alumni approval, exact version, and freshness confirmation. The stateless answer endpoint may use the cache; private conversation turns always bypass it. Invalidated and expired rows remain explicitly marked until replaced or maintenance removes them.
+
+The cache accepts only allowlisted preparation/roadmap/general-resume intents with no personal markers, direct identifiers, verification request, or time-sensitive opening/deadline query. Its SHA-256 key includes canonical intent/topic, country and cycle when present, provider/model/prompt/cache versions, and the exact retrieved contribution versions and company/role context. It is not a semantic cache. Miss coordination uses a MySQL unique-key lease with a 60-second default expiry and a bounded 22-second wait; waiters retry lease acquisition so abandoned/expired leases can be recovered. If a generation exceeds the bounded wait, the waiting request preserves availability by generating without storing, so duplicate provider work remains possible in that exceptional case. Cache failures fail open to the existing grounded flow. TTL defaults are 30 days for stable guidance, 14 days for general preparation, 7 days for company-specific guidance, and 3 days for cycle-specific guidance. Exact provider token usage is unavailable; the cache exports a separately named completion-token estimate based on answer characters divided by four.
+
+Future semantic reuse is intentionally out of scope. If evaluated later, embeddings must be versioned and similarity thresholds tested against false matches, with strict company/role/region/cycle guards, the same personal-query bypass, source revalidation, confidence-based fallback, and measured false-positive reporting. No embedding dependency or service is part of V26.
+
 Keep applied migration files in `db/migration` immutable. Because the fresh and normalized histories use separate Flyway locations, changes added after their baselines must also be represented in those routed chains. The password-reset and alumni-status changes use V8/V9 for the legacy history, V2/V3 for the fresh history, and V3/V4 for the normalized history. Shared V12 applies the existing-account email-verification backfill, V13 adds event registration capacity, and V14 adds the approved-alumni lookup index to all supported histories.
 
 ## Existing database deployment
@@ -74,20 +80,45 @@ For the optional mentor ranking service, configure the same random secret in
 This protects `/rank` and `/rank/batch` without placing credentials in request
 URLs or source files.
 
-## Railway runtime configuration
+## Render and Aiven runtime configuration
 
-Configure the Railway backend service root directory as `alumni-connect`. Build with `./mvnw package` and start the repackaged JAR with `java -jar target/alumni-connect-0.0.1-SNAPSHOT.jar`. Spring listens on Railway’s `PORT` environment value and defaults to port 8080 for local use. Configure the following environment variables in Railway’s secret/environment settings; do not place their values in repository files:
+The current Spring Boot service is `https://mentorax-backend.onrender.com`; its
+Python support service is separate at `https://mentorax.onrender.com`. Configure
+the Render backend root directory as `alumni-connect` and deploy the checked-in
+Dockerfile or the reviewed Maven build/start commands for the service. Do not
+configure the Python URL as the mobile API base URL.
 
-- `DB_URL`, `DB_USERNAME`, and `DB_PASSWORD`. When connecting directly to a
-  Railway MySQL service, the application also accepts Railway's
-  `MYSQLHOST`, `MYSQLPORT`, `MYSQLDATABASE`, `MYSQLUSER`, and `MYSQLPASSWORD`
-  variables and builds the JDBC URL automatically. Each configured `DB_*`
-  value takes precedence over its corresponding `MYSQL*` fallback when both
-  are present; specifically, `DB_URL` overrides the constructed JDBC URL,
-  `DB_USERNAME` overrides `MYSQLUSER`, and `DB_PASSWORD` overrides
-  `MYSQLPASSWORD`.
-- `JWT_SECRET` (at least 32 UTF-8 bytes)
-- `CORS_ALLOWED_ORIGIN_PATTERNS` and `WEBSOCKET_ALLOWED_ORIGINS` (comma-separated trusted origins; avoid broad wildcards in production)
+Set these values through Render's secret/environment settings; do not put
+production values in repository files. **No live Render or Aiven settings were
+read or changed during the repository audit.**
+
+- `DB_URL`, `DB_USERNAME`, and `DB_PASSWORD` for the Aiven MySQL service. The
+  application adds `sslMode=REQUIRED` when a MySQL URL has no TLS mode and refuses
+  explicit `PREFERRED` or `DISABLED` modes. `REQUIRED` encrypts the connection but
+  does not authenticate the server certificate. For CA and hostname validation,
+  use `sslMode=VERIFY_IDENTITY` and configure the Aiven CA in a protected JVM
+  trust store. Never put credentials in the JDBC URL.
+- `JWT_SECRET` (at least 32 UTF-8 bytes).
+- `CORS_ALLOWED_ORIGIN_PATTERNS` and `WEBSOCKET_ALLOWED_ORIGINS` (exact trusted
+  HTTPS app origins; avoid broad wildcards in production).
+- `RESEND_API_KEY` and `RESEND_FROM_EMAIL` for verification, password-reset,
+  and event-registration messages.
+- `EXPERIENCE_EVIDENCE_ENCRYPTION_KEY`, a stable base64-encoded 32-byte key,
+  so previously encrypted evidence remains readable across restarts.
+- `EXPERIENCE_ANALYSIS_API_TOKEN` on both services when evidence analysis is
+  enabled. The Python endpoint fails closed if its token is absent.
+- `AI_SERVICE_URL` and matching `AI_MENTOR_API_TOKEN` / `MENTOR_RANKING_API_TOKEN`
+  on Spring/Python when mentor ranking is enabled. The Python token is required
+  even when the supplied value is empty or missing; protected ranking returns
+  unavailable rather than opening access.
+- `MENTOR_ENVIRONMENT=production` and `MENTOR_API_DOCS_ENABLED=false` on Python.
+
+Knowledge Companion stays deterministic without an external model credential.
+Only if external processing of eligible alumni contribution excerpts is
+approved, set `KNOWLEDGE_ANSWER_PROVIDER=openai`, `OPENAI_API_KEY`, and optionally
+`KNOWLEDGE_OPENAI_MODEL` and `KNOWLEDGE_PROVIDER_TIMEOUT_MS`. Keep the provider
+key only in Spring's secret configuration. No API key is required for startup
+or tests, and there is no client-side provider key.
 
 Email configuration is optional for application startup and for administrator
 or already-active account signin. `RESEND_API_KEY` and `RESEND_FROM_EMAIL` are
@@ -97,7 +128,7 @@ test-mode accounts may restrict recipients to an authorized address. Without
 these variables, queued email delivery will be deferred until the outbox
 message expires, and new self-registered accounts cannot complete verification.
 
-The public readiness endpoint is `/actuator/health/readiness`. It reports readiness only while the application is accepting traffic and the configured database is available. Only the health actuator endpoint is exposed, and health details are not included in responses.
+The public readiness endpoint is `/actuator/health/readiness`. It reports readiness only while the application is accepting traffic and the configured database is available. Only the health actuator endpoint is exposed, and health details are not included in responses. Check `/actuator/health/liveness` and `/actuator/health/readiness` after a reviewed deployment; historical health results do not prove current service health.
 
 ## Checksum or history conflicts
 

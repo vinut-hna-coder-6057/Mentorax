@@ -8,5 +8,10 @@ import java.util.List;
 public interface GroundedAnswerProvider {
     String id();
 
+    /** Null means configured; otherwise this provider must not be called. */
+    default String configurationError() { return null; }
+
+    default boolean isConfigured() { return configurationError() == null; }
+
     String generate(String question, List<KnowledgeRetrievalResponse.Source> sources, boolean conflicting);
 }

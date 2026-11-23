@@ -12,12 +12,13 @@ from inbox_app import app
 
 class InboxAssistantTests(unittest.TestCase):
     def test_optional_entrypoint_keeps_existing_health_and_ranking_routes(self):
-        client = TestClient(app)
-        self.assertEqual(200, client.get("/health").status_code)
-        ranking = client.post("/rank", json={"goal": "career advice", "strategy": "tfidf",
-            "candidates": [{"id": 1, "bio": "career guidance and interviewing"}]})
-        self.assertEqual(200, ranking.status_code)
-        self.assertEqual([1], ranking.json()["rankedIds"])
+        with patch.dict("os.environ", {"MENTOR_RANKING_API_TOKEN": "test-ranking-token"}):
+            client = TestClient(app, headers={"Authorization": "Bearer test-ranking-token"})
+            self.assertEqual(200, client.get("/health").status_code)
+            ranking = client.post("/rank", json={"goal": "career advice", "strategy": "tfidf",
+                "candidates": [{"id": 1, "bio": "career guidance and interviewing"}]})
+            self.assertEqual(200, ranking.status_code)
+            self.assertEqual([1], ranking.json()["rankedIds"])
 
     def test_supported_categories_and_uncertain_other(self):
         cases = {
@@ -72,13 +73,31 @@ class InboxAssistantTests(unittest.TestCase):
             body = {"messageId": 3, "content": "Can you help me prepare for an interview?"}
             self.assertEqual(503, client.post("/inbox/assist", json=body).status_code)
             response = client.post("/inbox/assist", json=body,
-                                   headers={"Authorization": "Bearer test-token"})
+                                   headers={"Authorization": "bEaReR   test-token"})
             self.assertEqual(200, response.status_code)
             self.assertEqual("INTERVIEW_PREPARATION", response.json()["category"])
+            for authorization in ("Bearer wrong-token", "Basic test-token", "Bearer"):
+                with self.subTest(authorization=authorization):
+                    rejected = client.post("/inbox/assist", json=body,
+                                           headers={"Authorization": authorization})
+                    self.assertEqual(503, rejected.status_code)
             invalid = client.post("/inbox/assist", json={**body, "extra": "x"},
                                   headers={"Authorization": "Bearer test-token"})
             self.assertEqual(422, invalid.status_code)
             self.assertEqual({"detail": "Invalid inbox assistant request"}, invalid.json())
+
+    def test_endpoint_fails_closed_when_internal_token_is_missing_or_blank(self):
+        body = {"messageId": 3, "content": "Can you help me prepare for an interview?"}
+        for configured_token in (None, "   "):
+            environment = {} if configured_token is None else {
+                "INBOX_ASSISTANT_API_TOKEN": configured_token,
+            }
+            with self.subTest(configured_token=configured_token), patch.dict(
+                    "os.environ", environment, clear=True):
+                response = TestClient(app).post(
+                    "/inbox/assist", json=body,
+                    headers={"Authorization": "Bearer test-token"})
+                self.assertEqual(503, response.status_code)
 
     def test_busy_inference_is_bounded(self):
         with patch("inbox_assistant._slots.acquire", return_value=False), \

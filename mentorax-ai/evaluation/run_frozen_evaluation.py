@@ -49,7 +49,8 @@ def main():
                                           for q in dataset["questions"]),
             "unresolvedJudgments": 0,
         },
-        "metrics": summarize(dataset["questions"], result["rankedIdsByCase"]),
+        "metrics": summarize(dataset["questions"], result["rankedIdsByCase"],
+                             candidate_count=len(dataset["profiles"])),
         "runtime": result["runtime"],
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)

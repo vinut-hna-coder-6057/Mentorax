@@ -13,15 +13,11 @@ import org.springframework.web.client.RestTemplate;
 
 import java.net.URI;
 import java.util.*;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /** Optional loopback-only Ollama adapter. No alumni content is sent to a remote host. */
 @Component
 public class OllamaGroundedAnswerProvider implements GroundedAnswerProvider {
     private static final int MAX_PROMPT = 7000;
-    private static final int MAX_OUTPUT = 2500;
-    private static final Pattern CITATION = Pattern.compile("\\[(\\d+):(\\d+)\\]");
     private final RestTemplate rest;
     private final ObjectMapper mapper;
     private final String baseUrl;
@@ -70,25 +66,8 @@ public class OllamaGroundedAnswerProvider implements GroundedAnswerProvider {
         headers.setContentType(MediaType.APPLICATION_JSON);
         JsonNode response = rest.postForObject(baseUrl + "/api/chat", new HttpEntity<>(request, headers), JsonNode.class);
         String generated = response == null ? null : response.path("message").path("content").asText(null);
-        return validate(generated, sources);
-    }
-
-    private String validate(String output, List<KnowledgeRetrievalResponse.Source> sources) {
-        if (output == null || output.isBlank() || output.length() > MAX_OUTPUT)
-            throw new IllegalArgumentException("Local answer provider returned empty or oversized content");
-        Set<String> allowed = new HashSet<>();
-        for (var source : sources) allowed.add(source.contributionId() + ":" + source.version());
-        Matcher matcher = CITATION.matcher(output);
-        int count = 0;
-        while (matcher.find()) {
-            count++;
-            if (!allowed.contains(matcher.group(1) + ":" + matcher.group(2)))
-                throw new IllegalArgumentException("Local answer provider returned an unknown source reference");
-        }
-        if (count == 0 || Arrays.stream(output.split("\\R")).filter(line -> !line.isBlank())
-                .anyMatch(line -> !CITATION.matcher(line).find()))
-            throw new IllegalArgumentException("Local answer provider omitted required source citations");
-        return "Alumni-reported summary (model-assisted, not independently verified):\n\n" + output.strip();
+        String validated = GroundedAnswerValidation.validateExtractiveCitations(generated, sources, 2500);
+        return "Alumni-reported extractive summary (Ollama model; not independently verified):\n\n" + validated;
     }
 
     private static String validateLoopback(String raw) {
