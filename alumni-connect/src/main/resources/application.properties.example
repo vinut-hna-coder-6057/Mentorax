@@ -4,8 +4,12 @@
 
 server.port=${PORT:8080}
 # MySqlTlsUrlPostProcessor adds sslMode=VERIFY_IDENTITY when absent and rejects weaker modes.
-# Set DB_CA_TRUSTSTORE_PATH, DB_CA_TRUSTSTORE_PASSWORD, and optionally
-# DB_CA_TRUSTSTORE_TYPE=PKCS12 to a protected truststore containing the official Aiven CA.
+# Render PEM Secret File option: set DB_CA_PEM_PATH=/etc/secrets/aiven-mysql-ca.pem
+# to the CA PEM downloaded for this exact MySQL service. The app validates it and
+# creates a private temporary PKCS12 truststore. This takes precedence over the
+# legacy direct-truststore settings below.
+# Local/CI direct truststore option: set DB_CA_TRUSTSTORE_PATH and
+# DB_CA_TRUSTSTORE_PASSWORD, with optional DB_CA_TRUSTSTORE_TYPE=PKCS12 or JKS.
 spring.datasource.url=${DB_URL}
 spring.datasource.driver-class-name=com.mysql.cj.jdbc.Driver
 spring.datasource.username=${DB_USERNAME:${MYSQLUSER}}

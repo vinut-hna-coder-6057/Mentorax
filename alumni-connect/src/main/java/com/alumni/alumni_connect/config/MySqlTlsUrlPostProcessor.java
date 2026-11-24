@@ -8,17 +8,33 @@ import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.MapPropertySource;
 
 import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CodingErrorAction;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.PosixFilePermission;
+import java.nio.file.attribute.PosixFilePermissions;
+import java.security.SecureRandom;
 import java.security.KeyStore;
+import java.security.cert.CertificateFactory;
+import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
+import java.util.ArrayList;
+import java.util.Base64;
+import java.util.Date;
 import java.util.Enumeration;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /** Requires MySQL server identity verification and an explicit CA truststore before datasource startup. */
 public final class MySqlTlsUrlPostProcessor implements EnvironmentPostProcessor, Ordered {
@@ -27,6 +43,11 @@ public final class MySqlTlsUrlPostProcessor implements EnvironmentPostProcessor,
     private static final String TRUSTSTORE_PATH = "DB_CA_TRUSTSTORE_PATH";
     private static final String TRUSTSTORE_PASSWORD = "DB_CA_TRUSTSTORE_PASSWORD";
     private static final String TRUSTSTORE_TYPE = "DB_CA_TRUSTSTORE_TYPE";
+    private static final String CA_PEM_PATH = "DB_CA_PEM_PATH";
+    private static final int MAX_CA_FILE_BYTES = 1024 * 1024;
+    private static final Pattern PEM_CERTIFICATE = Pattern.compile(
+            "-----BEGIN CERTIFICATE-----\\s*([A-Za-z0-9+/=\\r\\n]+?)\\s*-----END CERTIFICATE-----");
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     @Override
     public void postProcessEnvironment(ConfigurableEnvironment environment, SpringApplication application) {
@@ -38,7 +59,8 @@ public final class MySqlTlsUrlPostProcessor implements EnvironmentPostProcessor,
         Map<String, Object> properties = verifiedMySqlProperties(url,
                 environment.getProperty(TRUSTSTORE_PATH),
                 environment.getProperty(TRUSTSTORE_PASSWORD),
-                environment.getProperty(TRUSTSTORE_TYPE, "PKCS12"));
+                environment.getProperty(TRUSTSTORE_TYPE, "PKCS12"),
+                environment.getProperty(CA_PEM_PATH));
         environment.getPropertySources().addFirst(new MapPropertySource(SOURCE_NAME, properties));
     }
 
@@ -95,24 +117,169 @@ public final class MySqlTlsUrlPostProcessor implements EnvironmentPostProcessor,
 
     static Map<String, Object> verifiedMySqlProperties(
             String url, String configuredPath, String password, String configuredType) {
+        return verifiedMySqlProperties(url, configuredPath, password, configuredType, null);
+    }
+
+    static Map<String, Object> verifiedMySqlProperties(
+            String url, String configuredPath, String password, String configuredType, String configuredPemPath) {
         String verifiedUrl = requireIdentityVerification(url);
-        String path = requiredSetting(TRUSTSTORE_PATH, configuredPath);
-        String truststorePassword = requiredSetting(TRUSTSTORE_PASSWORD, password);
-        String type = (configuredType == null || configuredType.isBlank() ? "PKCS12" : configuredType)
-                .trim().toUpperCase(Locale.ROOT);
-        Path truststore = validateTruststore(path, truststorePassword, type);
+        TruststoreSettings truststoreSettings;
+        if (configuredPemPath != null && !configuredPemPath.isBlank()) {
+            truststoreSettings = createTruststoreFromPem(configuredPemPath.trim());
+        } else {
+            String path = requiredTruststorePath(configuredPath);
+            String truststorePassword = requiredSetting(TRUSTSTORE_PASSWORD, password);
+            String type = (configuredType == null || configuredType.isBlank() ? "PKCS12" : configuredType)
+                    .trim().toUpperCase(Locale.ROOT);
+            truststoreSettings = new TruststoreSettings(validateTruststore(path, truststorePassword, type),
+                    truststorePassword, type);
+        }
 
         Map<String, Object> properties = new LinkedHashMap<>();
         properties.put(URL_PROPERTY, verifiedUrl);
         properties.put("spring.datasource.hikari.data-source-properties.trustCertificateKeyStoreUrl",
-                truststore.toUri().toString());
-        properties.put("spring.datasource.hikari.data-source-properties.trustCertificateKeyStoreType", type);
+                truststoreSettings.path().toUri().toString());
+        properties.put("spring.datasource.hikari.data-source-properties.trustCertificateKeyStoreType",
+                truststoreSettings.type());
         properties.put("spring.datasource.hikari.data-source-properties.trustCertificateKeyStorePassword",
-                truststorePassword);
+                truststoreSettings.password());
         properties.put("spring.datasource.hikari.data-source-properties.fallbackToSystemTrustStore", "false");
         properties.put("spring.datasource.hikari.data-source-properties.connectionTimeZone", "+00:00");
         properties.put("spring.datasource.hikari.data-source-properties.forceConnectionTimeZoneToSession", "true");
         return properties;
+    }
+
+    private static TruststoreSettings createTruststoreFromPem(String configuredPemPath) {
+        List<X509Certificate> certificates = readCaCertificates(configuredPemPath);
+        char[] password = randomPassword();
+        Path truststore = null;
+        try {
+            KeyStore keyStore = KeyStore.getInstance("PKCS12");
+            keyStore.load(null, password);
+            for (int index = 0; index < certificates.size(); index++) {
+                keyStore.setCertificateEntry("provider-ca-" + index, certificates.get(index));
+            }
+
+            truststore = createPrivateTemporaryFile();
+            try (OutputStream output = Files.newOutputStream(truststore, StandardOpenOption.WRITE,
+                    StandardOpenOption.TRUNCATE_EXISTING, LinkOption.NOFOLLOW_LINKS)) {
+                keyStore.store(output, password);
+            }
+
+            String passwordValue = new String(password);
+            Path validated = validateTruststore(truststore.toString(), passwordValue, "PKCS12");
+            registerTemporaryTruststoreCleanup(validated);
+            return new TruststoreSettings(validated, passwordValue, "PKCS12");
+        } catch (Exception exception) {
+            if (truststore != null) {
+                try {
+                    cleanupTemporaryTruststore(truststore);
+                } catch (Exception ignored) {
+                    // Do not hide the startup failure if cleanup itself fails.
+                }
+            }
+            if (exception instanceof IllegalStateException stateException) throw stateException;
+            throw new IllegalStateException("Unable to create a temporary MySQL CA truststore", exception);
+        } finally {
+            java.util.Arrays.fill(password, '\0');
+        }
+    }
+
+    private static List<X509Certificate> readCaCertificates(String configuredPath) {
+        Path pemPath;
+        try {
+            pemPath = Path.of(configuredPath).toAbsolutePath().normalize();
+            if (!Files.isRegularFile(pemPath, LinkOption.NOFOLLOW_LINKS) || !Files.isReadable(pemPath)) {
+                throw new IllegalStateException("DB_CA_PEM_PATH must be a readable regular file");
+            }
+            long fileSize = Files.size(pemPath);
+            if (fileSize == 0 || fileSize > MAX_CA_FILE_BYTES) {
+                throw new IllegalStateException("DB_CA_PEM_PATH must contain a nonempty PEM CA bundle no larger than 1 MiB");
+            }
+            byte[] bytes;
+            try (InputStream input = Files.newInputStream(
+                    pemPath, StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS)) {
+                bytes = input.readNBytes(MAX_CA_FILE_BYTES + 1);
+            }
+            if (bytes.length == 0 || bytes.length > MAX_CA_FILE_BYTES) {
+                throw new IllegalStateException("DB_CA_PEM_PATH must contain a nonempty PEM CA bundle no larger than 1 MiB");
+            }
+
+            String pem = StandardCharsets.UTF_8.newDecoder()
+                    .onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT)
+                    .decode(java.nio.ByteBuffer.wrap(bytes)).toString();
+            Matcher matcher = PEM_CERTIFICATE.matcher(pem);
+            List<X509Certificate> certificates = new ArrayList<>();
+            CertificateFactory certificateFactory = CertificateFactory.getInstance("X.509");
+            int offset = 0;
+            while (matcher.find()) {
+                if (!pem.substring(offset, matcher.start()).isBlank()) {
+                    throw new IllegalStateException("DB_CA_PEM_PATH must contain only PEM CA certificates");
+                }
+                byte[] der = Base64.getDecoder().decode(matcher.group(1).replaceAll("\\s", ""));
+                X509Certificate certificate = (X509Certificate) certificateFactory.generateCertificate(
+                        new java.io.ByteArrayInputStream(der));
+                validateCaCertificate(certificate);
+                certificates.add(certificate);
+                offset = matcher.end();
+            }
+            if (!pem.substring(offset).isBlank() || certificates.isEmpty()) {
+                throw new IllegalStateException("DB_CA_PEM_PATH must contain one or more PEM CA certificates");
+            }
+            return List.copyOf(certificates);
+        } catch (IllegalStateException exception) {
+            throw exception;
+        } catch (CharacterCodingException | CertificateException exception) {
+            throw new IllegalStateException("DB_CA_PEM_PATH contains malformed or invalid certificate data", exception);
+        } catch (Exception exception) {
+            throw new IllegalStateException("DB_CA_PEM_PATH could not be read or validated", exception);
+        }
+    }
+
+    private static void validateCaCertificate(X509Certificate certificate) {
+        try {
+            certificate.checkValidity(new Date());
+        } catch (CertificateException exception) {
+            throw new IllegalStateException("DB_CA_PEM_PATH contains an expired or not-yet-valid certificate", exception);
+        }
+        if (certificate.getBasicConstraints() < 0) {
+            throw new IllegalStateException("DB_CA_PEM_PATH contains a certificate that is not a CA");
+        }
+        boolean[] keyUsage = certificate.getKeyUsage();
+        if (keyUsage != null && (keyUsage.length <= 5 || !keyUsage[5])) {
+            throw new IllegalStateException("DB_CA_PEM_PATH contains a CA certificate not permitted to sign certificates");
+        }
+    }
+
+    private static Path createPrivateTemporaryFile() throws Exception {
+        Path temporaryDirectory = Path.of(System.getProperty("java.io.tmpdir"));
+        try {
+            return Files.createTempFile(temporaryDirectory, "mentorax-mysql-ca-", ".p12",
+                    PosixFilePermissions.asFileAttribute(Set.of(
+                            PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE)));
+        } catch (UnsupportedOperationException exception) {
+            return Files.createTempFile(temporaryDirectory, "mentorax-mysql-ca-", ".p12");
+        }
+    }
+
+    private static void registerTemporaryTruststoreCleanup(Path path) {
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> cleanupTemporaryTruststore(path),
+                "mentorax-mysql-ca-cleanup"));
+    }
+
+    static void cleanupTemporaryTruststore(Path path) {
+        try {
+            Files.deleteIfExists(path);
+        } catch (Exception ignored) {
+            // Cleanup is best effort; truststore permissions restrict access until process exit.
+        }
+    }
+
+    private static char[] randomPassword() {
+        byte[] randomBytes = new byte[32];
+        SECURE_RANDOM.nextBytes(randomBytes);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(randomBytes).toCharArray();
     }
 
     private static String replaceSslMode(String url, int queryStart, String query) {
@@ -134,6 +301,14 @@ public final class MySqlTlsUrlPostProcessor implements EnvironmentPostProcessor,
         return value.trim();
     }
 
+    private static String requiredTruststorePath(String configuredPath) {
+        if (configuredPath == null || configuredPath.isBlank()) {
+            throw new IllegalStateException(
+                    CA_PEM_PATH + " or " + TRUSTSTORE_PATH + " is required for MySQL sslMode=VERIFY_IDENTITY");
+        }
+        return configuredPath.trim();
+    }
+
     private static Path validateTruststore(String configuredPath, String password, String type) {
         if (!type.equals("PKCS12") && !type.equals("JKS")) {
             throw new IllegalStateException("DB_CA_TRUSTSTORE_TYPE must be PKCS12 or JKS");
@@ -145,7 +320,7 @@ public final class MySqlTlsUrlPostProcessor implements EnvironmentPostProcessor,
                 throw new IllegalStateException("DB_CA_TRUSTSTORE_PATH must be a readable regular file");
             }
             KeyStore keyStore = KeyStore.getInstance(type);
-            try (InputStream input = Files.newInputStream(path)) {
+            try (InputStream input = Files.newInputStream(path, LinkOption.NOFOLLOW_LINKS)) {
                 keyStore.load(input, password.toCharArray());
             }
             int caCertificates = 0;
@@ -155,11 +330,11 @@ public final class MySqlTlsUrlPostProcessor implements EnvironmentPostProcessor,
                 if (!keyStore.isCertificateEntry(alias)) {
                     throw new IllegalStateException("DB_CA_TRUSTSTORE_PATH must contain trusted CA certificates only");
                 }
-                if (keyStore.getCertificate(alias) instanceof X509Certificate certificate
-                        && certificate.getBasicConstraints() >= 0) {
+                if (keyStore.getCertificate(alias) instanceof X509Certificate certificate) {
+                    validateCaCertificate(certificate);
                     caCertificates++;
                 } else {
-                    throw new IllegalStateException("DB_CA_TRUSTSTORE_PATH contains a certificate that is not a CA");
+                    throw new IllegalStateException("DB_CA_TRUSTSTORE_PATH must contain X.509 CA certificates only");
                 }
             }
             if (caCertificates == 0) {
@@ -173,4 +348,6 @@ public final class MySqlTlsUrlPostProcessor implements EnvironmentPostProcessor,
                     "DB_CA_TRUSTSTORE_PATH could not be loaded; verify the CA truststore file, type, and password", exception);
         }
     }
+
+    private record TruststoreSettings(Path path, String password, String type) { }
 }

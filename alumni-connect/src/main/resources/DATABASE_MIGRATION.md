@@ -92,12 +92,17 @@ Set these values through Render's secret/environment settings; do not put
 production values in repository files. **No live Render or Aiven settings were
 read or changed during the repository audit.**
 
-- `DB_URL`, `DB_USERNAME`, and `DB_PASSWORD` for the Aiven MySQL service. The
-  application adds `sslMode=REQUIRED` when a MySQL URL has no TLS mode and refuses
-  explicit `PREFERRED` or `DISABLED` modes. `REQUIRED` encrypts the connection but
-  does not authenticate the server certificate. For CA and hostname validation,
-  use `sslMode=VERIFY_IDENTITY` and configure the Aiven CA in a protected JVM
-  trust store. Never put credentials in the JDBC URL.
+- `DB_URL`, `DB_USERNAME`, and `DB_PASSWORD` for the configured MySQL service.
+  The application adds `sslMode=VERIFY_IDENTITY` when a MySQL URL has no TLS mode
+  and refuses weaker or ambiguous TLS settings. Never put credentials in the
+  JDBC URL. For Render, add the CA PEM downloaded from the actual provider service
+  as the Secret File `aiven-mysql-ca.pem`, then set
+  `DB_CA_PEM_PATH=/etc/secrets/aiven-mysql-ca.pem`. The backend validates the PEM
+  CA and creates a private, temporary PKCS12 truststore at startup. This PEM
+  setting takes precedence over the legacy direct truststore settings
+  (`DB_CA_TRUSTSTORE_PATH`, `DB_CA_TRUSTSTORE_PASSWORD`, and optional
+  `DB_CA_TRUSTSTORE_TYPE=PKCS12` or `JKS`), which remain available for local and
+  CI use. Do not use the disposable CI CA in production.
 - `JWT_SECRET` (at least 32 UTF-8 bytes).
 - `CORS_ALLOWED_ORIGIN_PATTERNS` and `WEBSOCKET_ALLOWED_ORIGINS` (exact trusted
   HTTPS app origins; avoid broad wildcards in production).
