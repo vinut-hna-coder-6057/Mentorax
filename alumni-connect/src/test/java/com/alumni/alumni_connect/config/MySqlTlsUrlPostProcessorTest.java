@@ -35,6 +35,17 @@ class MySqlTlsUrlPostProcessorTest {
     Path temporaryDirectory;
 
     @Test
+    void requiredCertificateFixturesAreAvailableOnTheTestClasspath() {
+        for (String name : new String[] {"test-ca.pem", "test-expired-ca.pem", "test-end-entity.pem"}) {
+            try (InputStream fixture = getClass().getResourceAsStream("/tls/" + name)) {
+                assertNotNull(fixture, "Missing test certificate fixture on test classpath: " + name);
+            } catch (java.io.IOException exception) {
+                throw new AssertionError("Could not read test certificate fixture: " + name, exception);
+            }
+        }
+    }
+
+    @Test
     void requiresIdentityVerificationWhenMysqlUrlHasNoTlsMode() {
         assertEquals("jdbc:mysql://db.example.test:3306/mentorax?sslMode=VERIFY_IDENTITY",
                 MySqlTlsUrlPostProcessor.requireIdentityVerification(
