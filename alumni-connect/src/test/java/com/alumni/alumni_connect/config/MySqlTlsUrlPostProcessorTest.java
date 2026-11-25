@@ -21,6 +21,8 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assumptions.assumeFalse;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 class MySqlTlsUrlPostProcessorTest {
     private static final String MYSQL_URL = "jdbc:mysql://mysql.example.test:3306/mentorax";
@@ -129,16 +131,24 @@ class MySqlTlsUrlPostProcessorTest {
     }
 
     @Test
-    void missingPemPathStillRequiresTheExistingDirectTruststoreConfiguration() {
-        IllegalStateException exception = assertThrows(IllegalStateException.class,
-                () -> MySqlTlsUrlPostProcessor.verifiedMySqlProperties(MYSQL_URL, null, null, "PKCS12", null));
-        assertTrue(exception.getMessage().contains("DB_CA_PEM_PATH or DB_CA_TRUSTSTORE_PATH is required"));
+    void missingOrBlankCaConfigurationIsRejected() {
+        for (String pemPath : new String[] {null, "  "}) {
+            IllegalStateException exception = assertThrows(IllegalStateException.class,
+                    () -> MySqlTlsUrlPostProcessor.verifiedMySqlProperties(
+                            MYSQL_URL, null, null, "PKCS12", pemPath));
+            assertTrue(exception.getMessage().contains("DB_CA_PEM_PATH or DB_CA_TRUSTSTORE_PATH is required"));
+        }
     }
 
     @Test
     void invalidEmptyExpiredAndNonCaPemInputsFailClosed() throws Exception {
         Path malformed = temporaryDirectory.resolve("malformed.pem");
         Files.writeString(malformed, "-----BEGIN CERTIFICATE-----\nnot a certificate\n-----END CERTIFICATE-----\n");
+        IllegalStateException malformedException = assertThrows(IllegalStateException.class,
+                () -> MySqlTlsUrlPostProcessor.verifiedMySqlProperties(
+                        MYSQL_URL, null, null, null, malformed.toString()));
+        assertTrue(malformedException.getMessage().contains("malformed or invalid certificate data"));
+
         Path empty = temporaryDirectory.resolve("empty.pem");
         Files.createFile(empty);
 
@@ -153,17 +163,37 @@ class MySqlTlsUrlPostProcessorTest {
     }
 
     @Test
-    void absentUnreadableOrNonexistentPemFailsClosed() throws Exception {
+    void missingAndNonRegularPemPathsHaveSpecificDiagnostics() throws Exception {
         Path missing = temporaryDirectory.resolve("missing-ca.pem");
         IllegalStateException missingException = assertThrows(IllegalStateException.class,
                 () -> MySqlTlsUrlPostProcessor.verifiedMySqlProperties(
                         MYSQL_URL, null, null, null, missing.toString()));
-        assertTrue(missingException.getMessage().contains("readable regular file"));
+        assertTrue(missingException.getMessage().contains("file does not exist"));
 
         Path directory = temporaryDirectory.resolve("not-a-file.pem");
         Files.createDirectory(directory);
-        assertThrows(IllegalStateException.class, () -> MySqlTlsUrlPostProcessor.verifiedMySqlProperties(
-                MYSQL_URL, null, null, null, directory.toString()));
+        IllegalStateException directoryException = assertThrows(IllegalStateException.class,
+                () -> MySqlTlsUrlPostProcessor.verifiedMySqlProperties(
+                        MYSQL_URL, null, null, null, directory.toString()));
+        assertTrue(directoryException.getMessage().contains("not a regular file"));
+    }
+
+    @Test
+    void unreadablePemHasSpecificDiagnosticWhenPosixPermissionsCanEnforceIt() throws Exception {
+        Path pem = copyFixture("test-ca.pem");
+        assumeTrue(Files.getFileStore(pem).supportsFileAttributeView("posix"),
+                "POSIX file permissions are not available on this filesystem");
+        Set<PosixFilePermission> originalPermissions = Files.getPosixFilePermissions(pem);
+        try {
+            Files.setPosixFilePermissions(pem, Set.of());
+            assumeFalse(Files.isReadable(pem), "The current process can bypass file read permissions");
+            IllegalStateException exception = assertThrows(IllegalStateException.class,
+                    () -> MySqlTlsUrlPostProcessor.verifiedMySqlProperties(
+                            MYSQL_URL, null, null, null, pem.toString()));
+            assertTrue(exception.getMessage().contains("not readable by the application user"));
+        } finally {
+            Files.setPosixFilePermissions(pem, originalPermissions);
+        }
     }
 
     @Test

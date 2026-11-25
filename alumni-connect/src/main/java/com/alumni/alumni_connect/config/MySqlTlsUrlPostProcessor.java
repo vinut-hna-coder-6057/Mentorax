@@ -9,13 +9,17 @@ import org.springframework.core.env.MapPropertySource;
 
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.file.AccessDeniedException;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.security.SecureRandom;
@@ -186,11 +190,31 @@ public final class MySqlTlsUrlPostProcessor implements EnvironmentPostProcessor,
     }
 
     private static List<X509Certificate> readCaCertificates(String configuredPath) {
+        if (configuredPath == null || configuredPath.isBlank()) {
+            throw new IllegalStateException("DB_CA_PEM_PATH is missing or blank");
+        }
+
         Path pemPath;
         try {
             pemPath = Path.of(configuredPath).toAbsolutePath().normalize();
-            if (!Files.isRegularFile(pemPath, LinkOption.NOFOLLOW_LINKS) || !Files.isReadable(pemPath)) {
-                throw new IllegalStateException("DB_CA_PEM_PATH must be a readable regular file");
+        } catch (InvalidPathException exception) {
+            throw new IllegalStateException("DB_CA_PEM_PATH is not a valid filesystem path", exception);
+        }
+
+        try {
+            BasicFileAttributes attributes;
+            try {
+                attributes = Files.readAttributes(pemPath, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+            } catch (NoSuchFileException exception) {
+                throw new IllegalStateException("DB_CA_PEM_PATH file does not exist", exception);
+            } catch (AccessDeniedException exception) {
+                throw new IllegalStateException("DB_CA_PEM_PATH file is not readable by the application user", exception);
+            }
+            if (!attributes.isRegularFile()) {
+                throw new IllegalStateException("DB_CA_PEM_PATH is not a regular file");
+            }
+            if (!Files.isReadable(pemPath)) {
+                throw new IllegalStateException("DB_CA_PEM_PATH file is not readable by the application user");
             }
             long fileSize = Files.size(pemPath);
             if (fileSize == 0 || fileSize > MAX_CA_FILE_BYTES) {
@@ -215,7 +239,7 @@ public final class MySqlTlsUrlPostProcessor implements EnvironmentPostProcessor,
             int offset = 0;
             while (matcher.find()) {
                 if (!pem.substring(offset, matcher.start()).isBlank()) {
-                    throw new IllegalStateException("DB_CA_PEM_PATH must contain only PEM CA certificates");
+                    throw new IllegalStateException("DB_CA_PEM_PATH contains invalid data outside PEM CA certificates");
                 }
                 byte[] der = Base64.getDecoder().decode(matcher.group(1).replaceAll("\\s", ""));
                 X509Certificate certificate = (X509Certificate) certificateFactory.generateCertificate(
@@ -224,13 +248,22 @@ public final class MySqlTlsUrlPostProcessor implements EnvironmentPostProcessor,
                 certificates.add(certificate);
                 offset = matcher.end();
             }
-            if (!pem.substring(offset).isBlank() || certificates.isEmpty()) {
-                throw new IllegalStateException("DB_CA_PEM_PATH must contain one or more PEM CA certificates");
+            if (certificates.isEmpty()) {
+                throw new IllegalStateException("DB_CA_PEM_PATH contains malformed or invalid certificate data");
+            }
+            if (!pem.substring(offset).isBlank()) {
+                throw new IllegalStateException("DB_CA_PEM_PATH contains invalid data outside PEM CA certificates");
             }
             return List.copyOf(certificates);
         } catch (IllegalStateException exception) {
             throw exception;
+        } catch (NoSuchFileException exception) {
+            throw new IllegalStateException("DB_CA_PEM_PATH file does not exist", exception);
+        } catch (AccessDeniedException exception) {
+            throw new IllegalStateException("DB_CA_PEM_PATH file is not readable by the application user", exception);
         } catch (CharacterCodingException | CertificateException exception) {
+            throw new IllegalStateException("DB_CA_PEM_PATH contains malformed or invalid certificate data", exception);
+        } catch (IllegalArgumentException exception) {
             throw new IllegalStateException("DB_CA_PEM_PATH contains malformed or invalid certificate data", exception);
         } catch (Exception exception) {
             throw new IllegalStateException("DB_CA_PEM_PATH could not be read or validated", exception);
