@@ -27,6 +27,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.annotation.Propagation;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -98,6 +99,7 @@ class MessagingIntegrationTest {
 
     @BeforeEach
     void setUpUsers() {
+        ReflectionTestUtils.setField(interceptor, "emailVerificationRequired", true);
 
         String suffix =
                 UUID.randomUUID().toString();
@@ -251,6 +253,27 @@ class MessagingIntegrationTest {
                         MessageBuilder.createMessage(new byte[0], subscribe.getMessageHeaders()),
                         messageChannel));
         assertEquals(401, exception.getStatusCode().value());
+    }
+
+    @Test
+    void otpFreeModeAllowsApprovedUnverifiedAccountToUseStomp() {
+        alice.setEmailVerified(false);
+        userRepository.save(alice);
+        ReflectionTestUtils.setField(interceptor, "emailVerificationRequired", false);
+        String token = jwtUtil.generateToken(alice.getEmail(), "STUDENT");
+
+        org.springframework.messaging.Message<?> connected = interceptor.preSend(
+                MessageBuilder.createMessage(new byte[0], connectAccessor("Bearer " + token).getMessageHeaders()),
+                messageChannel);
+        assertNotNull(connected);
+
+        StompHeaderAccessor subscribe = StompHeaderAccessor.create(StompCommand.SUBSCRIBE);
+        subscribe.setDestination("/user/queue/messages");
+        subscribe.setUser(StompHeaderAccessor.wrap(connected).getUser());
+        subscribe.setLeaveMutable(true);
+
+        assertNotNull(interceptor.preSend(
+                MessageBuilder.createMessage(new byte[0], subscribe.getMessageHeaders()), messageChannel));
     }
 
 

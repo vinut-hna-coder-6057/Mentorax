@@ -12,8 +12,15 @@ final _emailPattern = RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$');
 
 bool _isValidEmail(String email) => _emailPattern.hasMatch(email.trim());
 
-String registrationSuccessLocation(String email) =>
-    '/verify-email?email=${Uri.encodeQueryComponent(email)}';
+const otpFreeSignupResponse =
+    'If this address is eligible, you can sign in with your email and password.';
+
+String registrationSuccessLocation(
+  String email, {
+  bool emailVerificationRequired = true,
+}) => emailVerificationRequired
+    ? '/verify-email?email=${Uri.encodeQueryComponent(email)}'
+    : '/login?registered=1';
 
 class PendingApprovalScreen extends StatelessWidget {
   const PendingApprovalScreen({super.key});
@@ -61,8 +68,13 @@ class PendingApprovalScreen extends StatelessWidget {
 }
 
 class LoginScreen extends ConsumerStatefulWidget {
-  const LoginScreen({super.key, this.emailVerified = false});
+  const LoginScreen({
+    super.key,
+    this.emailVerified = false,
+    this.registered = false,
+  });
   final bool emailVerified;
+  final bool registered;
 
   @override
   ConsumerState<LoginScreen> createState() => _LoginScreenState();
@@ -132,6 +144,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                   const SizedBox(height: 12),
                                   const Text(
                                     'Email verified. You can now sign in.',
+                                    textAlign: TextAlign.center,
+                                  ),
+                                ],
+                                if (widget.registered) ...[
+                                  const SizedBox(height: 12),
+                                  const Text(
+                                    'If this address is eligible, sign in with your email and password.',
                                     textAlign: TextAlign.center,
                                   ),
                                 ],
@@ -463,7 +482,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                               _showSignInRecovery = false;
                             });
                             try {
-                              await ProviderScope.containerOf(c)
+                              final signupMessage = await ProviderScope.containerOf(c)
                                   .read(appRepositoryProvider)
                                   .signup(
                                     User(
@@ -478,7 +497,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                               if (!c.mounted) return;
 
                               c.go(
-                                registrationSuccessLocation(_email.text.trim()),
+                                registrationSuccessLocation(
+                                  _email.text.trim(),
+                                  emailVerificationRequired:
+                                      signupMessage != otpFreeSignupResponse,
+                                ),
                               );
                             } catch (error) {
                               if (!c.mounted) return;

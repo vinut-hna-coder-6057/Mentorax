@@ -23,11 +23,92 @@ void main() {
       .setMockMethodCallHandler(storageChannel, (call) async => null);
 
   group('Registration API Contract', () {
-    test('student and alumni signup both proceed to email verification', () {
+    test('verification-required signup continues to the email verification step', () {
       expect(
         registrationSuccessLocation('ravi@example.com'),
         '/verify-email?email=ravi%40example.com',
       );
+    });
+
+    test('OTP-free signup proceeds to password login instead of an OTP screen', () {
+      expect(
+        registrationSuccessLocation(
+          'ravi@example.com',
+          emailVerificationRequired: false,
+        ),
+        '/login?registered=1',
+      );
+    });
+
+    testWidgets('OTP-free signup destination announces password login', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        const ProviderScope(
+          child: MaterialApp(home: LoginScreen(registered: true)),
+        ),
+      );
+
+      expect(
+        find.text(
+          'If this address is eligible, sign in with your email and password.',
+        ),
+        findsOneWidget,
+      );
+    });
+
+    test('OTP-free backend signup response selects login and does not call OTP APIs', () async {
+      final dio = Dio(
+        BaseOptions(
+          baseUrl: 'https://api.example.test',
+          responseType: ResponseType.plain,
+        ),
+      );
+      final adapter = DioAdapter(dio: dio);
+      final requestPaths = <String>[];
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            requestPaths.add(options.path);
+            handler.next(options);
+          },
+        ),
+      );
+      adapter.onPost(
+        '/signup',
+        (server) => server.reply(200, otpFreeSignupResponse),
+        data: const User(
+          id: 0,
+          name: 'Ravi Student',
+          email: 'ravi@example.test',
+          role: UserRole.student,
+          status: 'PENDING',
+        ).toJson(password: 'ValidPassword123'),
+      );
+      final repository = AppRepository(
+        ApiClient(SecureStorageService(const FlutterSecureStorage()), dio: dio),
+      );
+
+      final response = await repository.signup(
+        const User(
+          id: 0,
+          name: 'Ravi Student',
+          email: 'ravi@example.test',
+          role: UserRole.student,
+          status: 'PENDING',
+        ),
+        'ValidPassword123',
+      );
+
+      expect(response, otpFreeSignupResponse);
+      expect(
+        registrationSuccessLocation(
+          'ravi@example.test',
+          emailVerificationRequired: response != otpFreeSignupResponse,
+        ),
+        '/login?registered=1',
+      );
+      expect(requestPaths, ['/signup']);
     });
 
     testWidgets('verification screen presents email and one-time code inputs', (
