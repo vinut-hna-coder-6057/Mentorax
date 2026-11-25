@@ -71,6 +71,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/login',
         builder: (_, state) => LoginScreen(
           emailVerified: state.uri.queryParameters['verified'] == '1',
+          registered: state.uri.queryParameters['registered'] == '1',
         ),
       ),
       GoRoute(path: '/register', builder: (_, __) => const RegisterScreen()),

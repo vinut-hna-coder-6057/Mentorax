@@ -9,6 +9,7 @@ import com.alumni.alumni_connect.repository.AlumniProfileRepository;
 import com.alumni.alumni_connect.repository.StudentProfileRepository;
 import com.alumni.alumni_connect.repository.UserRepository;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,6 +24,8 @@ public class SignupTransactionService {
     private final AlumniProfileRepository alumniProfileRepository;
     private final OtpService otpService;
     private final EmailOutboxService emailOutboxService;
+    @Value("${app.auth.email-verification-required:true}")
+    private boolean emailVerificationRequired = true;
 
     public SignupTransactionService(
             UserRepository repository,
@@ -65,9 +68,11 @@ public class SignupTransactionService {
         }
 
         user.setPassword(encoder.encode(user.getPassword()));
+        // The temporary mode skips verification without claiming that the email was verified.
         user.setEmailVerified(false);
-
-        user.setStatus("PENDING");
+        user.setStatus(!emailVerificationRequired && "STUDENT".equalsIgnoreCase(user.getRole())
+                ? "APPROVED"
+                : "PENDING");
 
         User savedUser = repository.save(user);
 
@@ -81,8 +86,10 @@ public class SignupTransactionService {
             alumniProfileRepository.save(profile);
         }
 
-        String otp = otpService.generateOtp(savedUser.getEmail(), "EMAIL_VERIFICATION");
-        emailOutboxService.enqueueOtp(savedUser.getEmail(), "EMAIL_VERIFICATION", otp);
+        if (emailVerificationRequired) {
+            String otp = otpService.generateOtp(savedUser.getEmail(), "EMAIL_VERIFICATION");
+            emailOutboxService.enqueueOtp(savedUser.getEmail(), "EMAIL_VERIFICATION", otp);
+        }
     }
 
     private ResponseStatusException emailAlreadyExists() {

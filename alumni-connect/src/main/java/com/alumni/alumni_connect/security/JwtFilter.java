@@ -17,6 +17,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
@@ -27,6 +28,8 @@ import java.util.List;
 public class JwtFilter extends OncePerRequestFilter {
     private final JwtUtil jwtUtil;
     private final UserRepository userRepository;
+    @Value("${app.auth.email-verification-required:true}")
+    private boolean emailVerificationRequired = true;
 
     public JwtFilter(JwtUtil jwtUtil, UserRepository userRepository) {
         this.jwtUtil = jwtUtil;
@@ -59,7 +62,8 @@ public class JwtFilter extends OncePerRequestFilter {
     }
 
     private boolean isEmailVerifiedForRole(com.alumni.alumni_connect.entity.User user) {
-        return (!"STUDENT".equalsIgnoreCase(user.getRole())
+        return !emailVerificationRequired
+                || (!"STUDENT".equalsIgnoreCase(user.getRole())
                 && !"ALUMNI".equalsIgnoreCase(user.getRole()))
                 || user.isEmailVerified();
     }

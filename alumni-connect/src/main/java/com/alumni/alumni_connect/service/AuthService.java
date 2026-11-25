@@ -10,6 +10,7 @@ import com.alumni.alumni_connect.repository.StudentProfileRepository;
 import com.alumni.alumni_connect.repository.UserRepository;
 import com.alumni.alumni_connect.security.JwtUtil;
 import org.springframework.http.HttpStatus;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -22,14 +23,18 @@ import java.time.LocalDateTime;
 
 @Service
 public class AuthService {
-    private static final String GENERIC_SIGNUP_RESPONSE =
+    private static final String VERIFICATION_REQUIRED_SIGNUP_RESPONSE =
             "If this address is eligible, verification instructions will be sent shortly.";
+    private static final String OTP_FREE_SIGNUP_RESPONSE =
+            "If this address is eligible, you can sign in with your email and password.";
 
     private final UserRepository repository;
     private final BCryptPasswordEncoder encoder;
     private final JwtUtil jwtUtil;
     private final AlumniProfileRepository alumniProfileRepository;
     private final SignupTransactionService signupTransactionService;
+    @Value("${app.auth.email-verification-required:true}")
+    private boolean emailVerificationRequired = true;
     public AuthService(
         UserRepository repository,
         BCryptPasswordEncoder encoder,
@@ -47,21 +52,24 @@ public class AuthService {
     // SIGNUP
     // =====================================
 public String signup(SignupRequest request) {
+    String signupResponse = emailVerificationRequired
+            ? VERIFICATION_REQUIRED_SIGNUP_RESPONSE
+            : OTP_FREE_SIGNUP_RESPONSE;
     try {
         signupTransactionService.createAccount(request);
 } catch (ResponseStatusException exception) {
     if (exception.getStatusCode().value() == HttpStatus.CONFLICT.value()) {
-        return GENERIC_SIGNUP_RESPONSE;
+        return signupResponse;
     }
     throw exception;
 } catch (DataIntegrityViolationException exception) {
     if (repository.findByEmailIgnoreCase(request.email()).isPresent()) {
-        return GENERIC_SIGNUP_RESPONSE;
+        return signupResponse;
     }
     throw exception;
 }
 
-return GENERIC_SIGNUP_RESPONSE;
+return signupResponse;
 }
 
 /** Legacy entry point retained for existing internal callers. */
@@ -93,11 +101,13 @@ public String signup(User user) {
             user.getInterests(),
             user.getLocation()));
 }
+    @Transactional
     public Object login(LoginRequest request) {
         return login(request.email(), request.password(), request.role());
     }
 
     /** Legacy service entry point retained for existing internal callers; web input uses LoginRequest. */
+    @Transactional
     public Object login(User user) { return login(user.getEmail(), user.getPassword(), user.getRole()); }
 
     private Object login(String email, String password, String requestedRole) {
@@ -117,10 +127,16 @@ public String signup(User user) {
         User existing = optionalUser.get();
 
         // Always verify password before revealing account state.
-        if (!encoder.matches(
-                password,
-                existing.getPassword()
-        )) {
+        String passwordHash = existing.getPassword();
+        boolean passwordMatches = false;
+        if (password != null && !password.isBlank() && passwordHash != null && !passwordHash.isBlank()) {
+            try {
+                passwordMatches = encoder.matches(password, passwordHash);
+            } catch (IllegalArgumentException ignored) {
+                // Treat malformed stored hashes as invalid credentials; never bypass password checks.
+            }
+        }
+        if (!passwordMatches) {
             throw new ResponseStatusException(
                     HttpStatus.UNAUTHORIZED,
                     "Invalid credentials"
@@ -144,13 +160,24 @@ public String signup(User user) {
             );
         }
 
-        if (("STUDENT".equalsIgnoreCase(existing.getRole())
+        if (emailVerificationRequired
+                && ("STUDENT".equalsIgnoreCase(existing.getRole())
                 || "ALUMNI".equalsIgnoreCase(existing.getRole()))
                 && !existing.isEmailVerified()) {
             throw new ResponseStatusException(
                     HttpStatus.FORBIDDEN,
                     "Email verification required"
             );
+        }
+
+        // Student PENDING status historically represented waiting for email OTP.
+        // In temporary OTP-free mode, release only that exact state after password verification.
+        if (!emailVerificationRequired
+                && "STUDENT".equalsIgnoreCase(existing.getRole())
+                && "PENDING".equalsIgnoreCase(existing.getStatus())
+                && !existing.isEmailVerified()) {
+            existing.setStatus("APPROVED");
+            repository.save(existing);
         }
 
         // Alumni waiting for administrator approval.
