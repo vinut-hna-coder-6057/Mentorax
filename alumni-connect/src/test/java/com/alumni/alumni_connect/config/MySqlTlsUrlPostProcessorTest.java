@@ -117,6 +117,32 @@ class MySqlTlsUrlPostProcessorTest {
     }
 
     @Test
+    void pemSecretSymbolicLinkResolvesToValidCaAndKeepsIdentityVerification() throws Exception {
+        Path pem = copyFixture("test-ca.pem");
+        Path pemSymlink = temporaryDirectory.resolve("ca-link.pem");
+        try {
+            Files.createSymbolicLink(pemSymlink, pem);
+        } catch (java.io.IOException | UnsupportedOperationException | SecurityException exception) {
+            assumeTrue(false, "Symbolic links are unavailable on this filesystem: "
+                    + exception.getClass().getSimpleName());
+        }
+
+        Map<String, Object> properties = MySqlTlsUrlPostProcessor.verifiedMySqlProperties(
+                MYSQL_URL, null, null, null, pemSymlink.toString());
+        Path generatedTruststore = Path.of(URI.create((String) properties.get(TRUSTSTORE_URL_PROPERTY)));
+        try {
+            assertEquals(MYSQL_URL + "?sslMode=VERIFY_IDENTITY", properties.get("spring.datasource.url"));
+            KeyStore keyStore = loadKeyStore(generatedTruststore,
+                    (String) properties.get(TRUSTSTORE_PASSWORD_PROPERTY), "PKCS12");
+            assertEquals(1, keyStore.size());
+            assertArrayEquals(readCa("test-ca.pem").getEncoded(),
+                    keyStore.getCertificate("provider-ca-0").getEncoded());
+        } finally {
+            MySqlTlsUrlPostProcessor.cleanupTemporaryTruststore(generatedTruststore);
+        }
+    }
+
+    @Test
     void pemPathTakesPrecedenceAndDoesNotRequireLegacyTruststorePassword() throws Exception {
         Map<String, Object> properties = MySqlTlsUrlPostProcessor.verifiedMySqlProperties(
                 MYSQL_URL, "missing-legacy.p12", null, "PKCS12", copyFixture("test-ca.pem").toString());

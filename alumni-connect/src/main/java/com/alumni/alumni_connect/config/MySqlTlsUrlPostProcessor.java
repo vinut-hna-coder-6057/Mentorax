@@ -201,28 +201,34 @@ public final class MySqlTlsUrlPostProcessor implements EnvironmentPostProcessor,
             throw new IllegalStateException("DB_CA_PEM_PATH is not a valid filesystem path", exception);
         }
 
+        Path resolvedPemPath;
         try {
-            BasicFileAttributes attributes;
-            try {
-                attributes = Files.readAttributes(pemPath, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
-            } catch (NoSuchFileException exception) {
-                throw new IllegalStateException("DB_CA_PEM_PATH file does not exist", exception);
-            } catch (AccessDeniedException exception) {
-                throw new IllegalStateException("DB_CA_PEM_PATH file is not readable by the application user", exception);
-            }
+            // Resolve links once so a provider-mounted symlink is validated and read through its target.
+            resolvedPemPath = pemPath.toRealPath();
+        } catch (NoSuchFileException exception) {
+            throw new IllegalStateException("DB_CA_PEM_PATH file does not exist or is a broken symbolic link", exception);
+        } catch (AccessDeniedException exception) {
+            throw new IllegalStateException("DB_CA_PEM_PATH file is not readable by the application user", exception);
+        } catch (SecurityException exception) {
+            throw new IllegalStateException("DB_CA_PEM_PATH file cannot be accessed by the application user", exception);
+        } catch (java.io.IOException exception) {
+            throw new IllegalStateException("DB_CA_PEM_PATH could not be resolved to an existing file", exception);
+        }
+
+        try {
+            BasicFileAttributes attributes = Files.readAttributes(resolvedPemPath, BasicFileAttributes.class);
             if (!attributes.isRegularFile()) {
-                throw new IllegalStateException("DB_CA_PEM_PATH is not a regular file");
+                throw new IllegalStateException("DB_CA_PEM_PATH resolved target is not a regular file");
             }
-            if (!Files.isReadable(pemPath)) {
-                throw new IllegalStateException("DB_CA_PEM_PATH file is not readable by the application user");
+            if (!Files.isReadable(resolvedPemPath)) {
+                throw new IllegalStateException("DB_CA_PEM_PATH resolved target is not readable by the application user");
             }
-            long fileSize = Files.size(pemPath);
+            long fileSize = Files.size(resolvedPemPath);
             if (fileSize == 0 || fileSize > MAX_CA_FILE_BYTES) {
                 throw new IllegalStateException("DB_CA_PEM_PATH must contain a nonempty PEM CA bundle no larger than 1 MiB");
             }
             byte[] bytes;
-            try (InputStream input = Files.newInputStream(
-                    pemPath, StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS)) {
+            try (InputStream input = Files.newInputStream(resolvedPemPath, StandardOpenOption.READ)) {
                 bytes = input.readNBytes(MAX_CA_FILE_BYTES + 1);
             }
             if (bytes.length == 0 || bytes.length > MAX_CA_FILE_BYTES) {
@@ -258,9 +264,9 @@ public final class MySqlTlsUrlPostProcessor implements EnvironmentPostProcessor,
         } catch (IllegalStateException exception) {
             throw exception;
         } catch (NoSuchFileException exception) {
-            throw new IllegalStateException("DB_CA_PEM_PATH file does not exist", exception);
+            throw new IllegalStateException("DB_CA_PEM_PATH resolved target no longer exists", exception);
         } catch (AccessDeniedException exception) {
-            throw new IllegalStateException("DB_CA_PEM_PATH file is not readable by the application user", exception);
+            throw new IllegalStateException("DB_CA_PEM_PATH resolved target is not readable by the application user", exception);
         } catch (CharacterCodingException | CertificateException exception) {
             throw new IllegalStateException("DB_CA_PEM_PATH contains malformed or invalid certificate data", exception);
         } catch (IllegalArgumentException exception) {
