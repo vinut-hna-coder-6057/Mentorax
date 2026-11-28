@@ -21,6 +21,7 @@ public class KnowledgeConversationService {
     private final GroundedKnowledgeAnswerService answers;
     private final KnowledgeContributionService contributions;
     private final UnansweredQuestionService unanswered;
+    private final KnowledgeConversationContextResolver contextResolver = new KnowledgeConversationContextResolver();
 
     public KnowledgeConversationService(JdbcTemplate jdbc, CurrentUserService currentUser,
             GroundedKnowledgeAnswerService answers, KnowledgeContributionService contributions,
@@ -113,13 +114,15 @@ public class KnowledgeConversationService {
         requireConversation(conversationId, student.getId());
         String question = request.content().trim();
         LocalDateTime now = LocalDateTime.now();
+        List<KnowledgeConversationContextResolver.Turn> recentTurns = jdbc.query("""
+                SELECT speaker,content FROM knowledge_companion_messages
+                WHERE conversation_id=? ORDER BY id DESC LIMIT 6
+                """, (rs, n) -> new KnowledgeConversationContextResolver.Turn(
+                rs.getString("speaker"), rs.getString("content")), conversationId);
         insertId("INSERT INTO knowledge_companion_messages (conversation_id,speaker,content,created_at) VALUES (?, 'USER', ?, ?)",
                 conversationId, question, now);
-        List<String> previous = jdbc.query("SELECT content FROM knowledge_companion_messages WHERE conversation_id=? AND speaker='USER' ORDER BY created_at DESC,id DESC LIMIT 3",
-                (rs, n) -> rs.getString(1), conversationId);
-        String contextualQuery = String.join(" ", previous) + " " + question;
-        KnowledgeAnswerResponse answer = answers.answer(contextualQuery.length() > 500
-                ? contextualQuery.substring(contextualQuery.length() - 500) : contextualQuery, false);
+        String contextualQuery = contextResolver.resolve(question, recentTurns);
+        KnowledgeAnswerResponse answer = answers.answer(contextualQuery, false);
         if ("INSUFFICIENT_EVIDENCE".equals(answer.evidenceStatus())
                 || "CONFLICTING_REPORTS".equals(answer.evidenceStatus())) unanswered.record(student.getId(), question);
         String answerContent = answer.followUpReason() == null ? answer.answer()

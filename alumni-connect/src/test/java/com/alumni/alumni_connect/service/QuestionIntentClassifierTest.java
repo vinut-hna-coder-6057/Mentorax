@@ -86,6 +86,11 @@ class QuestionIntentClassifierTest {
         assertIntent("Hi", QuestionIntent.GREETING_OR_SMALLTALK);
         assertIntent("I want to message a mentor about my career options",
                 QuestionIntent.ALUMNI_QUESTION);
+        assertIntent("I need a referral at Microsoft", QuestionIntent.ALUMNI_QUESTION);
+        assertIntent("Can you find me a backend mentor?", QuestionIntent.ALUMNI_QUESTION);
+        assertIntent("Please connect me with an alumnus", QuestionIntent.ALUMNI_QUESTION);
+        assertIntent("Can I speak with someone about data engineering?", QuestionIntent.ALUMNI_QUESTION);
+        assertIntent("I need human advice about my career", QuestionIntent.ALUMNI_QUESTION);
     }
 
     @Test

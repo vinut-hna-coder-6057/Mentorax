@@ -15,6 +15,13 @@ public class QuestionIntentClassifier {
     private static final Pattern ALUMNI_CONTACT = Pattern.compile(
             "\\b(ask|message|send|contact|reach out to|write to)\\b.{0,60}\\b(alumni|alumnus|alumna|mentor|graduate)\\b"
                     + "|\\b(alumni|alumnus|alumna|mentor|graduate)\\b.{0,60}\\b(message|ask|send)\\b");
+    private static final Pattern HUMAN_REQUEST = Pattern.compile(
+            "\\b((?:i need|i want)(?! advice| guidance| to know| to learn| information)|"
+                    + "looking for|find me|connect me|refer me|introduce me|put me in touch|please connect me|please find me)\\b"
+                    + ".{0,60}\\b(referrals?|mentors?|alumni|alumnus|alumna|connections?)\\b"
+                    + "|\\b(connect me|refer me|introduce me|put me in touch)\\b"
+                    + "|\\b(?:speak|talk|chat)\\b.{0,40}\\b(?:someone|somebody|a person|an? alumn(?:i|us|a)|an? mentor|a human)\\b"
+                    + "|\\b(?:human|real person)\\b.{0,40}\\b(?:advice|help|mentor|speak|talk)\\b");
     private static final Pattern CAREER_CONTEXT = Pattern.compile(
             "\\b(careers?|career change|career switch|internships?|intern|jobs?|job search|interviews?|referrals?|dsa|resume|cv|portfolio|placements?|placement preparation|promotion|salary|leadership|professional development|software engineering|software developer|machine learning|data engineer|data engineering|data science|data analyst|product management|product manager|designer|developer|engineer|roles?|industry|work in|join|hiring)\\b");
     private static final Pattern TECHNICAL_CAREER_TOPIC = Pattern.compile(
@@ -42,7 +49,7 @@ public class QuestionIntentClassifier {
             return new Classification(QuestionIntent.GREETING_OR_SMALLTALK, false, null);
         }
 
-        if (ALUMNI_CONTACT.matcher(normalized).find()) {
+        if (ALUMNI_CONTACT.matcher(normalized).find() || HUMAN_REQUEST.matcher(normalized).find()) {
             return new Classification(QuestionIntent.ALUMNI_QUESTION, false, null);
         }
 

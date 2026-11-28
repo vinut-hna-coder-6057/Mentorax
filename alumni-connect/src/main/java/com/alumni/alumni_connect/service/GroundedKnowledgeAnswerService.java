@@ -29,13 +29,16 @@ public class GroundedKnowledgeAnswerService {
     private final KnowledgeAnswerCacheStore cache;
     private final KnowledgeAnswerCachePolicy cachePolicy;
     private final MeterRegistry meters;
-    @Value("${app.knowledge.answer-provider:deterministic}") private String provider = "deterministic";
+    private final QuestionIntentClassifier intentClassifier = new QuestionIntentClassifier();
+    @Value("${app.knowledge.answer-provider:auto}") private String provider = "auto";
     @Value("${app.knowledge.cache.enabled:true}") private boolean cacheEnabled = true;
     @Value("${app.knowledge.cache.single-flight-wait-ms:22000}") private long cacheWaitMs = 22000;
     @Value("${app.knowledge.cache.lock-lease-seconds:60}") private long lockLeaseSeconds = 60;
     @Value("${app.knowledge.provider.timeout-ms:20000}") private long providerTimeoutMs = 20000;
     @Value("${app.knowledge.openai.model:gpt-4.1-mini}") private String openAiModel = "gpt-4.1-mini";
     @Value("${app.knowledge.ollama.model:gemma3:1b}") private String ollamaModel = "gemma3:1b";
+    @Value("${app.knowledge.groq.model:}") private String groqModel = "";
+    @Value("${app.knowledge.retrieval.minimum-evidence-relevance:0.15}") private double minimumEvidenceRelevance = 0.15;
 
     /** Compatibility constructor for focused service tests and non-Spring callers. */
     public GroundedKnowledgeAnswerService(KnowledgeRetrievalService retrieval, MentorDiscoveryService mentorDiscovery,
@@ -66,6 +69,9 @@ public class GroundedKnowledgeAnswerService {
 
     /** Conversation calls pass false because their context contains private message history. */
     public KnowledgeAnswerResponse answer(String question, boolean allowSharedCache) {
+        QuestionIntentClassifier.Classification intent = intentClassifier.classify(question);
+        if (intent.intent() == com.alumni.alumni_connect.dto.QuestionIntent.ALUMNI_QUESTION)
+            return humanFallback(question);
         KnowledgeAnswerCachePolicy.Decision decision = null;
         if (allowSharedCache && cachePolicy != null) {
             try { decision = cachePolicy.decide(question); }
@@ -76,10 +82,10 @@ public class GroundedKnowledgeAnswerService {
         }
         KnowledgeRetrievalResponse found = retrieval.retrieve(question, null, 0, 5);
         List<KnowledgeRetrievalResponse.Source> sources = found.sources().stream()
-                .filter(source -> source.relevance() >= 0.08).toList();
+                .filter(source -> source.relevance() >= minimumEvidenceRelevance).toList();
         if (sources.isEmpty()) {
             if (decision != null && decision.eligible()) metric("requests", "bypass", 1);
-            return insufficient(question, mode());
+            return generalGuidanceOrInsufficient(question, intent.intent());
         }
         boolean conflict = materiallyConflicts(sources);
         if (!allowSharedCache || decision == null || !decision.eligible() || !cacheEnabled || cache == null || conflict) {
@@ -227,7 +233,8 @@ public class GroundedKnowledgeAnswerService {
         cache.recordHit(key);
         metric("requests", "hit", 1);
         metric("generations_avoided", "cache_hit", 1);
-        if ("OPENAI_GROUNDED".equals(cached.answerMode()) || "OLLAMA_GROUNDED".equals(cached.answerMode())) {
+        if ("OPENAI_GROUNDED".equals(cached.answerMode()) || "OLLAMA_GROUNDED".equals(cached.answerMode())
+                || "GROQ_GROUNDED".equals(cached.answerMode())) {
             metric("ai_generations_avoided", cached.providerId(), 1);
             // Provider token telemetry is unavailable. Estimate completion tokens as answer characters / 4.
             metric("estimated_completion_tokens_saved", "estimate", Math.max(1, cached.answer().length() / 4));
@@ -242,8 +249,7 @@ public class GroundedKnowledgeAnswerService {
     private KnowledgeAnswerResponse generate(String question, List<KnowledgeRetrievalResponse.Source> sources) {
         long started = System.nanoTime();
         metric("generations", "attempt", 1);
-        GroundedAnswerProvider configured = providers.stream()
-                .filter(candidate -> candidate.id().equalsIgnoreCase(provider)).findFirst().orElse(null);
+        GroundedAnswerProvider configured = selectedProvider();
         GroundedAnswerProvider fallback = providers.stream()
                 .filter(candidate -> candidate.id().equalsIgnoreCase("deterministic")).findFirst().orElseThrow();
         String answerMode = mode();
@@ -260,7 +266,8 @@ public class GroundedKnowledgeAnswerService {
                     metric("ai_generations", configured.id(), 1);
                     answer = configured.generate(question, sources, conflict);
                 } catch (GroundedInsufficientEvidenceException insufficient) {
-                    return insufficient(question, "OPENAI_INSUFFICIENT_EVIDENCE");
+                    return insufficient(question, configured.id().toUpperCase(java.util.Locale.ROOT)
+                            + "_INSUFFICIENT_EVIDENCE");
                 } catch (RuntimeException failure) {
                     // Never log the question, evidence, model response, or exception message.
                     log.warn("Grounded answer provider unavailable; falling back (provider={}, errorType={})",
@@ -313,18 +320,34 @@ public class GroundedKnowledgeAnswerService {
     }
 
     private boolean cacheableMode(String mode) {
-        return "OPENAI_GROUNDED".equals(mode) || "OLLAMA_GROUNDED".equals(mode);
+        return "OPENAI_GROUNDED".equals(mode) || "OLLAMA_GROUNDED".equals(mode)
+                || "GROQ_GROUNDED".equals(mode);
     }
 
     private GroundedAnswerProvider configuredProvider() {
-        return providers.stream().filter(candidate -> candidate.id().equalsIgnoreCase(provider))
-                .findFirst().filter(GroundedAnswerProvider::isConfigured).orElse(null);
+        return java.util.Optional.ofNullable(selectedProvider())
+                .filter(GroundedAnswerProvider::isConfigured).orElse(null);
+    }
+
+    private GroundedAnswerProvider selectedProvider() {
+        if ("auto".equalsIgnoreCase(provider)) {
+            GroundedAnswerProvider groq = findProvider("groq");
+            if (groq != null && groq.isConfigured()) return groq;
+            return findProvider("deterministic");
+        }
+        return findProvider(provider);
+    }
+
+    private GroundedAnswerProvider findProvider(String id) {
+        return providers.stream().filter(candidate -> candidate.id().equalsIgnoreCase(id))
+                .findFirst().orElse(null);
     }
 
     private String modelId(GroundedAnswerProvider selected) {
         return switch (selected.id().toLowerCase(java.util.Locale.ROOT)) {
             case "openai" -> openAiModel;
             case "ollama" -> ollamaModel;
+            case "groq" -> groqModel;
             default -> selected.id();
         };
     }
@@ -345,8 +368,14 @@ public class GroundedKnowledgeAnswerService {
     }
 
     private List<KnowledgeAnswerResponse.Mentor> mentors(String question) {
-        MentorDiscoveryResponse result = mentorDiscovery.discover(question);
-        return result.recommendations().stream().map(this::mentor).toList();
+        try {
+            MentorDiscoveryResponse result = mentorDiscovery.discover(question);
+            return result.recommendations().stream().map(this::mentor).toList();
+        } catch (RuntimeException failure) {
+            log.warn("Alumni discovery unavailable for Knowledge Companion (errorType={})",
+                    failure.getClass().getSimpleName());
+            return List.of();
+        }
     }
 
     private KnowledgeAnswerResponse.Mentor mentor(MentorRecommendation m) {
@@ -373,22 +402,57 @@ public class GroundedKnowledgeAnswerService {
     }
 
     private String mode() {
-        GroundedAnswerProvider selected = providers.stream()
-                .filter(candidate -> candidate.id().equalsIgnoreCase(provider)).findFirst().orElse(null);
+        GroundedAnswerProvider selected = selectedProvider();
         if (selected == null) return "DETERMINISTIC_PROVIDER_UNAVAILABLE";
         if (!selected.isConfigured()) return "DETERMINISTIC_PROVIDER_MISCONFIGURED";
         return switch (selected.id().toLowerCase(java.util.Locale.ROOT)) {
             case "deterministic" -> "DETERMINISTIC_GROUNDED";
             case "ollama" -> "OLLAMA_GROUNDED";
             case "openai" -> "OPENAI_GROUNDED";
+            case "groq" -> "GROQ_GROUNDED";
             default -> "DETERMINISTIC_PROVIDER_UNAVAILABLE";
         };
     }
 
     private KnowledgeAnswerResponse insufficient(String question, String answerMode) {
         String reason = "No current, consented alumni contribution provided enough relevant evidence.";
+        List<KnowledgeAnswerResponse.Mentor> relevantMentors = mentors(question);
         return new KnowledgeAnswerResponse(
                 "I don't have enough eligible alumni knowledge to answer that reliably. No alumni-reported facts were found for this question.",
-                "INSUFFICIENT_EVIDENCE", answerMode, reason, List.of(), mentors(question));
+                "INSUFFICIENT_EVIDENCE", answerMode, reason, List.of(), relevantMentors);
+    }
+
+    private KnowledgeAnswerResponse humanFallback(String question) {
+        List<KnowledgeAnswerResponse.Mentor> matches = mentors(question);
+        String answer = matches.isEmpty()
+                ? "I couldn't find or load an eligible alumni match for this request right now. No one has been contacted."
+                : "I found alumni profiles that may match your request. Review a profile and use the existing connection flow if you want to reach out. No one has been contacted.";
+        return new KnowledgeAnswerResponse(answer, "HUMAN_FALLBACK", "DISCOVER_ALUMNI",
+                "You asked for a human connection; review suggested profiles before contacting anyone.",
+                List.of(), matches);
+    }
+
+    private KnowledgeAnswerResponse generalGuidanceOrInsufficient(String question,
+            com.alumni.alumni_connect.dto.QuestionIntent intent) {
+        if (intent != com.alumni.alumni_connect.dto.QuestionIntent.GENERAL_KNOWLEDGE
+                && intent != com.alumni.alumni_connect.dto.QuestionIntent.CAREER_MENTOR_SEARCH)
+            return insufficient(question, mode());
+        GroundedAnswerProvider selected = configuredProvider();
+        if (selected != null && selected.supportsGeneralGuidance()) {
+            try {
+                String answer = selected.generateGeneralGuidance(question);
+                if (answer != null && !answer.isBlank()) {
+                    return new KnowledgeAnswerResponse(
+                            "General AI guidance (not based on alumni reports):\n\n" + answer,
+                            "GENERAL_GUIDANCE", selected.id().toUpperCase(java.util.Locale.ROOT)
+                            + "_GENERAL_GUIDANCE", null, List.of(),
+                            mentors(question));
+                }
+            } catch (RuntimeException failure) {
+                log.warn("General guidance provider unavailable; using safe fallback (provider={}, errorType={})",
+                        selected.id(), failure.getClass().getSimpleName());
+            }
+        }
+        return insufficient(question, mode());
     }
 }

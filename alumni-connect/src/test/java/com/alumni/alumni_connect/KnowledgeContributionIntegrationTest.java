@@ -8,20 +8,25 @@ import com.alumni.alumni_connect.service.KnowledgeConversationService;
 import com.alumni.alumni_connect.service.KnowledgeFreshnessService;
 import com.alumni.alumni_connect.service.KnowledgeRoadmapService;
 import com.alumni.alumni_connect.service.UnansweredQuestionService;
+import com.alumni.alumni_connect.service.GroundedKnowledgeAnswerService;
+import com.alumni.alumni_connect.service.OllamaGroundedAnswerProvider;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.UUID;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+import static org.mockito.Mockito.*;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -36,6 +41,8 @@ class KnowledgeContributionIntegrationTest {
     @Autowired KnowledgeFreshnessService freshness;
     @Autowired KnowledgeRoadmapService roadmaps;
     @Autowired UnansweredQuestionService unanswered;
+    @Autowired GroundedKnowledgeAnswerService answers;
+    @MockBean OllamaGroundedAnswerProvider guidanceProvider;
     @Autowired com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
     @BeforeEach
@@ -111,6 +118,7 @@ class KnowledgeContributionIntegrationTest {
                         .content("{\"question\":\"bounded example project Java\"}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.answerMode").value("DETERMINISTIC_GROUNDED"))
                 .andExpect(jsonPath("$.sources[0].contributionId").value(id))
+                .andExpect(jsonPath("$.mentors", org.hamcrest.Matchers.hasSize(0)))
                 .andExpect(jsonPath("$.answer").value(org.hamcrest.Matchers.containsString("Alumni-reported")));
         org.junit.jupiter.api.Assertions.assertEquals(1, contributionService.listAiEligible(0, 20).size());
 
@@ -206,10 +214,158 @@ class KnowledgeContributionIntegrationTest {
     }
 
     @Test
+    void missingKnowledgeReturnsProfilesFromTheRealDiscoveryService() throws Exception {
+        User student = user("STUDENT");
+        User relevant = profiledAlumnus("Data Engineer", "Northwind Analytics",
+                "Python, data engineering", "Builds Python data pipelines and advises early-career engineers.");
+        User pending = profiledAlumnus("Data Engineer", "Northwind Analytics",
+                "Python, data engineering", "Relevant profile, but not approved for discovery.");
+        pending.setStatus("PENDING");
+        users.save(pending);
+
+        configureGeneralGuidanceProvider();
+        try {
+            mvc.perform(post("/api/knowledge/companion/answer").header("Authorization", bearer(student))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"question\":\"What is data engineering?\"}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.evidenceStatus").value("GENERAL_GUIDANCE"))
+                    .andExpect(jsonPath("$.answer").value(org.hamcrest.Matchers.containsString(
+                            "General AI guidance (not based on alumni reports):")))
+                    .andExpect(jsonPath("$.sources", org.hamcrest.Matchers.hasSize(0)))
+                    .andExpect(jsonPath("$.mentors", org.hamcrest.Matchers.hasSize(1)))
+                    .andExpect(jsonPath("$.mentors[0].id").value(relevant.getId()))
+                    .andExpect(jsonPath("$.mentors[0].displayName").value(relevant.getName()))
+                    .andExpect(jsonPath("$.mentors[0].jobTitle").value("Data Engineer"))
+                    .andExpect(jsonPath("$.mentors[0].email").doesNotExist());
+        } finally {
+            resetGeneralGuidanceProvider();
+        }
+    }
+
+    @Test
+    void weakKnowledgeEvidenceUsesRealDiscoveryWithoutCitingTheWeakSource() throws Exception {
+        User student = user("STUDENT");
+        User relevant = profiledAlumnus("Backend Engineer", "Northwind",
+                "Java, backend interviews", "Builds backend services and mentors junior developers.");
+        long contributionId = publishReport(relevant, "A short report mentions backend interview preparation.");
+        String question = "How can I prepare for backend interviews at Northwind?";
+        String candidates = mvc.perform(get("/api/knowledge/retrieval").param("query", question)
+                        .header("Authorization", bearer(student)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        var candidateRows = objectMapper.readTree(candidates).get("sources");
+        org.junit.jupiter.api.Assertions.assertTrue(java.util.stream.StreamSupport.stream(
+                        candidateRows.spliterator(), false)
+                .anyMatch(row -> row.get("contributionId").asLong() == contributionId
+                        && row.get("relevance").asDouble() < 1.0));
+        ReflectionTestUtils.setField(answers, "minimumEvidenceRelevance", 1.0);
+        configureGeneralGuidanceProvider();
+        try {
+            mvc.perform(post("/api/knowledge/companion/answer").header("Authorization", bearer(student))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(java.util.Map.of("question", question))))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.evidenceStatus").value("GENERAL_GUIDANCE"))
+                    .andExpect(jsonPath("$.sources", org.hamcrest.Matchers.hasSize(0)))
+                    .andExpect(jsonPath("$.mentors[0].id").value(relevant.getId()));
+        } finally {
+            ReflectionTestUtils.setField(answers, "minimumEvidenceRelevance", 0.15);
+            resetGeneralGuidanceProvider();
+        }
+    }
+
+    @Test
+    void missingKnowledgeWithNoRelevantAlumniReturnsAnHonestEmptyList() throws Exception {
+        User student = user("STUDENT");
+        profiledAlumnus("Data Engineer", "Northwind Analytics",
+                "Python, data engineering", "Builds Python data pipelines.");
+
+        mvc.perform(post("/api/knowledge/companion/answer").header("Authorization", bearer(student))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"question\":\"What is quantum field theory?\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.evidenceStatus").value("INSUFFICIENT_EVIDENCE"))
+                .andExpect(jsonPath("$.sources", org.hamcrest.Matchers.hasSize(0)))
+                .andExpect(jsonPath("$.mentors", org.hamcrest.Matchers.hasSize(0)))
+                .andExpect(jsonPath("$.answer").value(org.hamcrest.Matchers.containsString("don't have enough")));
+    }
+
+    @Test
+    void explicitMentorRequestUsesRealDiscoveryAndDoesNotCreateContactActions() throws Exception {
+        User student = user("STUDENT");
+        User relevant = profiledAlumnus("Data Engineer", "Northwind Analytics",
+                "Python, data engineering", "Builds Python data pipelines.");
+
+        mvc.perform(post("/api/knowledge/companion/answer").header("Authorization", bearer(student))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"question\":\"I need a mentor for data engineering with Python\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.evidenceStatus").value("HUMAN_FALLBACK"))
+                .andExpect(jsonPath("$.answerMode").value("DISCOVER_ALUMNI"))
+                .andExpect(jsonPath("$.sources", org.hamcrest.Matchers.hasSize(0)))
+                .andExpect(jsonPath("$.mentors[0].id").value(relevant.getId()))
+                .andExpect(jsonPath("$.answer").value(org.hamcrest.Matchers.containsString("No one has been contacted")));
+
+        mvc.perform(post("/api/knowledge/companion/answer").header("Authorization", bearer(student))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"question\":\"Can I speak with someone about data engineering?\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.evidenceStatus").value("HUMAN_FALLBACK"))
+                .andExpect(jsonPath("$.mentors[0].id").value(relevant.getId()));
+
+        mvc.perform(post("/api/knowledge/companion/answer").header("Authorization", bearer(student))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"question\":\"I need a referral for data engineering with Python\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.evidenceStatus").value("HUMAN_FALLBACK"))
+                .andExpect(jsonPath("$.mentors[0].id").value(relevant.getId()))
+                .andExpect(jsonPath("$.answer").value(org.hamcrest.Matchers.containsString("No one has been contacted")));
+
+        org.junit.jupiter.api.Assertions.assertEquals(0,
+                jdbc.queryForObject("SELECT COUNT(*) FROM connections", Integer.class));
+        org.junit.jupiter.api.Assertions.assertEquals(0,
+                jdbc.queryForObject("SELECT COUNT(*) FROM notifications", Integer.class));
+    }
+
+    @Test
+    void conversationTopicChangeRecommendsOnlyTheNewTopicsRelevantAlumni() throws Exception {
+        User student = user("STUDENT");
+        User machineLearning = profiledAlumnus("Machine Learning Engineer", "Example AI",
+                "machine learning, TensorFlow", "Builds machine learning systems.");
+        User dataEngineering = profiledAlumnus("Data Engineer", "Northwind Analytics",
+                "Python, data engineering", "Builds Python data pipelines.");
+        String created = mvc.perform(post("/api/knowledge/companion/conversations")
+                        .header("Authorization", bearer(student)).contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        long conversationId = objectMapper.readTree(created).get("id").asLong();
+
+        mvc.perform(post("/api/knowledge/companion/conversations/{id}/messages", conversationId)
+                        .header("Authorization", bearer(student)).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"content\":\"What is machine learning?\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[1].mentors[0].id").value(machineLearning.getId()));
+
+        mvc.perform(post("/api/knowledge/companion/conversations/{id}/messages", conversationId)
+                        .header("Authorization", bearer(student)).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"content\":\"What is data engineering?\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[3].mentors", org.hamcrest.Matchers.hasSize(1)))
+                .andExpect(jsonPath("$[3].mentors[0].id").value(dataEngineering.getId()));
+    }
+
+    @Test
     void conflictingReportsAreExplicitAndOfferHumanFollowUp() throws Exception {
         User firstAlumnus = user("ALUMNI");
         User secondAlumnus = user("ALUMNI");
         User student = user("STUDENT");
+        firstAlumnus.setJobRole("Backend Engineer");
+        firstAlumnus.setCompany("Northwind");
+        firstAlumnus.setSkills("backend, interview preparation");
+        secondAlumnus.setJobRole("Backend Engineer");
+        secondAlumnus.setCompany("Northwind");
+        secondAlumnus.setSkills("backend, interview preparation");
+        users.save(firstAlumnus);
+        users.save(secondAlumnus);
         publishReport(firstAlumnus, "The Northwind backend interview was remote.");
         publishReport(secondAlumnus, "The Northwind backend interview was onsite.");
 
@@ -220,6 +376,7 @@ class KnowledgeContributionIntegrationTest {
                 .andExpect(jsonPath("$.evidenceStatus").value("CONFLICTING_REPORTS"))
                 .andExpect(jsonPath("$.answer").value(org.hamcrest.Matchers.containsString("disagree")))
                 .andExpect(jsonPath("$.sources", org.hamcrest.Matchers.hasSize(2)))
+                .andExpect(jsonPath("$.mentors", org.hamcrest.Matchers.hasSize(2)))
                 .andExpect(jsonPath("$.followUpReason").value(org.hamcrest.Matchers.containsString("disagree")));
         String conversation = mvc.perform(post("/api/knowledge/companion/conversations")
                         .header("Authorization", bearer(student)).contentType(MediaType.APPLICATION_JSON).content("{}"))
@@ -483,6 +640,26 @@ class KnowledgeContributionIntegrationTest {
         User user = new User("Synthetic User", email, "not-used", role, "APPROVED");
         user.setEmailVerified(true);
         return users.save(user);
+    }
+    private User profiledAlumnus(String jobTitle, String company, String skills, String bio) {
+        User alumnus = user("ALUMNI");
+        alumnus.setJobRole(jobTitle);
+        alumnus.setCompany(company);
+        alumnus.setSkills(skills);
+        alumnus.setBio(bio);
+        return users.save(alumnus);
+    }
+    private void configureGeneralGuidanceProvider() {
+        when(guidanceProvider.id()).thenReturn("ollama");
+        when(guidanceProvider.isConfigured()).thenReturn(true);
+        when(guidanceProvider.supportsGeneralGuidance()).thenReturn(true);
+        when(guidanceProvider.generateGeneralGuidance(anyString()))
+                .thenReturn("Start with the fundamentals and practise with a small project.");
+        ReflectionTestUtils.setField(answers, "provider", "ollama");
+    }
+    private void resetGeneralGuidanceProvider() {
+        ReflectionTestUtils.setField(answers, "provider", "auto");
+        reset(guidanceProvider);
     }
     private String bearer(User user) { return "Bearer " + jwt.generateToken(user.getEmail(), user.getRole()); }
     private String payload(String title) {

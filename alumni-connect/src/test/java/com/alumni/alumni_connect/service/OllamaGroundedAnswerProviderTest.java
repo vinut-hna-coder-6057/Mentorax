@@ -12,6 +12,7 @@ import java.util.List;
 import java.io.IOException;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.*;
 
@@ -68,6 +69,23 @@ class OllamaGroundedAnswerProviderTest {
                 .andRespond(withException(new IOException("timeout")));
         assertThrows(ResourceAccessException.class,
                 () -> provider(rest, URL).generate("question", List.of(source), false));
+    }
+
+    @Test
+    void localModelCanAnswerGeneralQuestionsWithoutInventingAlumniEvidence() {
+        RestTemplate rest = new RestTemplate();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(rest).build();
+        server.expect(requestTo(URL + "/api/chat"))
+                .andExpect(content().string(org.hamcrest.Matchers.not(
+                        org.hamcrest.Matchers.containsString("Eligible source records"))))
+                .andRespond(withSuccess("{\"message\":{\"content\":\"An API defines a contract for software components to communicate.\"}}",
+                        MediaType.APPLICATION_JSON));
+        OllamaGroundedAnswerProvider provider = provider(rest, URL);
+
+        assertTrue(provider.supportsGeneralGuidance());
+        assertEquals("An API defines a contract for software components to communicate.",
+                provider.generateGeneralGuidance("What is an API?"));
+        server.verify();
     }
 
     private static OllamaGroundedAnswerProvider provider(RestTemplate rest, String url) {

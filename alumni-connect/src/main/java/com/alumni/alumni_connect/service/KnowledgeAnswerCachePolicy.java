@@ -20,7 +20,7 @@ import java.util.regex.Pattern;
 public class KnowledgeAnswerCachePolicy {
     public static final int CACHE_SCHEMA_VERSION = 1;
     public static final String PROMPT_VERSION = "grounded-answer-v1";
-    public static final String RETRIEVAL_VERSION = "knowledge-retrieval-v1";
+    public static final String RETRIEVAL_VERSION = "knowledge-retrieval-v2";
     public static final String ANSWER_FORMAT_VERSION = "extractive-citations-v1";
     private static final Pattern TOKEN = Pattern.compile("[\\p{L}\\p{N}+#.]+");
     private static final Pattern EMAIL = Pattern.compile("(?i)\\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}\\b");

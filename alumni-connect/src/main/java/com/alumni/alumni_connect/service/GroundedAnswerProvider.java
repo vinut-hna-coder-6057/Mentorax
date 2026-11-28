@@ -13,5 +13,11 @@ public interface GroundedAnswerProvider {
 
     default boolean isConfigured() { return configurationError() == null; }
 
+    default boolean supportsGeneralGuidance() { return false; }
+
+    default String generateGeneralGuidance(String question) {
+        throw new UnsupportedOperationException("General guidance is not supported by this provider");
+    }
+
     String generate(String question, List<KnowledgeRetrievalResponse.Source> sources, boolean conflicting);
 }
